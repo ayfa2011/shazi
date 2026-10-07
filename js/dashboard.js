@@ -1,28 +1,28 @@
-import {$,esc,toast} from "./utils.js";
+import {$,esc,toast,dailyIndex} from "./utils.js";
 import {renderQuestions} from "./questions.js";
 import {renderChallenges} from "./challenges.js";
 import {watchItems,watchRelationshipStartDate,saveRelationshipStartDate,addDiaryPost,updateDiaryPost,deleteDiaryPost,watchDiaryPosts,toggleDiaryLike,addDiaryComment,watchDiaryComments} from "./firestore.js";
 import {APP_CONFIG} from "../config/app-config.js";
 
-const diaryProfiles=[{id:APP_CONFIG.profiles.shazy.id,name:"Shazy"},{id:APP_CONFIG.profiles.kebyy.id,name:"Kebyy"}];
-let stopPosts=null,stopDate=null,stopComments=new Map(),commentsByPost=new Map(),allPosts=[],startDate="",pageSize=4,driveToken="",driveTokenExpires=0,recorders=new Map(),photoUrls=new Map(),counterTimer=null;
+let stopPosts=null,stopDate=null,stopMemories=null,homeActive=false,stopComments=new Map(),commentsByPost=new Map(),allPosts=[],startDate="",pageSize=4,driveToken="",driveTokenExpires=0,recorders=new Map(),photoUrls=new Map(),counterTimer=null;
 
 export function renderHome(el,user,profile){
   disposeHome();
+  homeActive=true;
   pageSize=4;
   el.innerHTML=`<section class="couple-brand"><div class="brand-hearts">♡♡</div><h1>Keby &amp; Shazy</h1><p>TWO HEARTS <span>♥</span> ONE JOURNEY</p></section>
-  <button id="together-counter" class="together-counter" type="button"><span class="counter-script">Together<br>Since ♡</span><span class="counter-main"><small>OUR RELATIONSHIP STARTED ON</small><strong id="counter-number">Set our special date</strong><div class="counter-units"><span><b id="count-days">0</b><small>Days</small></span><i></i><span><b id="count-hours">00</b><small>Hours</small></span><i></i><span><b id="count-minutes">00</b><small>Minutes</small></span><i></i><span><b id="count-seconds">00</b><small>Seconds</small></span></div><em id="counter-subtitle">Tap to add your anniversary</em></span></button>
+  <button id="together-counter" class="together-counter" type="button"><span class="counter-main"><small>OUR RELATIONSHIP STARTED ON</small><strong id="counter-number">Set our special date</strong><div class="counter-units"><span><b id="count-days">0</b><small>Days</small></span><i></i><span><b id="count-hours">00</b><small>Hours</small></span><i></i><span><b id="count-minutes">00</b><small>Minutes</small></span><i></i><span><b id="count-seconds">00</b><small>Seconds</small></span></div><em id="counter-subtitle">Tap to add your anniversary</em></span></button>
   <section class="home-feature-grid">
   <div class="home-post-panel"><div class="section-head home-panel-head"><div><p class="eyebrow">OUR SHARED WALL</p><h2>Little things, every day</h2></div><span class="tag">Just us two</span></div>
-  <section class="shared-feed"><form class="diary-composer" data-composer="shared"><div class="feed-avatar">${esc(profile.name[0])}</div><textarea name="text" rows="3" maxlength="3000" placeholder="What would you like to share, ${esc(profile.name)}?" aria-label="Write a post"></textarea><div class="composer-actions"><label class="photo-select">＋ Photo<input type="file" name="photo" accept="image/*"></label><span class="selected-photo muted"></span><button class="primary" type="submit">Post</button></div><p class="drive-note">A private post for both of you ♡</p></form><div class="feed-posts" id="posts-shared"><p class="muted">Loading your little moments…</p></div><button class="secondary older-posts hidden" data-older="shared">Show older posts</button></section></div>
+  <section class="shared-feed"><div class="feed-posts" id="posts-shared"><p class="muted">Loading Shazy's posts…</p></div><button class="secondary older-posts hidden" data-older="shared">Show older posts</button></section></div>
   <section class="home-drawing-panel card"><div class="home-drawing-heading"><div class="home-drawing-icon">✎</div><div><h3>Our Drawing Canvas</h3><p class="muted">Draw · Share · Keep Forever</p></div></div><button class="home-canvas-launch" type="button" data-open-drawing aria-label="Open our shared drawing canvas"><span class="home-canvas-heart">♡</span><span>Create something together…</span><span class="home-canvas-action">Open canvas ↗</span></button><p class="drive-note">Your saved drawings stay in shared Google Drive.</p></section>
   </section>
   <section class="today-section"><div class="section-head"><div><p class="eyebrow">A LITTLE MOMENT FOR TODAY</p><h2>Today's Question</h2></div><span class="tag">${new Date().toLocaleDateString("en",{month:"short",day:"numeric"})}</span></div><div class="today-cards"><button class="card today-question" data-open-question><span class="today-icon">♡</span><span><strong>Today's question</strong><p id="dash-q">Loading…</p></span><span class="today-link">Answer ↗</span></button><button class="card today-challenge" data-open-challenge><span class="today-icon challenge-icon">✦</span><span><strong>Daily Challenge</strong><p id="dash-c">Loading…</p><span class="today-link">View challenge ↗</span></span></button></div></section>
   <section class="dashboard-extras"><section class="hero dashboard-welcome"><p class="eyebrow">WELCOME BACK</p><h2>Our little world, ${esc(profile.name)} ♡</h2><p class="muted">A private space for memories, dreams and little moments.</p><div class="actions"><button class="primary" data-go="memories">Add a memory</button><button class="secondary" data-go="activities">Today's activity</button></div></section><div class="card memory-summary"><h3>Our memories</h3><div class="stat" id="dash-count">♡</div><p class="muted">memories saved</p><div id="dash-memories" class="photo-grid"></div></div></section>`;
 
-  watchItems("memory",items=>{$("#dash-count").textContent=items.length;$("#dash-memories").innerHTML=items.slice(0,6).filter(x=>x.photoUrl).map(x=>`<img src="${esc(x.photoUrl)}" alt="Memory">`).join("")||`<div class="card"><p class="muted">Your first memory can go here. ♡</p></div>`});
-  $("#dash-q").textContent=APP_CONFIG.dailyQuestions[new Date().getDate()%APP_CONFIG.dailyQuestions.length];
-  $("#dash-c").textContent=APP_CONFIG.starterChallenges[new Date().getDate()%APP_CONFIG.starterChallenges.length];
+  stopMemories=watchItems("memory",items=>{if(!homeActive||!el.isConnected)return;$("#dash-count",el).textContent=items.length;$("#dash-memories",el).innerHTML=items.slice(0,6).filter(x=>x.photoUrl).map(x=>`<img src="${esc(x.photoUrl)}" alt="Memory">`).join("")||`<div class="card"><p class="muted">Your first memory can go here. ♡</p></div>`});
+  $("#dash-q").textContent=APP_CONFIG.dailyQuestions[dailyIndex(APP_CONFIG.dailyQuestions.length)];
+  $("#dash-c").textContent=APP_CONFIG.starterChallenges[dailyIndex(APP_CONFIG.starterChallenges.length)];
   el.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>window.App.navigate(b.dataset.go));
   el.querySelector("[data-open-drawing]").onclick=()=>window.App.navigate("drawing");
   el.querySelector("[data-open-question]").onclick=()=>{window.App.navigate("activities");setTimeout(()=>document.querySelector('[data-a="questions"]')?.click(),0)};
@@ -62,7 +62,7 @@ export function renderHome(el,user,profile){
     });
   });
   el.querySelectorAll("[data-older]").forEach(b=>b.onclick=()=>{pageSize+=4;renderPosts()});
-  stopPosts=watchDiaryPosts(posts=>{allPosts=posts;renderPosts()});
+  stopPosts=watchDiaryPosts(posts=>{if(!homeActive||!el.isConnected)return;allPosts=posts;renderPosts()});
 
   async function preparePhoto(file){
     if(!file.type.startsWith("image/"))throw new Error("Choose an image file.");
@@ -77,7 +77,7 @@ export function renderHome(el,user,profile){
     const response=await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,thumbnailLink,mimeType",{method:"POST",headers:{Authorization:`Bearer ${token}`},body});
     if(!response.ok)throw new Error("Google Drive could not save that photo. Check Drive access and try again.");
     const saved=await response.json();
-    return {photoDriveFileId:saved.id,photoUrl:saved.thumbnailLink||saved.webViewLink||"",photoName:saved.name};
+    return {photoDriveFileId:saved.id,photoUrl:saved.thumbnailLink||"",photoName:saved.name};
   }
   function requestDriveToken(clientId){
     return new Promise((resolve,reject)=>{
@@ -97,9 +97,10 @@ export function renderHome(el,user,profile){
 
   function renderPosts(){
     {
-      const posts=allPosts,container=$("#posts-shared"),older=el.querySelector(`[data-older="shared"]`);
+      if(!homeActive||!el.isConnected)return;
+      const posts=allPosts.filter(p=>p.authorId===APP_CONFIG.profiles.shazy.id),container=$("#posts-shared",el),older=el.querySelector(`[data-older="shared"]`);
       if(!container)return;
-      container.innerHTML=posts.slice(0,pageSize).map(p=>makePostMarkup(p,{name:p.authorName||"Us"})).join("")||`<div class="empty-diary"><span>♡</span><p>Your wall is waiting for a little moment.</p><small>Write something sweet or add a photo.</small></div>`;
+      container.innerHTML=posts.slice(0,pageSize).map(p=>makePostMarkup(p,{name:p.authorName||"Shazy"})).join("")||`<div class="empty-diary"><span>♡</span><p>No posts from Shazy yet.</p><small>Her shared moments will appear here. ♡</small></div>`;
       older.classList.toggle("hidden",posts.length<=pageSize);
       container.querySelectorAll("[data-like]").forEach(btn=>btn.onclick=async()=>{try{await toggleDiaryLike(btn.dataset.like,user.uid,(allPosts.find(p=>p.id===btn.dataset.like)?.likedBy||[]).includes(user.uid))}catch{toast("Could not update the like.")}});
       container.querySelectorAll("[data-reply]").forEach(btn=>btn.onclick=()=>showReply(btn.dataset.reply,btn.dataset.replyTo||""));
@@ -149,9 +150,9 @@ export function renderHome(el,user,profile){
   }
   function makePostMarkup(post,wall){
     const liked=(post.likedBy||[]).includes(user.uid);let stop=stopComments.get(post.id);
-    if(!stop){stop=watchDiaryComments(post.id,comments=>{commentsByPost.set(post.id,comments);const target=$(`#comments-${post.id}`);if(target){target.innerHTML=commentMarkup(comments,post.id);target.querySelectorAll("[data-reply]").forEach(b=>b.onclick=()=>showReply(post.id,b.dataset.replyTo||""));target.querySelectorAll("audio[data-audio]").forEach(a=>a.src=a.dataset.audio)}});stopComments.set(post.id,stop)}
+    if(!stop){stop=watchDiaryComments(post.id,comments=>{if(!homeActive||!el.isConnected)return;commentsByPost.set(post.id,comments);const target=$(`#comments-${post.id}`,el);if(target){target.innerHTML=commentMarkup(comments,post.id);target.querySelectorAll("[data-reply]").forEach(b=>b.onclick=()=>showReply(post.id,b.dataset.replyTo||""));target.querySelectorAll("audio[data-audio]").forEach(a=>a.src=a.dataset.audio)}});stopComments.set(post.id,stop)}
     const time=post.createdAt?.toDate?post.createdAt.toDate().toLocaleString("en",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"Just now";
-    const photo=post.photoDriveFileId?(photoUrls.has(post.photoDriveFileId)?`<img src="${photoUrls.get(post.photoDriveFileId)}" alt="Photo in shared Google Drive" loading="lazy">`:`<button class="load-photo" type="button" data-load-photo="${esc(post.photoDriveFileId)}">Load photo from Drive</button>`):"";
+    const photo=post.photoDriveFileId?(photoUrls.has(post.photoDriveFileId)?`<img src="${photoUrls.get(post.photoDriveFileId)}" alt="Photo in shared Google Drive" loading="lazy">`:post.photoUrl?.startsWith("https://")?`<img src="${esc(post.photoUrl)}" alt="Photo in shared Google Drive" loading="lazy">`:`<button class="load-photo" type="button" data-load-photo="${esc(post.photoDriveFileId)}">Load photo from Drive</button>`):"";
     const own=post.authorId===profile.id;
     return `<article class="diary-post" id="post-${post.id}"><div class="post-author"><div class="diary-avatar small">${esc((post.authorName||wall.name)[0])}</div><div><strong>${esc(post.authorName||wall.name)}</strong><small>${time}${post.updatedAt?" · edited":""}</small></div>${own?`<div class="post-menu"><button class="text-button" data-edit-post="${post.id}">Edit</button><button class="text-button" data-delete-post="${post.id}">Delete</button></div>`:""}</div><div class="post-content">${post.text?`<p><a class="post-anchor" href="#post-${post.id}">${esc(post.text).replace(/\n/g,"<br>")}</a></p>`:""}${post.photoDriveFileId?`<div class="drive-photo">${photo}<a class="photo-open" href="https://drive.google.com/file/d/${encodeURIComponent(post.photoDriveFileId)}/view" target="_blank" rel="noopener">Open photo in Drive ↗</a></div>`:""}</div><div class="post-actions"><button class="text-button ${liked?"liked":""}" data-like="${post.id}">♡ ${liked?"Liked":"Like"} · ${(post.likedBy||[]).length}</button><button class="text-button" data-reply="${post.id}">Comment</button></div><div class="comment-list" id="comments-${post.id}">${commentMarkup(commentsByPost.get(post.id)||[],post.id)}</div><form class="comment-form" data-comment-form="${post.id}"><input name="comment" maxlength="1000" placeholder="Write a comment or reply…" aria-label="Write a comment"><button class="secondary" type="submit">Comment</button><button class="voice-btn" data-record="${post.id}" type="button" title="Record voice reply">🎙</button></form></article>`;
   }
@@ -161,7 +162,7 @@ export function renderHome(el,user,profile){
 }
 
 export function disposeHome(){
-  stopPosts?.();stopPosts=null;stopDate?.();stopDate=null;
+  homeActive=false;stopPosts?.();stopPosts=null;stopDate?.();stopDate=null;stopMemories?.();stopMemories=null;
   clearInterval(counterTimer);counterTimer=null;
   stopComments.forEach(stop=>stop());stopComments.clear();commentsByPost.clear();
   for(const {recorder,stream} of recorders.values()){
