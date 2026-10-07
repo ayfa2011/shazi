@@ -140,7 +140,6 @@ export function renderLetters(el, user, profile) {
         white-space: nowrap;
       }
 
-      /* Modal Styles */
       .letter-modal-overlay {
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
@@ -215,21 +214,29 @@ export function renderLetters(el, user, profile) {
           <button id="close-letter-modal" style="background:none; border:none; font-size:20px; cursor:pointer;">×</button>
         </div>
         <form id="write-letter-form">
-          <label style="font-size:12px; color:#666;">To:</label>
-          <input type="text" id="letter-to" placeholder="e.g. To Shazy / To Kebyy" required>
+          <label style="font-size:12px; color:#666;">To Recipient:</label>
+          <select id="letter-to" required>
+            <option value="Kebyy">To Kebyy</option>
+            <option value="Shazy">To Shazy</option>
+          </select>
           
           <label style="font-size:12px; color:#666;">Message:</label>
-          <textarea id="letter-body" rows="6" placeholder="Write from your heart..." required></textarea>
+          <textarea id="letter-body" rows="5" placeholder="Write from your heart..." required></textarea>
           
-          <label style="font-size:12px; color:#666;">Status:</label>
+          <label style="font-size:12px; color:#666;">Delivery Type:</label>
           <select id="letter-status">
             <option value="Sent">Send Now</option>
             <option value="Scheduled">Schedule for Later</option>
           </select>
 
+          <div id="deliver-date-group" style="display:none;">
+            <label style="font-size:12px; color:#666;">Deliver Date & Time:</label>
+            <input type="datetime-local" id="letter-deliver-date">
+          </div>
+
           <div class="letter-modal-actions">
             <button type="button" id="cancel-letter-btn" style="padding: 8px 16px; border-radius: 8px; border: 1px solid #ccc; background: white;">Cancel</button>
-            <button type="submit" style="padding: 8px 16px; border-radius: 8px; border: none; background: #e11d48; color: white; font-weight:600;">Send Letter ♡</button>
+            <button type="submit" id="submit-letter-btn" style="padding: 8px 16px; border-radius: 8px; border: none; background: #e11d48; color: white; font-weight:600;">Send Letter ♡</button>
           </div>
         </form>
       </div>
@@ -248,7 +255,25 @@ export function renderLetters(el, user, profile) {
     </div>
   `;
 
-  // Tab switching logic
+  const writeModal = $("#write-letter-modal", el);
+  const readModal = $("#read-letter-modal", el);
+  const statusSelect = $("#letter-status", el);
+  const deliverGroup = $("#deliver-date-group", el);
+  const deliverInput = $("#letter-deliver-date", el);
+  const submitBtn = $("#submit-letter-btn", el);
+
+  statusSelect.onchange = () => {
+    if (statusSelect.value === "Scheduled") {
+      deliverGroup.style.display = "block";
+      deliverInput.required = true;
+      submitBtn.textContent = "Schedule Letter ♡";
+    } else {
+      deliverGroup.style.display = "none";
+      deliverInput.required = false;
+      submitBtn.textContent = "Send Letter ♡";
+    }
+  };
+
   el.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.onclick = () => {
       el.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
@@ -258,48 +283,55 @@ export function renderLetters(el, user, profile) {
     };
   });
 
-  // Modal open/close logic
-  const writeModal = $("#write-letter-modal", el);
-  const readModal = $("#read-letter-modal", el);
-
   $("#write-letter-btn", el).onclick = () => (writeModal.style.display = "flex");
   $("#close-letter-modal", el).onclick = () => (writeModal.style.display = "none");
   $("#cancel-letter-btn", el).onclick = () => (writeModal.style.display = "none");
   $("#close-read-modal", el).onclick = () => (readModal.style.display = "none");
 
-  // Form submit logic
   $("#write-letter-form", el).onsubmit = async (e) => {
     e.preventDefault();
-    const recipient = $("#letter-to", el).value.trim();
+    const recipient = $("#letter-to", el).value;
     const body = $("#letter-body", el).value.trim();
-    const status = $("#letter-status", el).value;
+    const status = statusSelect.value;
+    const deliverDate = status === "Scheduled" ? new Date(deliverInput.value).toISOString() : new Date().toISOString();
 
-    await addItem("letter", {
-      recipient,
-      body,
-      status,
-      author: user.uid,
-      authorName: profile.name,
-      createdAt: new Date().toISOString()
-    });
+    try {
+      await addItem("letter", {
+        recipient,
+        body,
+        status,
+        deliverDate,
+        author: user.uid,
+        authorName: profile.name,
+        createdAt: new Date().toISOString()
+      });
 
-    writeModal.style.display = "none";
-    $("#write-letter-form", el).reset();
-    toast("Letter sent ♡");
+      writeModal.style.display = "none";
+      $("#write-letter-form", el).reset();
+      deliverGroup.style.display = "none";
+      submitBtn.textContent = "Send Letter ♡";
+      toast(status === "Scheduled" ? "Letter scheduled ♡" : "Letter sent ♡");
+    } catch (err) {
+      toast("Could not send letter. Try again.");
+    }
   };
 
   let allLetters = [];
 
   function renderList() {
     const container = $("#letters-list-container", el);
+    const now = new Date().toISOString();
 
     const filtered = allLetters.filter((item) => {
+      const isDelivered = !item.deliverDate || item.deliverDate <= now;
+      const isAuthor = item.author === user.uid;
+
       if (currentTab === "Inbox") {
-        return item.author !== user.uid && item.status !== "Scheduled";
+        return !isAuthor && (item.status === "Sent" || isDelivered);
       } else if (currentTab === "Sent") {
-        return item.author === user.uid && item.status === "Sent";
+        return isAuthor && (item.status === "Sent" || isDelivered);
       } else if (currentTab === "Scheduled") {
-        return item.status === "Scheduled";
+        return isAuthor && item.status === "Scheduled" && !isDelivered;
       }
       return true;
     });
@@ -310,29 +342,35 @@ export function renderLetters(el, user, profile) {
     }
 
     container.innerHTML = filtered.map((item) => {
-      const dateStr = item.createdAt ? new Date(item.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : "Just now";
+      const dateVal = item.deliverDate || item.createdAt;
+      const dateStr = dateVal ? new Date(dateVal).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : "Just now";
+      const isScheduled = item.status === "Scheduled" && item.deliverDate > now;
       
       return `
         <div class="letter-item" data-id="${item.id}">
           <div class="letter-left">
-            <div class="letter-avatar">👤</div>
+            <div class="letter-avatar">💌</div>
             <div class="letter-info">
-              <h4>${esc(item.recipient || `To ${item.authorName || 'Us'}`)}</h4>
-              <p>${esc(item.body || '')}</p>
+              <h4>${esc(item.recipient ? `To ${item.recipient}` : `From ${item.authorName || 'Us'}`)}</h4>
+              <p>${isScheduled ? '🔒 <i>Scheduled Surprise (Hidden)</i>' : esc(item.body || '')}</p>
             </div>
           </div>
-          <div class="letter-date">${dateStr}</div>
+          <div class="letter-date">${isScheduled ? '⏳ ' : ''}${dateStr}</div>
         </div>
       `;
     }).join("");
 
-    // Click item to read letter
     container.querySelectorAll(".letter-item").forEach((row) => {
       row.onclick = () => {
         const letter = allLetters.find((l) => l.id === row.dataset.id);
         if (letter) {
-          $("#read-letter-title", el).textContent = letter.recipient || `Letter from ${letter.authorName}`;
-          $("#read-letter-date", el).textContent = letter.createdAt ? new Date(letter.createdAt).toLocaleString() : "";
+          const nowIso = new Date().toISOString();
+          if (letter.status === "Scheduled" && letter.deliverDate > nowIso && letter.author !== user.uid) {
+            toast("This letter is a surprise and locked until delivery date!");
+            return;
+          }
+          $("#read-letter-title", el).textContent = `To ${letter.recipient || 'Us'} (From ${letter.authorName})`;
+          $("#read-letter-date", el).textContent = letter.deliverDate ? `Deliver Date: ${new Date(letter.deliverDate).toLocaleString()}` : "";
           $("#read-letter-body", el).textContent = letter.body;
           readModal.style.display = "flex";
         }
@@ -340,7 +378,6 @@ export function renderLetters(el, user, profile) {
     });
   }
 
-  // Realtime Watcher
   stopLetters = watchItems("letter", (items) => {
     if (!active || !el.isConnected) return;
     allLetters = items;
