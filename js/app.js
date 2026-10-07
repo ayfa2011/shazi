@@ -17,7 +17,7 @@ import { firebaseReady } from "./firebase.js";
 let currentUser = null, currentProfile = null;
 
 function renderGallery(el, user, profile) {
-  renderPostFeed(el, user, profile, "all");
+  renderPostFeed(el, user, profile);
 }
 
 let stopPostFeed = null, disposePostFeed = null, postCommentStops = new Map();
@@ -171,6 +171,18 @@ function renderPostFeed(el, user, profile) {
   };
 }
 
+const titles = {
+  home: "Keby & Shazy",
+  memories: "Memories",
+  games: "Games",
+  gallery: "Post",
+  letters: "Letter",
+  bucket: "Our Bucket List",
+  activities: "Activities",
+  more: "More",
+  drawing: "Our Drawing Canvas"
+};
+
 const routes = {
   home: renderHome,
   memories: renderMemories,
@@ -192,17 +204,8 @@ function navigate(route = "home") {
 
   document.querySelectorAll(".bottom-nav button").forEach(b => b.classList.toggle("active", b.dataset.route === route));
 
-  $("#page-title").textContent = ({
-    home: "Keby & Shazy",
-    memories: "Memories",
-    games: "Games",
-    gallery: "Post",
-    letters: "Letter",
-    bucket: "Our Bucket List",
-    activities: "Activities",
-    more: "More",
-    drawing: "Our Drawing Canvas"
-  })[route] || "Dashboard";
+  const pageTitle = titles[route] || "Dashboard";
+  $("#page-title").textContent = pageTitle;
 
   routes[route]?.($("#main-content"), currentUser, currentProfile);
 }
