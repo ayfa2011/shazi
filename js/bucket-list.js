@@ -1,170 +1,36 @@
 import { $, esc, toast } from "./utils.js";
-import { watchItems, addItem, setItem } from "./firestore.js";
+import { watchItems, addItem, setItem, deleteItem } from "./firestore.js";
 
-export function renderBucket(el, user, profile) {
+let stopBucketWatcher = null;
+
+export function renderBucket(el, user) {
+  stopBucketWatcher?.();
   let currentFilter = "All";
+  let allItems = [];
 
   el.innerHTML = `
     <style>
-      .bucket-card {
-        background: #ffffff;
-        border-radius: 20px;
-        padding: 20px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.05);
-        font-family: system-ui, -apple-system, sans-serif;
-      }
-      .bucket-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 16px;
-      }
-      .bucket-title {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 18px;
-        font-weight: 700;
-        color: #881337;
-      }
-      .bucket-title-icon {
-        width: 28px;
-        height: 28px;
-        background: #ffe4e6;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #e11d48;
-      }
-      .add-dream-btn {
-        background: none;
-        border: none;
-        color: #e11d48;
-        font-weight: 600;
-        cursor: pointer;
-        font-size: 14px;
-      }
-      .bucket-tabs {
-        display: flex;
-        gap: 8px;
-        margin-bottom: 20px;
-        overflow-x: auto;
-      }
-      .tab-btn {
-        padding: 6px 16px;
-        border-radius: 20px;
-        border: none;
-        background: #f3f4f6;
-        color: #6b7280;
-        font-size: 13px;
-        font-weight: 500;
-        cursor: pointer;
-        white-space: nowrap;
-      }
-      .tab-btn.active {
-        background: #f43f5e;
-        color: #ffffff;
-      }
-      .bucket-items-list {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-      }
-      .bucket-item {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 8px 0;
-        border-bottom: 1px solid #f3f4f6;
-      }
-      .bucket-item:last-child {
-        border-bottom: none;
-      }
-      .item-left {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-      .item-img {
-        width: 44px;
-        height: 44px;
-        border-radius: 50%;
-        object-fit: cover;
-        background: #f1f5f9;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 20px;
-      }
-      .item-details h4 {
-        margin: 0;
-        font-size: 15px;
-        font-weight: 600;
-        color: #374151;
-      }
-      .item-details p {
-        margin: 2px 0 0 0;
-        font-size: 12px;
-        color: #9ca3af;
-      }
-      .status-badge {
-        padding: 4px 12px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 600;
-        cursor: pointer;
-      }
-      .status-Completed {
-        background: #dcfce7;
-        color: #16a34a;
-      }
-      .status-In-Progress {
-        background: #dbeafe;
-        color: #2563eb;
-      }
-      .status-Upcoming {
-        background: #ffe4e6;
-        color: #e11d48;
-      }
-      
-      /* Modal Styles */
-      .modal-overlay {
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0,0,0,0.5);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-      }
-      .modal-box {
-        background: white;
-        padding: 20px;
-        border-radius: 16px;
-        width: 90%;
-        max-width: 400px;
-      }
-      .modal-box input, .modal-box select {
-        width: 100%;
-        padding: 8px;
-        margin: 8px 0;
-        box-sizing: border-box;
-        border: 1px solid #ddd;
-        border-radius: 8px;
-      }
-      .modal-actions {
-        display: flex;
-        justify-content: flex-end;
-        gap: 8px;
-        margin-top: 12px;
-      }
+      .bucket-card { background: #ffffff; border-radius: 20px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); font-family: system-ui, -apple-system, sans-serif; max-width: 600px; margin: 0 auto; }
+      .bucket-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+      .bucket-title { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 700; color: #881337; }
+      .add-dream-btn { background: none; border: none; color: #e11d48; font-weight: 600; cursor: pointer; font-size: 14px; }
+      .bucket-tabs { display: flex; gap: 8px; margin-bottom: 20px; overflow-x: auto; }
+      .tab-btn { padding: 6px 16px; border-radius: 20px; border: none; background: #f3f4f6; color: #6b7280; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+      .tab-btn.active { background: #f43f5e; color: #ffffff; }
+      .bucket-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f3f4f6; }
+      .status-badge { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; cursor: pointer; border: none; }
+      .status-Completed { background: #dcfce7; color: #16a34a; }
+      .status-In-Progress { background: #dbeafe; color: #2563eb; }
+      .status-Upcoming { background: #ffe4e6; color: #e11d48; }
+      .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+      .modal-box { background: white; padding: 20px; border-radius: 16px; width: 90%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+      .modal-box input, .modal-box select { width: 100%; padding: 10px; margin: 6px 0 12px 0; box-sizing: border-box; border: 1px solid #ddd; border-radius: 8px; font-family: inherit; }
     </style>
 
     <div class="bucket-card">
       <div class="bucket-header">
         <div class="bucket-title">
-          <div class="bucket-title-icon">🎯</div>
+          <div style="background:#ffe4e6; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; color:#e11d48;">🎯</div>
           <span>Our Bucket List</span>
         </div>
         <button id="add-bucket" class="add-dream-btn">+ New Dream</button>
@@ -177,31 +43,59 @@ export function renderBucket(el, user, profile) {
         <button class="tab-btn" data-tab="Completed">Completed</button>
       </div>
 
-      <div id="bucket-list-items" class="bucket-items-list"></div>
+      <div id="bucket-list-items"></div>
     </div>
 
-    <!-- Add Item Modal -->
+    <!-- Bucket Modal -->
     <div id="bucket-modal" class="modal-overlay" style="display: none;">
       <div class="modal-box">
-        <h3>Add to Bucket List</h3>
-        <input type="text" id="modal-title" placeholder="Title (e.g. Buy Our Dream Home)">
-        <input type="text" id="modal-date" placeholder="Target Date (e.g. Jan 2025, 2028)">
-        <label style="font-size:12px; color:#666;">Choose Image or Photo:</label>
-        <input type="file" id="modal-image" accept="image/*">
+        <h3 id="bucket-modal-title" style="margin:0 0 10px 0; color:#881337;">Add to Bucket List</h3>
+        <input type="hidden" id="modal-item-id">
+        <label style="font-size:12px; color:#666;">Dream Title:</label>
+        <input type="text" id="modal-title" placeholder="Title (e.g. Visit Paris)">
+        
+        <label style="font-size:12px; color:#666;">Target Date / Year:</label>
+        <input type="text" id="modal-date" placeholder="Target Date (e.g. 2027)">
+        
+        <label style="font-size:12px; color:#666;">Status:</label>
         <select id="modal-status">
           <option value="Upcoming">Upcoming</option>
           <option value="In Progress">In Progress</option>
           <option value="Completed">Completed</option>
         </select>
-        <div class="modal-actions">
-          <button id="modal-cancel" style="padding: 6px 12px; border-radius: 6px; border: 1px solid #ccc; background: white;">Cancel</button>
-          <button id="modal-save" style="padding: 6px 12px; border-radius: 6px; border: none; background: #e11d48; color: white;">Save</button>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+          <button id="modal-delete" style="padding: 6px 12px; border-radius: 6px; border: none; background: #fee2e2; color: #dc2626; display:none; cursor:pointer;">Delete</button>
+          <div style="display:flex; gap:8px; margin-left:auto;">
+            <button id="modal-cancel" style="padding: 6px 12px; border-radius: 6px; border: 1px solid #ccc; background: white; cursor:pointer;">Cancel</button>
+            <button id="modal-save" style="padding: 6px 12px; border-radius: 6px; border: none; background: #e11d48; color: white; font-weight:600; cursor:pointer;">Save</button>
+          </div>
         </div>
       </div>
     </div>
   `;
 
-  // Tab Filter Toggle
+  const modal = $("#bucket-modal", el);
+
+  function openModal(item = null) {
+    if (item) {
+      $("#bucket-modal-title", el).textContent = "Edit Dream";
+      $("#modal-item-id", el).value = item.id;
+      $("#modal-title", el).value = item.title || "";
+      $("#modal-date", el).value = item.dateStr || "";
+      $("#modal-status", el).value = item.status || "Upcoming";
+      $("#modal-delete", el).style.display = "block";
+    } else {
+      $("#bucket-modal-title", el).textContent = "Add to Bucket List";
+      $("#modal-item-id", el).value = "";
+      $("#modal-title", el).value = "";
+      $("#modal-date", el).value = "";
+      $("#modal-status", el).value = "Upcoming";
+      $("#modal-delete", el).style.display = "none";
+    }
+    modal.style.display = "flex";
+  }
+
   el.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.onclick = () => {
       el.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
@@ -211,48 +105,55 @@ export function renderBucket(el, user, profile) {
     };
   });
 
-  // Modal Functionality
-  const modal = $("#bucket-modal", el);
-  $("#add-bucket", el).onclick = () => (modal.style.display = "flex");
+  $("#add-bucket", el).onclick = () => openModal();
   $("#modal-cancel", el).onclick = () => (modal.style.display = "none");
 
-  // Add Item with Photo Upload (Base64)
+  $("#modal-delete", el).onclick = async () => {
+    const id = $("#modal-item-id", el).value;
+    if (id && confirm("Delete this dream?")) {
+      try {
+        await deleteItem("bucket", id);
+        toast("Dream deleted");
+        modal.style.display = "none";
+      } catch (err) {
+        console.error(err);
+        toast("Could not delete item.");
+      }
+    }
+  };
+
   $("#modal-save", el).onclick = async () => {
+    const id = $("#modal-item-id", el).value;
     const title = $("#modal-title", el).value.trim();
     const dateStr = $("#modal-date", el).value.trim() || "2026";
     const status = $("#modal-status", el).value;
-    const fileInput = $("#modal-image", el);
 
     if (!title) return toast("Please enter a title");
 
-    let imageUrl = "";
-    if (fileInput.files && fileInput.files[0]) {
-      const file = fileInput.files[0];
-      imageUrl = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target.result);
-        reader.readAsDataURL(file);
-      });
+    try {
+      const payload = {
+        title,
+        dateStr,
+        status,
+        done: status === "Completed",
+        author: user.uid,
+        createdAt: Date.now()
+      };
+
+      if (id) {
+        await setItem("bucket", id, payload);
+        toast("Dream updated ♡");
+      } else {
+        await addItem("bucket", payload);
+        toast("New dream added ♡");
+      }
+
+      modal.style.display = "none";
+    } catch (err) {
+      console.error(err);
+      toast("Error saving item. Please try again.");
     }
-
-    await addItem("bucket", {
-      title,
-      dateStr,
-      status,
-      imageUrl,
-      done: status === "Completed",
-      author: user.uid,
-      createdAt: Date.now(),
-    });
-
-    modal.style.display = "none";
-    $("#modal-title", el).value = "";
-    $("#modal-date", el).value = "";
-    fileInput.value = "";
-    toast("New dream added ♡");
   };
-
-  let allItems = [];
 
   function renderList() {
     const listEl = $("#bucket-list-items", el);
@@ -269,57 +170,51 @@ export function renderBucket(el, user, profile) {
     listEl.innerHTML = filteredItems
       .map((x) => {
         const displayStatus = x.status || (x.done ? "Completed" : "Upcoming");
-        const statusClass = displayStatus.replace(" ", "-");
-        const defaultImg = "✨";
+        const statusClass = displayStatus.replace(/\s+/g, "-");
 
         return `
         <div class="bucket-item">
-          <div class="item-left">
-            ${
-              x.imageUrl
-                ? `<img src="${x.imageUrl}" class="item-img" alt="${esc(x.title)}">`
-                : `<div class="item-img">${defaultImg}</div>`
-            }
-            <div class="item-details">
-              <h4>${esc(x.title)}</h4>
-              <p>${esc(x.dateStr || "2026")}</p>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div style="font-size:20px;">✨</div>
+            <div>
+              <h4 style="margin:0; font-size:15px; color:#374151;">${esc(x.title)}</h4>
+              <p style="margin:2px 0 0 0; font-size:12px; color:#9ca3af;">${esc(x.dateStr || "2026")}</p>
             </div>
           </div>
           <div style="display:flex; align-items:center; gap:8px;">
-            <span class="status-badge status-${statusClass}" data-id="${x.id}" data-status="${displayStatus}">
+            <button class="status-badge status-${statusClass}" data-id="${x.id}">
               ${displayStatus}
-            </span>
-            <span style="color:#ccc; font-size:12px;">›</span>
+            </button>
+            <button class="edit-bucket-btn" data-id="${x.id}" style="background:none; border:none; color:#cbd5e1; cursor:pointer;">✏️</button>
           </div>
         </div>
       `;
       })
       .join("");
 
-    // Toggle Status on Badge Click
     listEl.querySelectorAll(".status-badge").forEach((badge) => {
-      badge.onclick = async () => {
-        const id = badge.dataset.id;
-        const curr = badge.dataset.status;
-        const nextStatus =
-          curr === "Upcoming"
-            ? "In Progress"
-            : curr === "In Progress"
-            ? "Completed"
-            : "Upcoming";
+      badge.onclick = (e) => {
+        e.stopPropagation();
+        const item = allItems.find((i) => i.id === badge.dataset.id);
+        if (item) openModal(item);
+      };
+    });
 
-        await setItem(id, {
-          status: nextStatus,
-          done: nextStatus === "Completed",
-        });
-        toast(`Updated to ${nextStatus}`);
+    listEl.querySelectorAll(".edit-bucket-btn").forEach((btn) => {
+      btn.onclick = () => {
+        const item = allItems.find((i) => i.id === btn.dataset.id);
+        if (item) openModal(item);
       };
     });
   }
 
-  // Realtime Watcher
-  watchItems("bucket", (items) => {
-    allItems = items;
+  stopBucketWatcher = watchItems("bucket", (items) => {
+    allItems = items || [];
     renderList();
   });
+}
+
+export function disposeBucket() {
+  stopBucketWatcher?.();
+  stopBucketWatcher = null;
 }

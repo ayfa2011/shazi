@@ -4,20 +4,11 @@ import { APP_CONFIG } from "../config/app-config.js";
 
 let stopAnswers = null, active = false;
 
-// Local Timezone YYYY-MM-DD Date Function
-function getLocalDateStr() {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
 export function renderQuestions(el, user, profile) {
   stopAnswers?.();
   active = true;
 
-  const dateKey = getLocalDateStr();
+  const dateKey = todayKey(); // Standardized Date Key
   const questionsList = APP_CONFIG.dailyQuestions || [
     "What is your favourite thing about us?",
     "What do you think is the most important quality in a partner?",
@@ -150,6 +141,13 @@ export function renderQuestions(el, user, profile) {
         line-height: 1.4;
         margin: 0;
       }
+      .hidden-answer {
+        font-style: italic;
+        color: #9ca3af;
+        background: #f8fafc;
+        padding: 8px 12px;
+        border-radius: 8px;
+      }
       .input-answer-box {
         display: flex;
         flex-direction: column;
@@ -225,7 +223,7 @@ export function renderQuestions(el, user, profile) {
         <div class="question-heart-art">♡</div>
       </div>
 
-      <div class="section-label">Your Answer</div>
+      <div class="section-label">Answers</div>
 
       <div id="answers-container" class="answers-list">
         <p style="color:#9ca3af; font-size:13px;">Loading answers…</p>
@@ -259,32 +257,38 @@ export function renderQuestions(el, user, profile) {
     const inputContainer = $("#my-answer-input-container", el);
     const bothContainer = $("#both-answered-container", el);
 
-    // Check if current user answered
+    // Check by user UID
     const myAnswer = todayAnswers.find(x => x.author === user.uid);
-    const hasKebyyAnswered = todayAnswers.some(x => x.authorName?.toLowerCase().includes("keby"));
-    const hasShazyAnswered = todayAnswers.some(x => x.authorName?.toLowerCase().includes("shaz"));
+    const bothAnswered = todayAnswers.length >= 2;
 
-    // Render Answers List
+    // Render Answers List (with Spoiler Hide)
     if (todayAnswers.length === 0) {
       answersContainer.innerHTML = `<p style="color:#9ca3af; font-size:13px; margin:0;">No answers yet today. Be the first to answer! ♡</p>`;
     } else {
-      answersContainer.innerHTML = todayAnswers.map(x => `
-        <div class="answer-item">
-          <div class="answer-avatar">
-            ${x.photoUrl ? `<img src="${x.photoUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">` : esc((x.authorName || 'U')[0])}
-          </div>
-          <div class="answer-content">
-            <div class="answer-meta">
-              <span class="author-name">${esc(x.authorName || 'Us')}</span>
-              <span class="answer-date">${displayDate}</span>
+      answersContainer.innerHTML = todayAnswers.map(x => {
+        const isSelf = x.author === user.uid;
+        const canView = isSelf || bothAnswered;
+
+        return `
+          <div class="answer-item">
+            <div class="answer-avatar">
+              ${x.photoUrl ? `<img src="${x.photoUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">` : esc((x.authorName || 'U')[0])}
             </div>
-            <p class="answer-text-val">${esc(x.answer)} ♡</p>
+            <div class="answer-content">
+              <div class="answer-meta">
+                <span class="author-name">${esc(x.authorName || 'Us')}</span>
+                <span class="answer-date">${displayDate}</span>
+              </div>
+              ${canView 
+                ? `<p class="answer-text-val">${esc(x.answer)} ♡</p>` 
+                : `<p class="answer-text-val hidden-answer">🔒 Answer hidden until both partners answer!</p>`}
+            </div>
           </div>
-        </div>
-      `).join("");
+        `;
+      }).join("");
     }
 
-    // Input form or Both answered logic
+    // Input form or Both answered banner
     if (!myAnswer) {
       inputContainer.style.display = "block";
       bothContainer.style.display = "none";
@@ -313,7 +317,7 @@ export function renderQuestions(el, user, profile) {
       };
     } else {
       inputContainer.style.display = "none";
-      if (todayAnswers.length >= 2 || (hasKebyyAnswered && hasShazyAnswered)) {
+      if (bothAnswered) {
         bothContainer.style.display = "block";
       } else {
         bothContainer.style.display = "none";

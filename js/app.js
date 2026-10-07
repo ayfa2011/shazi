@@ -11,6 +11,7 @@ import { renderBucket } from "./bucket-list.js";
 import { renderActivities } from "./activities.js";
 import { renderMore } from "./more.js";
 import { renderDrawing, disposeDrawing } from "./drawing.js";
+import { renderChallenges, disposeChallenges } from "./challenges.js";
 import { initMusic } from "./music.js";
 import { firebaseReady } from "./firebase.js";
 
@@ -394,7 +395,8 @@ const titles = {
   bucket: "Our Bucket List",
   activities: "Activities",
   more: "More",
-  drawing: "Our Drawing Canvas"
+  drawing: "Our Drawing Canvas",
+  challenges: "Daily Challenges"
 };
 
 const routes = {
@@ -407,7 +409,8 @@ const routes = {
   bucket: renderBucket,
   activities: renderActivities,
   more: renderMore,
-  drawing: renderDrawing
+  drawing: renderDrawing,
+  challenges: renderChallenges
 };
 
 // Global App Navigation Object Definition
@@ -416,12 +419,13 @@ window.App = {
 };
 
 function navigate(route = "home") {
-  // Dispose active listeners based on previous page
+  // Dispose active listeners based on previous page to stop leaks
   if (route !== "home") disposeHome();
   if (route !== "drawing") disposeDrawing();
   if (route !== "memories") disposeMemories?.();
   if (route !== "letters") disposeLetters?.();
   if (route !== "questions") disposeQuestions?.();
+  if (route !== "challenges") disposeChallenges?.();
   if (route !== "gallery") {
     disposePostFeed?.();
     disposePostFeed = null;
@@ -473,12 +477,14 @@ initAuth(
     }
   },
   () => {
-    // Logout / Unauthenticated Callback
+    // Clean up all active Firestore subscriptions on logout
     disposeHome();
     disposeDrawing();
     disposeMemories?.();
     disposeLetters?.();
     disposeQuestions?.();
+    disposeChallenges?.();
+    disposePostFeed?.();
     
     const appView = $("#app-view");
     const authView = $("#auth-view");     if (appView) appView.classList.add("hidden");     if (authView) authView.classList.remove("hidden");   } );  // Event Listeners setup document.addEventListener("DOMContentLoaded", () => {   $$(".bottom-nav button").forEach((b) => {

@@ -1,5 +1,5 @@
 import { db, firebaseReady } from "./firebase.js";
-import { collection, doc, addDoc, setDoc, getDoc, getDocs, deleteDoc, updateDoc, query, orderBy, onSnapshot, serverTimestamp, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+import { collection, doc, addDoc, setDoc, getDoc, getDocs, deleteDoc, updateDoc, query, where, orderBy, onSnapshot, serverTimestamp, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 
 const root = () => {
@@ -22,13 +22,17 @@ export async function removeItem(id) {
   return deleteDoc(doc(root(), id));
 }
 
+// Optimized with backend type query filter
 export async function listItems(type) {
-  const s = await getDocs(query(root(), orderBy("createdAt", "desc")));
-  return s.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => x.type === type);
+  const q = query(root(), where("type", "==", type), orderBy("createdAt", "desc"));
+  const s = await getDocs(q);
+  return s.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
+// Optimized backend listener filter
 export function watchItems(type, cb) {
-  return onSnapshot(query(root(), orderBy("createdAt", "desc")), s => cb(s.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => x.type === type)));
+  const q = query(root(), where("type", "==", type), orderBy("createdAt", "desc"));
+  return onSnapshot(q, s => cb(s.docs.map(d => ({ id: d.id, ...d.data() }))));
 }
 
 const couplePath = () => ["couples", APP_CONFIG.coupleId];
