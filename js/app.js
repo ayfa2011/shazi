@@ -103,18 +103,45 @@ function renderPostFeed(el, user, profile) {
   }
 
   function postCard(post) {
-    const name = post.authorName || "Us", own = post.authorId === profile.id, photo = post.photoDriveFileId ? (post.photoUrl?.startsWith("https://") ? `<img src="${esc(post.photoUrl)}" alt="Photo shared by ${esc(name)}" loading="lazy">` : `<button class="post-drive-load" type="button" data-drive-photo="${esc(post.photoDriveFileId)}">Load photo…</button>`) : "";
+    const name = post.authorName || "Us";
+    const own = post.authorId === profile.id;
+    const photo = post.photoDriveFileId ? (post.photoUrl?.startsWith("https://") ? `<img src="${esc(post.photoUrl)}" alt="Photo shared by ${esc(name)}" loading="lazy">` : `<button class="post-drive-load" type="button" data-drive-photo="${esc(post.photoDriveFileId)}">Load photo…</button>`) : "";
+
     if (!postCommentStops.has(post.id)) {
       const stop = watchDiaryComments(post.id, comments => {
         if (!active) return;
         post._comments = comments;
         const target = feed.querySelector(`[data-comments="${post.id}"]`);
-        if (target) target.innerHTML = comments.map(c => `<p class="post-comment"><strong>${esc(c.authorName || "Us")}</strong> ${esc(c.text || "")}</p>`).join("");
+        if (target) {
+          target.innerHTML = comments.map(c => `<p class="post-comment"><strong>${esc(c.authorName || "Us")}</strong> ${esc(c.text || "")}</p>`).join("");
+        }
       });
       postCommentStops.set(post.id, stop);
     }
+
     const time = post.createdAt?.toDate ? post.createdAt.toDate().toLocaleString("en", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Just now";
-    return `<article class="social-post"><header><span class="social-avatar">${esc(name[0])}</span><span class="social-author"><strong>${esc(name)}</strong><small>${time}</small></span>${own ? `<button class="text-button post-delete" data-post-delete="${esc(post.id)}">Delete</button>` : ""}</header>${post.text ? `<p class="social-post-text">${esc(post.text).replace(/\n/g, "<br>")}</p>` : ""}${photo ? `<div class="social-post-photo">${photo}</div>` : ""}<div class="social-post-actions"><button class="text-button ${(post.likedBy || []).includes(user.uid) ? "liked" : ""}" data-post-like="${esc(post.id)}">♡ ${(post.likedBy || []).length}</button><a href="https://drive.google.com/file/d/${encodeURIComponent(post.photoDriveFileId || "")}/view" target="_blank" rel="noopener">${post.photoDriveFileId ? "Open photo ↗" : ""}</a></div><div data-comments="${esc(post.id)}" class="social-comments">${(post._comments || []).map(c => `<p class="post-comment"><strong>${esc(c.authorName \vert{}\vert{} "Us")}</strong> ${esc(c.text || "")}</p>`).join("")}</div><form class="social-comment-form" data-post-comment="${esc(post.id)}"><input name="comment" placeholder="Write a comment…" maxlength="1000"><button type="submit">Reply</button></form></article>`;
+    const commentsHtml = (post._comments || []).map(c => `<p class="post-comment"><strong>${esc(c.authorName || "Us")}</strong> ${esc(c.text || "")}</p>`).join("");
+    const isLiked = (post.likedBy || []).includes(user.uid);
+    const likeCount = (post.likedBy || []).length;
+
+    return `<article class="social-post">
+      <header>
+        <span class="social-avatar">${esc(name[0])}</span>
+        <span class="social-author"><strong>${esc(name)}</strong><small>${time}</small></span>
+        ${own ? `<button class="text-button post-delete" data-post-delete="${esc(post.id)}">Delete</button>` : ""}
+      </header>
+      ${post.text ? `<p class="social-post-text">${esc(post.text).replace(/\n/g, "<br>")}</p>` : ""}
+      ${photo ? `<div class="social-post-photo">${photo}</div>` : ""}
+      <div class="social-post-actions">
+        <button class="text-button ${isLiked ? "liked" : ""}" data-post-like="${esc(post.id)}">♡ ${likeCount}</button>
+        ${post.photoDriveFileId ? `<a href="https://drive.google.com/file/d/${encodeURIComponent(post.photoDriveFileId)}/view" target="_blank" rel="noopener">Open photo ↗</a>` : ""}
+      </div>
+      <div data-comments="${esc(post.id)}" class="social-comments">${commentsHtml}</div>
+      <form class="social-comment-form" data-post-comment="${esc(post.id)}">
+        <input name="comment" placeholder="Write a comment…" maxlength="1000">
+        <button type="submit">Reply</button>
+      </form>
+    </article>`;
   }
 
   async function uploadPostPhoto(file) {
