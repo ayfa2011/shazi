@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f06a9b">
+  <title>Keby &amp; Shazy — Our Little World</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div id="toast" class="toast"></div>
+
+  <section id="auth-view" class="auth-shell">
+    <div class="auth-card glass">
+      <div class="brand-mark">♡</div>
+      <p class="eyebrow">PRIVATE • JUST FOR US</p>
+      <h1>Our Little World</h1>
+      <p class="muted">Two hearts. One little space.</p>
+      <form id="login-form">
+        <label>Who is signing in?
+          <select id="login-user" required autocomplete="username">
+            <option value="">Choose your name</option>
+            <option value="kebyy">Keby</option>
+            <option value="shazy">Shazy</option>
+          </select>
+        </label>
+        <label>Password<input id="login-password" type="password" required autocomplete="current-password"></label>
+        <button class="primary full" type="submit">Enter our world ♡</button>
+      </form>
+      <p id="auth-error" class="error"></p>
+    </div>
+  </section>
+
+  <section id="app-view" class="hidden">
+    <header class="topbar">
+      <div class="top-brand">
+        <div class="brand-mark top-logo">♡</div>
+        <div><p class="eyebrow">OUR LITTLE WORLD</p>
+        <h2 id="page-title">Dashboard</h2>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button id="music-toggle" class="icon-btn" title="Music">♫</button>
+        <button id="profile-btn" class="avatar" title="Profile"><span id="avatar-letter">♡</span></button>
+      </div>
+    </header>
+
+    <main id="main-content" class="content"></main>
+
+    <nav class="bottom-nav">
+      <button data-route="home">⌂<span>Dashboard</span></button>
+      <button data-route="memories">♡<span>Memories</span></button>
+      <button data-route="bucket">✓<span>Dreams</span></button>
+      <button data-route="activities">✦<span>Activities</span></button>
+      <button data-route="more">☰<span>More</span></button>
+    </nav>
+  </section>
+
+  <aside id="music-drawer" class="drawer hidden">
+    <div class="drawer-head"><h3>Our Music ♫</h3><button id="music-close" class="icon-btn">×</button></div>
+    <div class="music-player">
+      <div class="album-art">♫</div>
+      <div>
+        <strong id="track-name">No song selected</strong>
+        <p id="track-status" class="muted">Upload a song to share it.</p>
+      </div>
+    </div>
+    <audio id="audio-player" controls preload="metadata"></audio>
+    <div class="music-controls">
+      <button id="play-music" class="primary">Play</button>
+      <button id="pause-music" class="secondary">Pause</button>
+    </div>
+    <label class="upload-btn">Upload our song<input id="music-upload" type="file" accept="audio/*"></label>
+    <small class="muted">Playback state is synchronized. Your browser may require one manual tap before audio can play.</small>
+  </aside>
+
+  <div id="modal-root"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isCoupleMember() {
+      return request.auth != null && request.auth.token.email in [
+        'akabeeram@gmail.com',
+        'hizasgallery@gmail.com'
+      ];
+    }
+
+    match /couples/{coupleId}/{document=**} {
+      allow read, write: if isCoupleMember() && coupleId == 'our-little-world';
+    }
+  }
+}
