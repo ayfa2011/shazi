@@ -1,12 +1,12 @@
 import { initAuth, logout } from "./auth.js";
-import { $,$$, esc } from "./utils.js";
+import { $,$$, esc, toast } from "./utils.js";
 import { renderHome, disposeHome } from "./dashboard.js";
-import { renderMemories } from "./memories.js";
+import { renderMemories, disposeMemories } from "./memories.js";
 import { renderGames } from "./games.js";
-import { renderLetters } from "./letters.js";
+import { renderLetters, disposeLetters } from "./letters.js";
+import { renderQuestions, disposeQuestions } from "./questions.js";
 import { watchItems, watchDiaryPosts, toggleDiaryLike, watchDiaryComments, addDiaryComment, addDiaryPost, deleteDiaryPost, setItem } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
-import { toast } from "./utils.js";
 import { renderBucket } from "./bucket-list.js";
 import { renderActivities } from "./activities.js";
 import { renderMore } from "./more.js";
@@ -16,6 +16,7 @@ import { firebaseReady } from "./firebase.js";
 
 let currentUser = null, currentProfile = null;
 
+// Post / Twitter Feed Logic
 function renderGallery(el, user, profile) {
   renderPostFeed(el, user, profile);
 }
@@ -310,9 +311,7 @@ function renderPostFeed(el, user, profile) {
       `;
     }).join("");
 
-    // Setup Actions Event Listeners (Like, Edit, Delete, Reply)
     posts.forEach((post) => {
-      // Like Toggle
       const likeBtn = feed.querySelector(`.tw-like-btn[data-id="${post.id}"]`);
       if (likeBtn) {
         likeBtn.onclick = async () => {
@@ -321,7 +320,6 @@ function renderPostFeed(el, user, profile) {
         };
       }
 
-      // Delete Post
       const delBtn = feed.querySelector(`.tw-del-btn[data-id="${post.id}"]`);
       if (delBtn) {
         delBtn.onclick = async () => {
@@ -332,7 +330,6 @@ function renderPostFeed(el, user, profile) {
         };
       }
 
-      // Edit Post
       const editBtn = feed.querySelector(`.tw-edit-btn[data-id="${post.id}"]`);
       if (editBtn) {
         editBtn.onclick = async () => {
@@ -344,7 +341,6 @@ function renderPostFeed(el, user, profile) {
         };
       }
 
-      // Comments Watcher
       if (!postCommentStops.has(post.id)) {
         const stop = watchDiaryComments(post.id, (comments) => {
           if (!active) return;
@@ -360,7 +356,6 @@ function renderPostFeed(el, user, profile) {
         postCommentStops.set(post.id, stop);
       }
 
-      // Submit Reply
       const commentForm = feed.querySelector(`.tw-comment-form[data-post-id="${post.id}"]`);
       if (commentForm) {
         commentForm.onsubmit = async (e) => {
@@ -387,3 +382,130 @@ function renderPostFeed(el, user, profile) {
     postCommentStops.clear();
   };
 }
+
+// Router & Page Handlers
+const titles = {
+  home: "Dashboard",
+  memories: "Memories",
+  games: "Games",
+  gallery: "Post",
+  letters: "Letters",
+  questions: "Today's Question",
+  bucket: "Our Bucket List",
+  activities: "Activities",
+  more: "More",
+  drawing: "Our Drawing Canvas"
+};
+
+const routes = {
+  home: renderHome,
+  memories: renderMemories,
+  games: renderGames,
+  gallery: renderGallery,
+  letters: renderLetters,
+  questions: renderQuestions,
+  bucket: renderBucket,
+  activities: renderActivities,
+  more: renderMore,
+  drawing: renderDrawing
+};
+
+// Global App Navigation Object Definition
+window.App = {
+  navigate
+};
+
+function navigate(route = "home") {
+  // Dispose active listeners based on previous page
+  if (route !== "home") disposeHome();
+  if (route !== "drawing") disposeDrawing();
+  if (route !== "memories") disposeMemories?.();
+  if (route !== "letters") disposeLetters?.();
+  if (route !== "questions") disposeQuestions?.();
+  if (route !== "gallery") {
+    disposePostFeed?.();
+    disposePostFeed = null;
+  }
+
+  // Update bottom navigation bar button states
+  document.querySelectorAll(".bottom-nav button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.route === route);
+  });
+
+  // Update Page Title
+  const pageTitle = titles[route] || "Dashboard";
+  const titleElem = $("#page-title");
+  if (titleElem) titleElem.textContent = pageTitle;
+
+  // Render view
+  const mainElem = $("#main-content");
+  if (mainElem && routes[route]) {
+    routes[route](mainElem, currentUser, currentProfile);
+  }
+}
+
+// Initialize Authentication & Router Lifecycle
+initAuth(
+  (user, profile) => {
+    currentUser = user;
+    currentProfile = profile;
+
+    // Hide Login Screen and Show Main App
+    const authView = $("#auth-view");
+    const appView = $("#app-view");
+    if (authView) authView.classList.add("hidden");
+    if (appView) appView.classList.remove("hidden");
+
+    // Update Avatar
+    const avatarElem = $("#avatar-letter");
+    if (avatarElem) avatarElem.textContent = profile.emoji || profile.name?.[0] || "♡";
+
+    // Route to Home by default
+    navigate("home");
+
+    // Initialize Background Music if Firebase Ready
+    if (firebaseReady) {
+      try {
+        initMusic();
+      } catch (e) {
+        console.warn("Music initialization error:", e);
+      }
+    }
+  },
+  () => {
+    // Logout / Unauthenticated Callback
+    disposeHome();
+    disposeDrawing();
+    disposeMemories?.();
+    disposeLetters?.();
+    disposeQuestions?.();
+    
+    const appView = $("#app-view");
+    const authView = $("#auth-view");     if (appView) appView.classList.add("hidden");     if (authView) authView.classList.remove("hidden");   } );  // Event Listeners setup document.addEventListener("DOMContentLoaded", () => {   $$(".bottom-nav button").forEach((b) => {
+    b.addEventListener("click", () => {
+      const route = b.dataset.route;
+      if (route) navigate(route);
+    });
+  });
+
+  const profileBtn = $("#profile-btn");
+  if (profileBtn) {
+    profileBtn.addEventListener("click", () => navigate("more"));
+  }
+
+  const musicToggle = $("#music-toggle");
+  if (musicToggle) {
+    musicToggle.addEventListener("click", () => {
+      const drawer = $("#music-drawer");
+      if (drawer) drawer.classList.toggle("hidden");
+    });
+  }
+
+  const musicClose = $("#music-close");
+  if (musicClose) {
+    musicClose.addEventListener("click", () => {
+      const drawer = $("#music-drawer");
+      if (drawer) drawer.classList.add("hidden");
+    });
+  }
+});
