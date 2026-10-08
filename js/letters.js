@@ -1,5 +1,6 @@
 import { $, esc, toast } from "./utils.js";
 import { watchItems, addItem } from "./firestore.js";
+import { getDisplayName } from "./profile-data.js";
 
 let stopLetters = null, active = false;
 
@@ -351,7 +352,7 @@ export function renderLetters(el, user, profile) {
           <div class="letter-left">
             <div class="letter-avatar">💌</div>
             <div class="letter-info">
-              <h4>${esc(item.recipient ? `To ${item.recipient}` : `From ${item.authorName || 'Us'}`)}</h4>
+              <h4>${esc(item.recipient ? `To ${getDisplayName("", item.recipient)}` : `From ${getDisplayName(item.author, item.authorName || "Us")}`)}</h4>
               <p>${isScheduled ? '🔒 <i>Scheduled Surprise (Hidden)</i>' : esc(item.body || '')}</p>
             </div>
           </div>
@@ -369,7 +370,7 @@ export function renderLetters(el, user, profile) {
             toast("This letter is a surprise and locked until delivery date!");
             return;
           }
-          $("#read-letter-title", el).textContent = `To ${letter.recipient || 'Us'} (From ${letter.authorName})`;
+          $("#read-letter-title", el).textContent = `To ${getDisplayName("", letter.recipient || "Us")} (From ${getDisplayName(letter.author, letter.authorName || "Us")})`;
           $("#read-letter-date", el).textContent = letter.deliverDate ? `Deliver Date: ${new Date(letter.deliverDate).toLocaleString()}` : "";
           $("#read-letter-body", el).textContent = letter.body;
           readModal.style.display = "flex";

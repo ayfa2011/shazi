@@ -9,7 +9,36 @@ service cloud.firestore {
     }
 
     match /couples/{coupleId}/{document=**} {
-      allow read, write: if isCoupleMember() && coupleId == 'our-little-world';
+      allow read: if isCoupleMember() && coupleId == 'our-little-world';
+      allow create: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && request.resource.__name__ != /databases/$(database)/documents/couples/our-little-world/settings/profiles;
+      allow update, delete: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && resource.__name__ != /databases/$(database)/documents/couples/our-little-world/settings/profiles;
+    }
+
+    match /couples/{coupleId}/settings/profiles {
+      allow read: if isCoupleMember() && coupleId == 'our-little-world';
+      allow create: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && request.resource.data.keys().hasOnly(['kebyy', 'shazy', 'updatedAt'])
+        && (
+          (request.auth.token.email == 'akabeeram@gmail.com'
+            && request.resource.data.keys().hasOnly(['kebyy', 'updatedAt']))
+          || (request.auth.token.email == 'hizasgallery@gmail.com'
+            && request.resource.data.keys().hasOnly(['shazy', 'updatedAt']))
+        );
+      allow update: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && request.resource.data.keys().hasOnly(['kebyy', 'shazy', 'updatedAt'])
+        && (
+          (request.auth.token.email == 'akabeeram@gmail.com'
+            && request.resource.data.get('shazy', {}) == resource.data.get('shazy', {}))
+          || (request.auth.token.email == 'hizasgallery@gmail.com'
+            && request.resource.data.get('kebyy', {}) == resource.data.get('kebyy', {}))
+        );
+      allow delete: if false;
     }
   }
 }

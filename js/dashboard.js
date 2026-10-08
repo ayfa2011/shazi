@@ -1,6 +1,7 @@
 import { $, esc, toast, dailyIndex, compressImage } from "./utils.js";
 import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, toggleDiaryLike, watchDiaryComments, addDiaryComment, addDiaryPost, updateDiaryPost, deleteDiaryPost } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
+import { findProfileForAuthor, getDisplayName } from "./profile-data.js";
 
 let stopPosts = null, stopRelationship = null, counterTimer = null, active = false, postCommentStops = new Map();
 
@@ -34,7 +35,8 @@ export function renderHome(el, user, profile) {
         border: 1px solid var(--line);
         box-shadow: none;
       }
-      .home-date-control { position: relative; z-index: 1; justify-self: center; width: max-content; max-width: 100%; padding: 7px 12px; border: 1px solid #de77a0; border-radius: 999px; background: #fff8fbdd; color: #741e4b; font-weight: 600; }
+      .home-date-control { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-self: center; gap: 7px; width: fit-content; max-width: 100%; padding: 5px 11px; border: 1px solid #e89ab8; border-radius: 999px; background: #fff8fbdd; color: #741e4b; font-size: 12px; line-height: 1.2; font-weight: 600; }
+      .home-date-heart { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; background: #ffe4ef; color: #d74482; font-size: 14px; line-height: 1; }
       .home-date-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
       .home-counter-art { position: absolute; right: 15px; bottom: -26px; color: #fff9; font: 190px/1 "Playfair Display",serif; pointer-events: none; }
       .home-counter-content { position: relative; z-index: 1; }
@@ -46,6 +48,8 @@ export function renderHome(el, user, profile) {
       .home-post-panel .home-composer-actions { margin-top: 7px; }
       .home-post-panel .home-post-btn { padding: 7px 12px; font-size: 12px; }
       .home-post-panel .home-feed { gap: 9px; }
+      .home-view-more { width: 100%; margin-top: 9px; padding: 8px 10px; border: 1px solid #f4d6e2; border-radius: 999px; background: #fff4f8; color: var(--deep); font-size: 11px; font-weight: 600; cursor: pointer; }
+      .home-view-more span { margin-left: 5px; color: var(--pink); }
       .home-post-panel .home-post-card { padding: 11px; border: 1px solid var(--line); border-radius: 16px; box-shadow: none; }
       .home-post-panel .home-post-header { margin-bottom: 6px; }
       .home-post-panel .home-post-author { gap: 7px; }
@@ -93,6 +97,7 @@ export function renderHome(el, user, profile) {
         justify-content: center;
         font-weight: bold;
       }
+      .home-avatar img { width:100%; height:100%; border-radius:50%; object-fit:cover; }
       .home-composer-card textarea {
         width: 100%;
         border: 1px solid #fecdd3;
@@ -225,7 +230,10 @@ export function renderHome(el, user, profile) {
         <div class="counter-script" aria-hidden="true">Together<br>Since ↗<br>♡</div>
         <div class="counter-main home-counter-content">
           <small>OUR RELATIONSHIP STARTED ON</small>
-          <button type="button" class="home-date-control" id="relationship-date">Choose our date</button>
+          <button type="button" class="home-date-control" id="relationship-date">
+            <span class="home-date-heart" aria-hidden="true">♡</span>
+            <span id="relationship-date-label">Choose our date</span>
+          </button>
           <input class="home-date-input" id="relationship-date-input" type="date" aria-label="Choose relationship start date">
           <div class="counter-units" aria-live="off">
             <span><b id="counter-days">0</b><small>Days</small></span><i aria-hidden="true"></i>
@@ -253,6 +261,7 @@ export function renderHome(el, user, profile) {
           <div id="home-posts-feed" class="home-feed">
             <p style="text-align:center; color:#9ca3af; padding:20px;">Loading our posts…</p>
           </div>
+          <button type="button" class="home-view-more" id="view-more-posts">View more posts <span aria-hidden="true">→</span></button>
         </div>
 
         <aside class="home-drawing-panel">
@@ -299,7 +308,7 @@ export function renderHome(el, user, profile) {
   dateInput.max = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
   function updateCounter() {
-    dateButton.textContent = startDate
+    $("#relationship-date-label", el).textContent = startDate
       ? new Date(`${startDate}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
       : "Choose our date";
     const timestamp = startDate ? new Date(`${startDate}T00:00:00`).getTime() : NaN;
@@ -336,6 +345,7 @@ export function renderHome(el, user, profile) {
   });
 
   $("#open-drawing", el).onclick = () => window.App.navigate("drawing");
+  $("#view-more-posts", el).onclick = () => window.App.navigate("gallery");
   el.querySelectorAll("[data-route]").forEach(button => {
     button.onclick = () => window.App.navigate(button.dataset.route);
   });
@@ -377,7 +387,7 @@ export function renderHome(el, user, profile) {
   // Watch All Posts (Both Kebyy and Shazy)
   stopPosts = watchDiaryPosts((items) => {
     if (!active) return;
-    renderFeed(items);
+    renderFeed(items.slice(0, 1));
   });
 
   function renderFeed(posts) {
@@ -388,6 +398,8 @@ export function renderHome(el, user, profile) {
 
     feed.innerHTML = posts.map((post) => {
       const own = post.authorId === user.uid || post.authorId === profile.id;
+      const author = findProfileForAuthor(post.authorId, post.authorName || "");
+      const authorName = getDisplayName(post.authorId, post.authorName || "Us");
       const isLiked = (post.likedBy || []).includes(user.uid);
       const likeCount = (post.likedBy || []).length;
       const createdAt = post.createdAt?.toDate ? post.createdAt.toDate() : post.createdAt ? new Date(post.createdAt) : null;
@@ -402,9 +414,9 @@ export function renderHome(el, user, profile) {
         <div class="home-post-card" id="home-post-${post.id}">
           <div class="home-post-header">
             <div class="home-post-author">
-              <div class="home-avatar">${esc((post.authorName || 'U')[0])}</div>
+              <div class="home-avatar">${author?.avatar ? `<img src="${esc(author.avatar)}" alt="">` : esc(authorName[0])}</div>
               <div>
-                <strong>${esc(post.authorName || 'Us')}</strong><br>
+                <strong>${esc(authorName)}</strong><br>
                 <small>${timeStr}</small>
               </div>
             </div>
@@ -505,12 +517,12 @@ export function renderHome(el, user, profile) {
               return `
                 <div class="home-comment-thread">
                   <div class="home-comment-item">
-                    <strong>${esc(comment.authorName || "Us")}</strong>
+                    <strong>${esc(getDisplayName(comment.authorId, comment.authorName || "Us"))}</strong>
                     <p>${esc(comment.text || "")}</p>
-                    <button class="home-comment-reply-btn" type="button" data-comment-id="${comment.id}" data-author="${esc(comment.authorName || "Us")}">Reply</button>
+                    <button class="home-comment-reply-btn" type="button" data-comment-id="${comment.id}" data-author="${esc(getDisplayName(comment.authorId, comment.authorName || "Us"))}">Reply</button>
                   </div>
                   ${replies.length ? `<div class="home-comment-replies">${replies.map(reply => `
-                    <div class="home-comment-item"><strong>${esc(reply.authorName || "Us")}</strong><p>${esc(reply.text || "")}</p></div>
+                    <div class="home-comment-item"><strong>${esc(getDisplayName(reply.authorId, reply.authorName || "Us"))}</strong><p>${esc(reply.text || "")}</p></div>
                   `).join("")}</div>` : ""}
                 </div>
               `;

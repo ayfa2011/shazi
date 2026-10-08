@@ -1,5 +1,5 @@
 import { initAuth, logout } from "./auth.js";
-import { $,$$, esc, toast } from "./utils.js";
+import { $,$$, esc, toast, compressImage } from "./utils.js";
 import { renderHome, disposeHome } from "./dashboard.js";
 import { renderMemories, disposeMemories } from "./memories.js";
 import { renderGames, disposeGames } from "./games.js";
@@ -14,8 +14,32 @@ import { renderDrawing, disposeDrawing } from "./drawing.js";
 import { renderChallenges, disposeChallenges } from "./challenges.js";
 import { initMusic } from "./music.js";
 import { firebaseReady } from "./firebase.js";
+import { getCoupleProfiles, saveCoupleProfile, watchCoupleProfiles } from "./firestore.js";
+import { applyCoupleProfiles, findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 
 let currentUser = null, currentProfile = null;
+let currentRoute = "home", stopCoupleProfiles = null;
+
+function updateProfileAvatar(profile) {
+  const avatar = $("#avatar-letter");
+  if (!avatar) return;
+  if (profile.avatar) {
+    const image = new Image();
+    image.alt = "";
+    image.src = profile.avatar;
+    avatar.replaceChildren(image);
+  } else {
+    avatar.textContent = profile.emoji || profile.name?.[0] || "♡";
+  }
+}
+
+window.addEventListener("couple-profiles-updated", () => {
+  if (!currentUser) return;
+  currentProfile = Object.values(APP_CONFIG.profiles).find(person => person.email === currentUser.email) || currentProfile;
+  if (currentProfile) updateProfileAvatar(currentProfile);
+  if (currentRoute !== "more") navigate(currentRoute);
+  else $("#more-detail")?.dispatchEvent(new Event("couple-profile-settings-changed"));
+});
 
 // Post / Twitter Feed Logic
 function renderGallery(el, user, profile) {
@@ -26,7 +50,7 @@ let stopPostFeed = null, disposePostFeed = null, postCommentStops = new Map();
 
 function renderPostFeed(el, user, profile) {
   disposePostFeed?.();
-  let active = true, filter = "all", posts = [];
+  let active = true, selectedProfile = "all", posts = [];
 
   el.innerHTML = `
     <style>
@@ -91,7 +115,7 @@ function renderPostFeed(el, user, profile) {
         padding-top: 10px;
       }
       .tw-post-btn {
-        background: #1d9bf0;
+        background: #d74482;
         color: white;
         border: none;
         padding: 8px 16px;
@@ -163,7 +187,7 @@ function renderPostFeed(el, user, profile) {
         font-size: 13px;
       }
       .tw-action-btn:hover {
-        color: #1d9bf0;
+        color: #d74482;
       }
       .tw-action-btn.liked {
         color: #f91880;
@@ -190,37 +214,76 @@ function renderPostFeed(el, user, profile) {
         font-size: 13px;
         outline: none;
       }
+      .tw-profile-picker { display:flex; gap:0; overflow-x:auto; padding:8px 12px; background:#fff; border-bottom:1px solid #f3e2e9; }
+      .tw-profile-card { flex:0 0 auto; display:flex; align-items:center; gap:9px; min-width:104px; padding:8px 10px; border:0; border-bottom:2px solid transparent; background:#fff; color:#60283f; text-align:left; cursor:pointer; }
+      .tw-profile-card.selected { border-bottom-color:#d74482; background:#fff8fb; }
+      .tw-profile-avatar { width:38px; height:38px; display:grid; place-items:center; flex:none; overflow:hidden; border-radius:50%; background:linear-gradient(135deg,#f7a8c5,#de4e88); color:#fff; font-weight:700; }
+      .tw-profile-card small { display:block; margin-top:2px; color:#8b7180; font-size:10px; }
+      .tw-profile-avatar img,.tw-avatar img { width:100%; height:100%; border-radius:50%; object-fit:cover; }
+      .tw-profile-bio { display:block; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .tw-profile-view { padding:0 16px 14px; border-bottom:1px solid #f3e2e9; background:#fff; }
+      .tw-profile-cover { height:105px; margin:0 -16px; background:linear-gradient(125deg,#f6c3d7,#fff0f6 56%,#e99dbb); }
+      .tw-profile-summary { display:flex; justify-content:space-between; align-items:flex-end; min-height:48px; }
+      .tw-profile-large-avatar { width:78px; height:78px; margin-top:-39px; display:grid; place-items:center; overflow:hidden; border:4px solid white; border-radius:50%; background:#ffe4ef; color:#8f315d; font-size:27px; font-weight:700; }
+      .tw-profile-large-avatar img { width:100%; height:100%; object-fit:cover; }
+      .tw-profile-name { margin:8px 0 0; color:#34242c; font-size:19px; font-weight:800; }
+      .tw-profile-handle { margin:1px 0 0; color:#8c737d; font-size:13px; }
+      .tw-profile-description { margin:9px 0 2px; color:#34242c; font-size:13px; line-height:1.45; overflow-wrap:anywhere; }
+      .tw-profile-post-count { color:#8c737d; font-size:12px; }
+      .tw-profile-card strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .tw-profile-picker [data-profile="all"] { min-width:88px; justify-content:center; text-align:center; }
+      .tw-composer,.tw-post-card,.tw-header { border-color:#f3e2e9; }
     </style>
 
     <div class="tw-feed-container">
       <div class="tw-header">
-        <h1>Home</h1>
-        <span style="color:#1d9bf0; font-size:18px;">✨</span>
+        <h1>Our Posts</h1>
+        <span style="color:#d74482; font-size:18px;">♡</span>
       </div>
 
+      <div class="tw-profile-picker" aria-label="Choose a profile">
+        ${Object.entries(APP_CONFIG.profiles).map(([key, person]) => `
+          <button type="button" class="tw-profile-card" data-profile="${esc(key)}">
+            <span class="tw-profile-avatar">${person.avatar ? `<img src="${esc(person.avatar)}" alt="">` : esc(person.name[0])}</span>
+            <span><strong>${esc(person.name)}</strong></span>
+          </button>
+        `).join("")}
+        <button type="button" class="tw-profile-card selected" data-profile="all">All posts</button>
+      </div>
+
+      <div class="tw-profile-view hidden" id="tw-profile-view"></div>
       <form class="tw-composer" id="tw-main-composer">
-        <div class="tw-avatar">${esc((profile.name || "U")[0])}</div>
+        <div class="tw-avatar">${profile.avatar ? `<img src="${esc(profile.avatar)}" alt="">` : esc((profile.name || "U")[0])}</div>
         <div class="tw-composer-input">
           <textarea name="text" rows="3" placeholder="What's happening?"></textarea>
           <div class="tw-composer-actions">
-            <label style="cursor:pointer; color:#1d9bf0; font-weight:600; font-size:14px;">
+            <label style="cursor:pointer; color:#d74482; font-weight:600; font-size:14px;">
               📷 Photo
               <input type="file" name="photo" accept="image/*" style="display:none;">
             </label>
-            <span class="tw-photo-name" style="font-size:12px; color:#536471;"></span>
+            <span class="tw-photo-name" style="font-size:12px; color:#8b7180;"></span>
             <button type="submit" class="tw-post-btn">Post</button>
           </div>
         </div>
       </form>
 
       <div id="tw-posts-feed">
-        <p style="padding:20px; text-align:center; color:#536471;">Loading posts...</p>
+        <p style="padding:20px; text-align:center; color:#8b7180;">Loading posts...</p>
       </div>
     </div>
   `;
 
   const feed = $("#tw-posts-feed", el);
   const composer = $("#tw-main-composer", el);
+  const profileView = $("#tw-profile-view", el);
+
+  el.querySelectorAll(".tw-profile-card").forEach(button => {
+    button.onclick = () => {
+      selectedProfile = button.dataset.profile;
+      el.querySelectorAll(".tw-profile-card").forEach(card => card.classList.toggle("selected", card === button));
+      render();
+    };
+  });
 
   composer.elements.photo.onchange = () => {
     composer.querySelector(".tw-photo-name").textContent = composer.elements.photo.files[0]?.name || "";
@@ -234,14 +297,8 @@ function renderPostFeed(el, user, profile) {
     if (!text && !file) return toast("Write something first!");
 
     try {
-      let photoUrl = "";
-      if (file) {
-        photoUrl = await new Promise((res) => {
-          const r = new FileReader();
-          r.onload = (ev) => res(ev.target.result);
-          r.readAsDataURL(file);
-        });
-      }
+      const photoUrl = file ? await compressImage(file) : "";
+      if (file && !photoUrl) return toast("Could not read that photo. Please choose another image.");
 
       await addDiaryPost({
         authorId: user.uid,
@@ -256,6 +313,7 @@ function renderPostFeed(el, user, profile) {
       composer.querySelector(".tw-photo-name").textContent = "";
       toast("Posted! ✨");
     } catch (err) {
+      console.error("Could not create post:", err);
       toast("Could not post.");
     }
   };
@@ -267,16 +325,42 @@ function renderPostFeed(el, user, profile) {
   });
 
   function render() {
-    if (posts.length === 0) {
-      feed.innerHTML = `<p style="padding:30px; text-align:center; color:#536471;">No posts yet. Share your first thought!</p>`;
+    const visiblePosts = selectedProfile === "all"
+      ? posts
+      : posts.filter(post => {
+        const person = APP_CONFIG.profiles[selectedProfile];
+        return person && findProfileForAuthor(post.authorId, post.authorName || "") === person;
+      });
+    const selectedPerson = APP_CONFIG.profiles[selectedProfile];
+    profileView.classList.toggle("hidden", !selectedPerson);
+    composer.classList.toggle("hidden", Boolean(selectedPerson));
+    if (selectedPerson) {
+      const postCount = visiblePosts.length;
+      const handle = `@${selectedPerson.name.toLocaleLowerCase().replace(/\s+/g, "")}`;
+      profileView.innerHTML = `
+        <div class="tw-profile-cover"></div>
+        <div class="tw-profile-summary">
+          <div class="tw-profile-large-avatar">${selectedPerson.avatar ? `<img src="${esc(selectedPerson.avatar)}" alt="${esc(selectedPerson.name)}">` : esc(selectedPerson.name[0] || "♡")}</div>
+        </div>
+        <h2 class="tw-profile-name">${esc(selectedPerson.name)}</h2>
+        <p class="tw-profile-handle">${esc(handle)}</p>
+        <p class="tw-profile-description">${esc(selectedPerson.bio || "")}</p>
+        <span class="tw-profile-post-count">${postCount} ${postCount === 1 ? "post" : "posts"}</span>
+      `;
+    }
+    if (visiblePosts.length === 0) {
+      const person = APP_CONFIG.profiles[selectedProfile];
+      feed.innerHTML = `<p style="padding:24px 16px; text-align:center; color:#8b7180;">${person ? `No posts yet.` : "No posts yet. Share your first thought!"}</p>`;
       return;
     }
 
-    feed.innerHTML = posts.map((post) => {
+    feed.innerHTML = visiblePosts.map((post) => {
       const own = post.authorId === user.uid || post.authorId === profile.id;
       const isLiked = (post.likedBy || []).includes(user.uid);
       const likeCount = (post.likedBy || []).length;
-      const handle = `@${(post.authorName || 'us').toLowerCase()}`;
+      const authorName = getDisplayName(post.authorId, post.authorName || "Us");
+      const authorProfile = findProfileForAuthor(post.authorId, post.authorName || "");
+      const handle = `@${authorName.toLowerCase().replace(/\s+/g, "")}`;
       const createdAt = post.createdAt?.toDate ? post.createdAt.toDate() : post.createdAt ? new Date(post.createdAt) : null;
       const timeStr = createdAt && !Number.isNaN(createdAt.getTime())
         ? createdAt.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
@@ -284,11 +368,11 @@ function renderPostFeed(el, user, profile) {
 
       return `
         <div class="tw-post-card" id="post-${post.id}">
-          <div class="tw-avatar">${esc((post.authorName || 'U')[0])}</div>
+          <div class="tw-avatar">${authorProfile?.avatar ? `<img src="${esc(authorProfile.avatar)}" alt="">` : esc(authorName[0])}</div>
           <div class="tw-post-content">
             <div class="tw-post-header">
               <div class="tw-user-info">
-                <span class="tw-user-name">${esc(post.authorName || 'Us')}</span>
+                <span class="tw-user-name">${esc(authorName)}</span>
                 <span class="tw-user-handle">${handle}</span>
                 <time class="tw-post-time">${timeStr}</time>
               </div>
@@ -323,21 +407,34 @@ function renderPostFeed(el, user, profile) {
       `;
     }).join("");
 
-    posts.forEach((post) => {
+    visiblePosts.forEach((post) => {
       const likeBtn = feed.querySelector(`.tw-like-btn[data-id="${post.id}"]`);
       if (likeBtn) {
         likeBtn.onclick = async () => {
           const liked = (post.likedBy || []).includes(user.uid);
-          await toggleDiaryLike(post.id, user.uid, liked);
+          try {
+            await toggleDiaryLike(post.id, user.uid, liked);
+          } catch (err) {
+            console.error("Could not update post like:", err);
+            toast("Could not update the like.");
+          }
         };
       }
+      feed.querySelector(`.tw-reply-btn[data-id="${post.id}"]`)?.addEventListener("click", () => {
+        feed.querySelector(`.tw-comment-form[data-post-id="${post.id}"] input[name="reply"]`)?.focus();
+      });
 
       const delBtn = feed.querySelector(`.tw-del-btn[data-id="${post.id}"]`);
       if (delBtn) {
         delBtn.onclick = async () => {
           if (confirm("Delete this tweet?")) {
-            await deleteDiaryPost(post.id);
-            toast("Deleted post");
+            try {
+              await deleteDiaryPost(post.id);
+              toast("Deleted post");
+            } catch (err) {
+              console.error("Could not delete post:", err);
+              toast("Could not delete post.");
+            }
           }
         };
       }
@@ -347,8 +444,14 @@ function renderPostFeed(el, user, profile) {
         editBtn.onclick = async () => {
           const newText = prompt("Edit your post:", post.text);
           if (newText !== null && newText.trim() !== (post.text || "")) {
-            await updateDiaryPost(post.id, { text: newText.trim() });
-            toast("Post updated!");
+            if (!newText.trim() && !post.photoUrl) return toast("A post needs text or a photo.");
+            try {
+              await updateDiaryPost(post.id, { text: newText.trim() });
+              toast("Post updated!");
+            } catch (err) {
+              console.error("Could not update post:", err);
+              toast("Could not update post.");
+            }
           }
         };
       }
@@ -360,7 +463,7 @@ function renderPostFeed(el, user, profile) {
           if (target) {
             target.innerHTML = comments.map(c => `
               <div class="tw-comment-item">
-                <strong>${esc(c.authorName || 'Us')}:</strong> ${esc(c.text || '')}
+                <strong>${esc(getDisplayName(c.authorId, c.authorName || "Us"))}:</strong> ${esc(c.text || '')}
               </div>
             `).join("");
           }
@@ -374,13 +477,18 @@ function renderPostFeed(el, user, profile) {
           e.preventDefault();
           const text = commentForm.elements.reply.value.trim();
           if (!text) return;
-          await addDiaryComment(post.id, {
-            authorId: user.uid,
-            authorName: profile.name,
-            text
-          });
-          commentForm.reset();
-          toast("Reply sent!");
+          try {
+            await addDiaryComment(post.id, {
+              authorId: user.uid,
+              authorName: profile.name,
+              text
+            });
+            commentForm.reset();
+            toast("Reply sent!");
+          } catch (err) {
+            console.error("Could not send reply:", err);
+            toast("Could not send reply.");
+          }
         };
       }
     });
@@ -400,7 +508,7 @@ const titles = {
   home: "Keby & Shazy",
   memories: "Memories",
   games: "Games",
-  gallery: "Post",
+  gallery: "Our Posts",
   letters: "Letters",
   questions: "Today's Question",
   bucket: "Our Bucket List",
@@ -430,6 +538,7 @@ window.App = {
 };
 
 export function navigate(route = "home") {
+  currentRoute = route;
   document.body.classList.toggle("home-dashboard", route === "home");
   // Dispose active listeners based on previous page to stop leaks
   if (route !== "home") disposeHome();
@@ -464,9 +573,43 @@ export function navigate(route = "home") {
 
 // Initialize Authentication & Router Lifecycle
 initAuth(
-  (user, profile) => {
+  async (user, profile) => {
     currentUser = user;
-    currentProfile = profile;
+    stopCoupleProfiles?.();
+    stopCoupleProfiles = null;
+    try {
+      applyCoupleProfiles(await getCoupleProfiles());
+    } catch (error) {
+      console.error("Could not load shared profiles:", error);
+      toast("Could not load saved profile settings.");
+    }
+    if (currentUser?.uid !== user.uid) return;
+    currentProfile = Object.values(APP_CONFIG.profiles).find(person => person.email === user.email) || profile;
+
+    const profileKey = getProfileKey(currentProfile);
+    if (profileKey && currentProfile.authUid !== user.uid) {
+      currentProfile.authUid = user.uid;
+      try {
+        await saveCoupleProfile(profileKey, { authUid: user.uid });
+      } catch (error) {
+        console.error("Could not link profile to Firebase account:", error);
+        toast("Could not link this account to its shared profile.");
+      }
+    }
+    if (currentUser?.uid !== user.uid) return;
+
+    stopCoupleProfiles = watchCoupleProfiles(data => {
+      if (currentUser?.uid !== user.uid) return;
+      if (applyCoupleProfiles(data)) {
+        currentProfile = Object.values(APP_CONFIG.profiles).find(person => person.email === user.email) || currentProfile;
+        updateProfileAvatar(currentProfile);
+        if (currentRoute !== "more") navigate(currentRoute);
+        else $("#more-detail")?.dispatchEvent(new Event("couple-profile-settings-changed"));
+      }
+    }, error => {
+      console.error("Shared profile updates failed:", error);
+      toast("Profile updates could not be synced.");
+    });
 
     // Hide Login Screen and Show Main App
     const authView = $("#auth-view");
@@ -476,7 +619,7 @@ initAuth(
 
     // Update Avatar
     const avatarElem = $("#avatar-letter");
-    if (avatarElem) avatarElem.textContent = profile.emoji || profile.name?.[0] || "♡";
+    updateProfileAvatar(currentProfile);
 
     // Route to Home by default
     navigate("home");
@@ -491,6 +634,10 @@ initAuth(
     }
   },
   () => {
+    currentUser = null;
+    currentProfile = null;
+    stopCoupleProfiles?.();
+    stopCoupleProfiles = null;
     // Clean up all active Firestore subscriptions on logout
     disposeHome();
     disposeDrawing();

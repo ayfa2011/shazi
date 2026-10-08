@@ -1,6 +1,7 @@
 import { $, esc, toast, dailyIndex, todayKey } from "./utils.js";
 import { watchItems, addItem } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
+import { getDisplayName } from "./profile-data.js";
 
 let stopChallenges = null, active = false;
 
@@ -64,7 +65,7 @@ export function renderChallenges(el, user, profile) {
           <div class="item">
             <div>
               <strong>${esc(x.title)}</strong>
-              <br><small style="color:#9ca3af;">By ${esc(x.authorName || 'Us')}</small>
+              <br><small style="color:#9ca3af;">By ${esc(getDisplayName(x.author, x.authorName || "Us"))}</small>
             </div>
             <span class="tag">Completed</span>
           </div>

@@ -1,6 +1,7 @@
 import { $, esc, toast, todayKey, dailyIndex } from "./utils.js";
 import { watchItems, addItem } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
+import { findProfileForAuthor, getDisplayName } from "./profile-data.js";
 
 let stopAnswers = null, active = false;
 
@@ -268,15 +269,17 @@ export function renderQuestions(el, user, profile) {
       answersContainer.innerHTML = todayAnswers.map(x => {
         const isSelf = x.author === user.uid;
         const canView = isSelf || bothAnswered;
+        const answerProfile = findProfileForAuthor(x.author, x.authorName || "");
+        const photo = answerProfile?.avatar || x.photoUrl;
 
         return `
           <div class="answer-item">
             <div class="answer-avatar">
-              ${x.photoUrl ? `<img src="${x.photoUrl}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">` : esc((x.authorName || 'U')[0])}
+              ${photo ? `<img src="${esc(photo)}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">` : esc(getDisplayName(x.author, x.authorName || "Us")[0])}
             </div>
             <div class="answer-content">
               <div class="answer-meta">
-                <span class="author-name">${esc(x.authorName || 'Us')}</span>
+                <span class="author-name">${esc(getDisplayName(x.author, x.authorName || "Us"))}</span>
                 <span class="answer-date">${displayDate}</span>
               </div>
               ${canView 

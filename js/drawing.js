@@ -2,6 +2,7 @@ import { $, esc, toast } from "./utils.js";
 import { rtdb } from "./firebase.js";
 import { addDrawingMessage, watchDrawingMessages, getDrawingsFolder, saveDrawingsFolder } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
+import { getDisplayName } from "./profile-data.js";
 import { ref, push, onChildAdded, onValue, onDisconnect, set, remove } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
 const root = "couples/our-little-world/drawing";
@@ -223,7 +224,7 @@ export function renderDrawing(el, user, profile) {
       <article class="history-card">
         <button class="history-image" data-open-drawing="${esc(m.driveFileId)}">${m.thumbnailUrl ? `<img src="${esc(m.thumbnailUrl)}" alt="Drawing">` : `<span>♡</span><small>Open</small>`}</button>
         <div>
-          <strong>${esc(m.authorName || "Us")}</strong>
+          <strong>${esc(getDisplayName(m.authorId, m.authorName || "Us"))}</strong>
           <small>${m.createdAt?.toDate ? m.createdAt.toDate().toLocaleString() : new Date(m.createdAtMs || Date.now()).toLocaleString()}</small>
           <a href="${esc(m.driveUrl || `https://drive.google.com/file/d/${m.driveFileId}/view`)}" target="_blank" rel="noopener">Open Drive ↗</a>
         </div>

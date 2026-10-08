@@ -37,6 +37,21 @@ export function watchItems(type, cb) {
 
 const couplePath = () => ["couples", APP_CONFIG.coupleId];
 
+const profilesRef = () => doc(db, ...couplePath(), "settings", "profiles");
+
+export async function getCoupleProfiles() {
+  const snapshot = await getDoc(profilesRef());
+  return snapshot.exists() ? snapshot.data() : {};
+}
+
+export function watchCoupleProfiles(cb, onError) {
+  return onSnapshot(profilesRef(), snapshot => cb(snapshot.exists() ? snapshot.data() : {}), onError);
+}
+
+export async function saveCoupleProfile(profileKey, profileData) {
+  await setDoc(profilesRef(), { [profileKey]: profileData, updatedAt: serverTimestamp() }, { merge: true });
+}
+
 const diaryCollection = () => {
   if (!firebaseReady) throw new Error("Connect Firebase before using the diary.");
   return collection(db, ...couplePath(), "diaryPosts");
