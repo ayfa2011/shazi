@@ -1,9 +1,16 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    match /couples/{coupleId}/{allPaths=**} {
-      allow read, write: if request.auth != null
+    function isPartner() {
+      return request.auth != null
         && request.auth.token.email in ['akabeeram@gmail.com', 'hizasgallery@gmail.com'];
+    }
+    match /couples/our-little-world/music/{allPaths=**} {
+      allow read: if isPartner();
+      allow create, update: if isPartner()
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType.matches('audio/.*');
+      allow delete: if isPartner();
     }
   }
 }

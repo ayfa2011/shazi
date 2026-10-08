@@ -28,6 +28,22 @@ self.addEventListener("activate", event => {
   );
 });
 
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  const route = ["home", "questions", "challenges", "letters", "memories"].includes(event.notification.data?.route)
+    ? event.notification.data.route
+    : "home";
+  const destination = new URL(`?open=${encodeURIComponent(route)}`, self.registration.scope).href;
+  event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async clients => {
+    const existing = clients.find(client => "focus" in client);
+    if (existing) {
+      await existing.navigate(destination);
+      return existing.focus();
+    }
+    return self.clients.openWindow(destination);
+  }));
+});
+
 self.addEventListener("fetch", event => {
   const request = event.request;
   const url = new URL(request.url);

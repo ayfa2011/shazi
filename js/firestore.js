@@ -85,6 +85,72 @@ export function watchItems(type, cb, onError) {
 }
 
 const couplePath = () => ["couples", APP_CONFIG.coupleId];
+const notificationsRef = () => collection(db, ...couplePath(), "notifications");
+
+export async function notifyPartner(actorKey, type, message, sourceId, route) {
+  if (!firebaseReady) throw new Error("Connect Firebase before sending notifications.");
+  const actor = APP_CONFIG.profiles[actorKey];
+  const recipientKey = Object.keys(APP_CONFIG.profiles).find(key => key !== actorKey);
+  if (!actor || !recipientKey) throw new Error("Could not identify both partners for this notification.");
+  if (!["question", "challenge", "letter", "memory"].includes(type)) throw new Error("Unsupported notification type.");
+  if (typeof message !== "string" || !message.trim() || message.length > 240) throw new Error("Notification message is invalid.");
+  if (!["home", "questions", "challenges", "letters", "memories"].includes(route)) throw new Error("Notification route is invalid.");
+  const safeSourceId = String(sourceId || "").replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 100);
+  if (!safeSourceId) throw new Error("Notification source is missing.");
+
+  const notificationId = `${type}-${safeSourceId}-${recipientKey}`;
+  const reference = doc(notificationsRef(), notificationId);
+  return runTransaction(db, async transaction => {
+    if ((await transaction.get(reference)).exists()) return false;
+    transaction.set(reference, {
+      recipientKey,
+      actorKey,
+      type,
+      title: actor.name,
+      message: message.trim(),
+      route,
+      sourceId: safeSourceId,
+      createdAt: serverTimestamp(),
+      readAt: null
+    });
+    return true;
+  });
+}
+
+export async function notifyPartnerSafely(actorKey, type, message, sourceId, route) {
+  try {
+    return await notifyPartner(actorKey, type, message, sourceId, route);
+  } catch (error) {
+    console.error(`Could not create the ${type} notification:`, error);
+    return false;
+  }
+}
+
+export function watchNotifications(recipientKey, callback, onError) {
+  if (!firebaseReady) throw new Error("Connect Firebase before loading notifications.");
+  if (!Object.hasOwn(APP_CONFIG.profiles, recipientKey)) throw new Error("Could not identify the notification recipient.");
+  return onSnapshot(
+    query(notificationsRef(), where("recipientKey", "==", recipientKey)),
+    snapshot => callback(snapshot.docs
+      .map(item => ({ id: item.id, ...item.data() }))
+      .sort((a, b) => {
+        const timestamp = value => value?.toMillis?.() || Date.parse(value || "") || 0;
+        return timestamp(b.createdAt) - timestamp(a.createdAt);
+      })
+      .slice(0, 50)),
+    onError
+  );
+}
+
+export async function markNotificationsRead(notificationIds) {
+  if (!firebaseReady) throw new Error("Connect Firebase before updating notifications.");
+  const ids = [...new Set(notificationIds)].filter(id => typeof id === "string" && id);
+  if (ids.length > 50) throw new Error("Too many notifications to update at once.");
+  if (!ids.length) return;
+  const batch = writeBatch(db);
+  ids.forEach(id => batch.update(doc(notificationsRef(), id), { readAt: serverTimestamp() }));
+  await batch.commit();
+}
 
 const profilesRef = () => doc(db, ...couplePath(), "settings", "profiles");
 

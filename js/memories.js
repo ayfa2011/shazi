@@ -1,5 +1,6 @@
 import { $, esc, toast, compressImage } from "./utils.js";
-import { watchItems, addItem, removeItem, setItem } from "./firestore.js";
+import { watchItems, addItem, removeItem, setItem, notifyPartnerSafely } from "./firestore.js";
+import { getProfileKey } from "./profile-data.js";
 
 let stopMemories = null;
 let active = false;
@@ -181,7 +182,9 @@ export function renderMemories(el, user, profile) {
         await setItem(editId, payload);
         toast("Memory updated ♡");
       } else {
-        await addItem("memory", { ...payload, author: user.uid });
+        const memory = await addItem("memory", { ...payload, author: user.uid });
+        const profileKey = getProfileKey(profile);
+        if (profileKey) void notifyPartnerSafely(profileKey, "memory", `${profile?.name || "Your partner"} added a new memory.`, memory.id, "memories");
         toast("Memory saved ♡");
       }
 

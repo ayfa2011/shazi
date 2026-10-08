@@ -5,7 +5,8 @@ import {
   watchItems,
   acceptChallengeAssignment,
   completeChallengeAssignment,
-  skipChallengeAssignment
+  skipChallengeAssignment,
+  notifyPartnerSafely
 } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
@@ -314,6 +315,7 @@ export function renderChallenges(el, user, profile) {
           profileKey: ownKey,
           name: profile.name
         }, form.elements.note.value.trim(), photoUrl);
+        void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed a challenge.`, assignmentId, "challenges");
         modalRoot.innerHTML = "";
         toast("Challenge completed ♡");
       } catch (error) {

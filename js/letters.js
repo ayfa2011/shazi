@@ -1,5 +1,5 @@
 import { $, esc, toast } from "./utils.js";
-import { watchItems, addLetter, getScheduledLetterBody, migrateScheduledLetterBody } from "./firestore.js";
+import { watchItems, addLetter, getScheduledLetterBody, migrateScheduledLetterBody, notifyPartnerSafely } from "./firestore.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { APP_CONFIG } from "../config/app-config.js";
 
@@ -316,7 +316,7 @@ export function renderLetters(el, user, profile) {
     const deliverDate = status === "Scheduled" ? new Date(deliverInput.value).toISOString() : new Date().toISOString();
 
     try {
-      await addLetter({
+      const letter = await addLetter({
         recipient,
         body,
         status,
@@ -325,6 +325,9 @@ export function renderLetters(el, user, profile) {
         authorName: profile.name,
         createdAt: new Date().toISOString()
       });
+      if (status === "Sent" && recipient !== ownKey) {
+        void notifyPartnerSafely(ownKey, "letter", "New letter received.", letter.id, "letters");
+      }
 
       writeModal.style.display = "none";
       $("#write-letter-form", el).reset();

@@ -1,11 +1,12 @@
 import { $, esc, toast, todayKey, compressImage, scheduleDubaiDayRollover } from "./utils.js";
-import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, watchDiaryComments, addDiaryComment, addDiaryPost, updateDiaryPost, deleteDiaryPost } from "./firestore.js";
+import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, watchDiaryComments, addDiaryComment, addDiaryPost, updateDiaryPost, deleteDiaryPost, watchItems } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
+import { formatSpecialDayDate, specialDayCountdown } from "./special-day-utils.js";
 import { ensureDailyQuestion, watchQuestionParticipants } from "./question-service.js";
 import { challengeForDay } from "./challenge-bank.js";
 
-let stopPosts = null, stopRelationship = null, stopDrawings = null, stopQuestionParticipants = null, counterTimer = null, dayRolloverTimer = null, homeRenderToken = 0, postCommentStops = new Map();
+let stopPosts = null, stopRelationship = null, stopDrawings = null, stopQuestionParticipants = null, stopSpecialDays = null, counterTimer = null, dayRolloverTimer = null, homeRenderToken = 0, postCommentStops = new Map();
 
 export function renderHome(el, user, profile) {
   const renderToken = ++homeRenderToken;
@@ -14,6 +15,8 @@ export function renderHome(el, user, profile) {
   stopRelationship?.();
   stopDrawings?.();
   stopQuestionParticipants?.();
+  stopSpecialDays?.();
+  stopSpecialDays = null;
   postCommentStops.forEach(stop => stop());
   postCommentStops.clear();
   clearInterval(counterTimer);
@@ -236,6 +239,8 @@ export function renderHome(el, user, profile) {
         <p>TWO HEARTS <span>♥</span> ONE JOURNEY</p>
       </div>
 
+      <aside class="home-special-day-reminders" id="home-special-day-reminders" aria-live="polite" hidden></aside>
+
       <section class="together-counter" aria-label="Relationship counter">
         <div class="counter-script" aria-hidden="true">Together<br>Since ↗<br>♡</div>
         <div class="counter-main home-counter-content">
@@ -315,6 +320,36 @@ export function renderHome(el, user, profile) {
   const dateInput = $("#relationship-date-input", el);
   const questionProfileKey = getProfileKey(profile);
   let startDate = "";
+
+  stopSpecialDays = watchItems("specialDay", items => {
+    if (!isCurrent()) return;
+    const reminders = $("#home-special-day-reminders", el);
+    if (!reminders) return;
+    const upcoming = (items || [])
+      .map(item => ({ item, countdown: specialDayCountdown(item, todayKey()) }))
+      .filter(entry => entry.countdown && entry.countdown.days >= 0 && entry.countdown.days <= 3)
+      .sort((a, b) => a.countdown.days - b.countdown.days);
+    if (upcoming.length === 0) {
+      reminders.hidden = true;
+      reminders.replaceChildren();
+      return;
+    }
+    reminders.hidden = false;
+    reminders.innerHTML = upcoming.slice(0, 3).map(({ item, countdown }) => {
+      const text = countdown.days === 0
+        ? `Today: ${esc(item.title)}`
+        : `${countdown.days} ${countdown.days === 1 ? "day" : "days"} left to ${esc(item.title)}`;
+      const date = formatSpecialDayDate(countdown.date);
+      return `<p class="home-special-day-reminder"><span aria-hidden="true">🎉</span><span>${esc(text)}<small>${esc(date)}</small></span></p>`;
+    }).join("") + (upcoming.length > 3 ? `<p class="home-special-day-more">And ${upcoming.length - 3} more special ${upcoming.length - 3 === 1 ? "day" : "days"} coming up</p>` : "");
+  }, error => {
+    console.error("Dashboard special day reminders could not be loaded:", error);
+    const reminders = $("#home-special-day-reminders", el);
+    if (reminders) {
+      reminders.hidden = false;
+      reminders.innerHTML = `<p class="home-special-day-reminder home-special-day-error">Special day reminders could not be loaded.</p>`;
+    }
+  });
 
   const now = new Date();
   dateInput.max = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -675,6 +710,8 @@ export function disposeHome() {
   stopDrawings = null;
   stopQuestionParticipants?.();
   stopQuestionParticipants = null;
+  stopSpecialDays?.();
+  stopSpecialDays = null;
   clearInterval(counterTimer);
   counterTimer = null;
   clearTimeout(dayRolloverTimer);

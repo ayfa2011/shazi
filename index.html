@@ -44,6 +44,7 @@
         </div>
       </div>
       <div class="top-actions">
+        <div id="notification-center"></div>
         <button id="music-toggle" class="icon-btn" title="Music">♫</button>
         <button id="profile-btn" class="avatar" title="Profile"><span id="avatar-letter">♡</span></button>
       </div>
@@ -61,22 +62,43 @@
     </nav>
   </section>
 
-  <aside id="music-drawer" class="drawer hidden">
+  <aside id="music-drawer" class="drawer music-drawer hidden">
     <div class="drawer-head"><h3>Our Music ♫</h3><button id="music-close" class="icon-btn">×</button></div>
-    <div class="music-player">
-      <div class="album-art">♫</div>
-      <div>
-        <strong id="track-name">No song selected</strong>
-        <p id="track-status" class="muted">Upload a song to share it.</p>
+    <div class="music-main">
+      <div class="music-player">
+        <div class="album-art">♫</div>
+        <div class="music-track-copy">
+          <strong id="track-name">No song selected</strong>
+          <p id="track-status" class="muted">Upload a song to share it.</p>
+        </div>
       </div>
+      <audio id="audio-player" preload="metadata"></audio>
+      <div class="music-controls">
+        <button id="play-music" class="primary" disabled>Play</button>
+        <button id="pause-music" class="secondary" disabled>Pause</button>
+        <button id="listen-music" class="secondary">Listen</button>
+      </div>
+      <label class="music-volume-label">Your volume
+        <input id="music-volume" type="range" min="0" max="1" step="0.01" value="1">
+      </label>
+      <div class="music-song-actions">
+        <label class="upload-btn">Upload our song (max 10 MB)<input id="music-upload" type="file" accept="audio/*"></label>
+        <button id="save-music" class="secondary" disabled>Save to our music ♡</button>
+      </div>
+      <p class="music-storage-note muted">Songs you save stay in our library. Unsaved songs are removed when playback ends or we both leave the website.</p>
+      <section class="music-library-section">
+        <h4>Saved music</h4>
+        <div id="music-library" class="music-library"><p class="muted music-library-empty">Loading saved music…</p></div>
+      </section>
     </div>
-    <audio id="audio-player" controls preload="metadata"></audio>
-    <div class="music-controls">
-      <button id="play-music" class="primary">Play</button>
-      <button id="pause-music" class="secondary">Pause</button>
+    <section class="music-chat" aria-label="Live music chat">
+      <div class="music-chat-heading"><strong>Live chat</strong><small class="muted">Clears when we're both off the website</small></div>
+      <div id="music-chat-messages" class="music-chat-messages" aria-live="polite"></div>
+      <form id="music-chat-form" class="music-chat-form">
+        <input id="music-chat-input" maxlength="500" placeholder="Say something…" autocomplete="off" aria-label="Chat message">
+        <button class="primary" type="submit">Send</button>
+      </form>
     </div>
-    <label class="upload-btn">Upload our song<input id="music-upload" type="file" accept="audio/*"></label>
-    <small class="muted">Playback state is synchronized. Your browser may require one manual tap before audio can play.</small>
   </aside>
 
   <div id="modal-root"></div>

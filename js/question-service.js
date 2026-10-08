@@ -3,6 +3,7 @@ import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransa
 import { APP_CONFIG } from "../config/app-config.js";
 import { QUESTION_BANK_VERSION, QUESTION_CATEGORIES } from "./question-bank.js";
 import { todayKey } from "./utils.js";
+import { notifyPartnerSafely } from "./firestore.js";
 
 const coupleId = APP_CONFIG.coupleId;
 const bankRef = () => collection(db, "coupleQuestionBank", coupleId, "questions");
@@ -120,6 +121,8 @@ export async function submitQuestionAnswer(dayKey, profileKey, answer) {
   batch.set(answerDocument, { profileKey, answer, answeredAt: serverTimestamp() });
   batch.set(participantRef(dayKey, profileKey), { profileKey, answeredAt: serverTimestamp() });
   await batch.commit();
+  const name = APP_CONFIG.profiles[profileKey]?.name || "Your partner";
+  void notifyPartnerSafely(profileKey, "question", `${name} answered today's question.`, dayKey, "questions");
 }
 
 export async function migrateLegacyQuestionAnswers(user, profileKey) {

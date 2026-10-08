@@ -10,6 +10,8 @@ import { APP_CONFIG } from "../config/app-config.js";
 import { renderBucket, disposeBucket } from "./bucket-list.js";
 import { renderActivities } from "./activities.js";
 import { renderMore } from "./more.js";
+import { disposeSpecialDays } from "./special-days.js";
+import { disposeNotificationCenter, initNotificationCenter } from "./notification-center.js";
 import { renderDrawing, disposeDrawing } from "./drawing.js";
 import { renderChallenges, disposeChallenges } from "./challenges.js";
 import { initMusic } from "./music.js";
@@ -17,7 +19,7 @@ import { firebaseReady } from "./firebase.js";
 import { getCoupleProfiles, saveCoupleProfile, watchCoupleProfiles } from "./firestore.js";
 import { applyCoupleProfiles, findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 
-let currentUser = null, currentProfile = null;
+let currentUser = null, currentProfile = null, disposeMusic = null;
 let currentRoute = "home", stopCoupleProfiles = null;
 
 function updateProfileAvatar(profile) {
@@ -559,6 +561,7 @@ export function navigate(route = "home") {
   if (route !== "challenges") disposeChallenges?.();
   if (route !== "games") disposeGames?.();
   if (route !== "bucket") disposeBucket?.();
+  if (route !== "more") disposeSpecialDays();
   if (route !== "gallery") {
     disposePostFeed?.();
     disposePostFeed = null;
@@ -629,13 +632,20 @@ initAuth(
     // Update Avatar
     updateProfileAvatar(currentProfile);
 
-    // Route to Home by default
-    navigate("home");
+    const requestedRoute = new URLSearchParams(window.location.search).get("open");
+    const notificationRoutes = ["home", "questions", "challenges", "letters", "memories"];
+    const initialRoute = notificationRoutes.includes(requestedRoute) ? requestedRoute : "home";
+    if (requestedRoute && notificationRoutes.includes(requestedRoute)) {
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.hash}`);
+    }
+    navigate(initialRoute);
+    initNotificationCenter(user, currentProfile, navigate);
 
     // Initialize Background Music if Firebase Ready
     if (firebaseReady) {
       try {
-        initMusic();
+        disposeMusic?.();
+        disposeMusic = initMusic(user);
       } catch (e) {
         console.warn("Music initialization error:", e);
       }
@@ -644,6 +654,8 @@ initAuth(
   () => {
     currentUser = null;
     currentProfile = null;
+    disposeMusic?.();
+    disposeMusic = null;
     stopCoupleProfiles?.();
     stopCoupleProfiles = null;
     // Clean up all active Firestore subscriptions on logout
@@ -656,10 +668,13 @@ initAuth(
     disposeGames?.();
     disposeBucket?.();
     disposePostFeed?.();
+    disposeSpecialDays();
+    disposeNotificationCenter();
 
     const appView = $("#app-view");
     const authView = $("#auth-view");
     if (appView) appView.classList.add("hidden");
+    $("#music-drawer")?.classList.add("hidden");
     if (authView) authView.classList.remove("hidden");
   }
 );
@@ -690,7 +705,9 @@ document.addEventListener("DOMContentLoaded", () => {
   if (musicToggle) {
     musicToggle.addEventListener("click", () => {
       const drawer = $("#music-drawer");
-      if (drawer) drawer.classList.toggle("hidden");
+      if (drawer) {
+        drawer.classList.toggle("hidden");
+      }
     });
   }
 

@@ -14,6 +14,51 @@ service cloud.firestore {
         || (request.auth.token.email == 'hizasgallery@gmail.com' && authorId == 'profile-two');
     }
 
+    function ownNotificationProfileKey() {
+      return request.auth.token.email == 'akabeeram@gmail.com' ? 'kebyy' : 'shazy';
+    }
+
+    function isValidNotification(data, notificationId) {
+      return data.keys().hasAll(['recipientKey', 'actorKey', 'type', 'title', 'message', 'route', 'sourceId', 'createdAt', 'readAt'])
+        && data.keys().hasOnly(['recipientKey', 'actorKey', 'type', 'title', 'message', 'route', 'sourceId', 'createdAt', 'readAt'])
+        && data.actorKey == ownNotificationProfileKey()
+        && data.recipientKey in ['kebyy', 'shazy']
+        && data.recipientKey != data.actorKey
+        && data.type in ['question', 'challenge', 'letter', 'memory']
+        && data.title is string
+        && data.title.size() > 0
+        && data.title.size() <= 80
+        && data.message is string
+        && data.message.size() > 0
+        && data.message.size() <= 240
+        && ((data.type == 'question' && data.route == 'questions')
+          || (data.type == 'challenge' && data.route == 'challenges')
+          || (data.type == 'letter' && data.route == 'letters')
+          || (data.type == 'memory' && data.route == 'memories'))
+        && data.sourceId is string
+        && data.sourceId.size() > 0
+        && data.sourceId.size() <= 100
+        && data.sourceId.matches('^[A-Za-z0-9_-]+$')
+        && notificationId.matches('^(question|challenge|letter|memory)-[A-Za-z0-9_-]+-(kebyy|shazy)$')
+        && data.createdAt == request.time
+        && data.readAt == null;
+    }
+
+    function isValidSpecialDay(data) {
+      return data.keys().hasAll(['type', 'author', 'title', 'category', 'date', 'recurring', 'createdAt'])
+        && data.keys().hasOnly(['type', 'author', 'title', 'category', 'date', 'recurring', 'createdAt', 'updatedAt'])
+        && data.type == 'specialDay'
+        && data.title is string
+        && data.title.size() > 0
+        && data.title.size() <= 80
+        && data.category in ['Birthday', 'Anniversary', 'Celebration', 'Other']
+        && data.date is string
+        && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.recurring is bool
+        && data.createdAt is timestamp
+        && (!data.keys().hasAny(['updatedAt']) || data.updatedAt is timestamp);
+    }
+
     function ownsAuthoredFields(data) {
       return data.get('author', request.auth.uid) == request.auth.uid
         && isOwnAuthorId(data.get('authorId', request.auth.uid));
@@ -56,18 +101,23 @@ service cloud.firestore {
     match /couples/{coupleId}/{collectionName}/{documentId} {
       allow read: if isCoupleMember()
         && coupleId == 'our-little-world'
+        && collectionName != 'notifications'
         && collectionName != 'scheduledLetterContents'
         && (resource.data.get('type', '') != 'answer'
           || resource.data.get('author', '') == request.auth.uid);
       allow create: if isCoupleMember()
         && coupleId == 'our-little-world'
+        && collectionName != 'notifications'
         && collectionName != 'scheduledLetterContents'
         && !(collectionName == 'settings' && documentId == 'profiles')
         && request.resource.data.get('type', '') != 'answer'
         && ownsAuthoredFields(request.resource.data)
+        && (request.resource.data.get('type', '') != 'specialDay'
+          || (collectionName == 'items' && isValidSpecialDay(request.resource.data)))
         && ownsDiaryPost(collectionName, request.resource.data);
       allow update: if isCoupleMember()
         && coupleId == 'our-little-world'
+        && collectionName != 'notifications'
         && collectionName != 'scheduledLetterContents'
         && !(collectionName == 'settings' && documentId == 'profiles')
         && resource.data.get('type', '') != 'answer'
@@ -75,15 +125,42 @@ service cloud.firestore {
           (ownsAuthoredFields(resource.data)
             && ownsAuthoredFields(request.resource.data)
             && ownsDiaryPost(collectionName, request.resource.data))
+          || (collectionName == 'items'
+            && resource.data.get('type', '') == 'specialDay'
+            && isValidSpecialDay(request.resource.data)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'category', 'date', 'recurring', 'updatedAt']))
           || (collectionName == 'items' && isLegacyScheduledLetterBodyMigration())
         );
       allow delete: if isCoupleMember()
         && coupleId == 'our-little-world'
+        && collectionName != 'notifications'
         && collectionName != 'scheduledLetterContents'
         && !(collectionName == 'settings' && documentId == 'profiles')
         && resource.data.get('type', '') != 'answer'
-        && ownsAuthoredFields(resource.data)
-        && ownsDiaryPost(collectionName, resource.data);
+        && (
+          (ownsAuthoredFields(resource.data)
+            && ownsDiaryPost(collectionName, resource.data))
+          || (collectionName == 'items' && resource.data.get('type', '') == 'specialDay')
+        );
+    }
+
+    match /couples/{coupleId}/notifications/{notificationId} {
+      allow read: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && (!exists(/databases/$(database)/documents/couples/$(coupleId)/notifications/$(notificationId))
+          || resource.data.recipientKey == ownNotificationProfileKey()
+          || resource.data.actorKey == ownNotificationProfileKey());
+      allow create: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && isValidNotification(request.resource.data, notificationId);
+      allow update: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && resource.data.recipientKey == ownNotificationProfileKey()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt'])
+        && request.resource.data.readAt == request.time;
+      allow delete: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && resource.data.recipientKey == ownNotificationProfileKey();
     }
 
     match /couples/{coupleId}/diaryPosts/{postId}/comments/{commentId} {
