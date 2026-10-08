@@ -2,10 +2,17 @@ import { $, toast, todayKey, dailyIndex, scheduleDubaiDayRollover, esc } from ".
 import { recordDailyGameWin, recordGameMatchResult, watchItems } from "./firestore.js";
 import { firebaseReady, rtdb } from "./firebase.js";
 import { getDisplayName } from "./profile-data.js";
-import { onValue, ref, runTransaction } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
+import { mountFindTheWordsGame } from "./find-the-words.js";
+import { onDisconnect, onValue, ref, remove, runTransaction, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
 const ticTacToeRef = () => ref(rtdb, "couples/our-little-world/games/ticTacToe");
+const sosGameRef = () => ref(rtdb, "couples/our-little-world/games/sos");
+const sosPresenceRef = uid => ref(rtdb, `couples/our-little-world/games/sosPresence/${uid}`);
 const gameMatchRef = game => ref(rtdb, `couples/our-little-world/games/matches/${game}`);
+const SOS_ROWS = 9;
+const SOS_COLUMNS = 7;
+const SOS_CELL_COUNT = SOS_ROWS * SOS_COLUMNS;
+const SOS_DIRECTIONS = [[0, 1], [1, 0], [1, 1], [1, -1]];
 const symbols = ["🌸", "🌙", "🍓", "🐻", "💌", "🦋"];
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 const challenges = [
@@ -42,9 +49,13 @@ const winningLines = [
 
 let stopGames = null;
 let stopTicTacToe = null;
+let stopSosGame = null;
+let stopSosPresence = null;
+let stopSosConnection = null;
 let stopGameMatch = null;
 let memoryTimer = null;
 let dailyRolloverTimer = null;
+let disposeFindTheWords = null;
 
 function getDailySeed() {
   return dailyIndex(9);
@@ -81,8 +92,58 @@ const gameTitles = {
   "spin-wheel": "Spin Wheel",
   "couple-trivia": "Couple Trivia",
   "tic-tac-toe": "Tic Tac Toe",
+  sos: "SOS",
   "daily-hidden-heart": "Today's Hidden Heart"
 };
+
+function isValidSosState(state) {
+  if (!state || typeof state !== "object" || typeof state.matchId !== "string" ||
+      !["waiting", "playing", "finished", "cancelled"].includes(state.status) ||
+      !Array.isArray(state.playerUids) || state.playerUids.length < 1 || state.playerUids.length > 2 ||
+      new Set(state.playerUids).size !== state.playerUids.length ||
+      !state.playerUids.every(uid => typeof uid === "string" && uid) ||
+      !Array.isArray(state.board) || state.board.length !== SOS_CELL_COUNT ||
+      !Array.isArray(state.owners) || state.owners.length !== SOS_CELL_COUNT ||
+      !state.board.every((letter, index) => ["", "S", "O"].includes(letter) &&
+        (letter ? state.playerUids.includes(state.owners[index]) : state.owners[index] === "")) ||
+      !state.scores || typeof state.scores !== "object" ||
+      !state.playerUids.every(uid => Number.isInteger(state.scores[uid]) && state.scores[uid] >= 0) ||
+      !Array.isArray(state.lines) ||
+      !state.lines.every(line => Array.isArray(line.cells) && line.cells.length === 3 &&
+        line.cells.every(index => Number.isInteger(index) && index >= 0 && index < SOS_CELL_COUNT) &&
+        state.board[line.cells[0]] === "S" && state.board[line.cells[1]] === "O" &&
+        state.board[line.cells[2]] === "S" && state.playerUids.includes(line.uid))) return false;
+  if (state.status === "waiting") return state.playerUids.length === 1 && !state.turnUid;
+  if (state.status === "playing") return state.playerUids.length === 2 && state.playerUids.includes(state.turnUid);
+  if (state.status === "finished") return state.playerUids.length === 2 && !state.turnUid &&
+    (!state.winnerUid || state.playerUids.includes(state.winnerUid));
+  return !state.turnUid;
+}
+
+function findSosLines(board, moveIndex, uid, knownLines) {
+  const row = Math.floor(moveIndex / SOS_COLUMNS);
+  const column = moveIndex % SOS_COLUMNS;
+  const found = [];
+  for (const [rowStep, columnStep] of SOS_DIRECTIONS) {
+    for (let offset = -2; offset <= 0; offset++) {
+      const startRow = row + rowStep * offset;
+      const startColumn = column + columnStep * offset;
+      const coordinates = [0, 1, 2].map(step => [
+        startRow + rowStep * step,
+        startColumn + columnStep * step
+      ]);
+      if (coordinates.some(([lineRow, lineColumn]) =>
+        lineRow < 0 || lineRow >= SOS_ROWS || lineColumn < 0 || lineColumn >= SOS_COLUMNS)) continue;
+      const cells = coordinates.map(([lineRow, lineColumn]) => lineRow * SOS_COLUMNS + lineColumn);
+      if (cells.map(index => board[index]).join("") !== "SOS") continue;
+      const key = cells.join("-");
+      if (knownLines.has(key)) continue;
+      knownLines.add(key);
+      found.push({ cells, uid });
+    }
+  }
+  return found;
+}
 
 function gameIsComplete(game, state) {
   if (!state) return false;
@@ -175,8 +236,10 @@ function gamesHome() {
     </header>
     <div class="games-hub-grid">
       ${gameCard("tic-tac-toe", "⭕", "Tic Tac Toe", "A real-time game for two", "LIVE")}
+      ${gameCard("sos", "🔠", "SOS", "Make SOS lines, earn points, and play live", "LIVE")}
       ${gameCard("memory-match", "🧠", "Memory Match", "Take turns finding matching pairs", "2P")}
       ${gameCard("word-guess", "🔤", "Word Guess", "Set words for each other to guess", "2P")}
+      ${gameCard("find-words", "🔎", "Find the Words", "Race to find 16 new words together", "LIVE")}
       ${gameCard("emoji-quiz", "🌙", "Emoji Quiz", "Take turns decoding love in emojis", "2P")}
       ${gameCard("spin-wheel", "🎡", "Spin Wheel", "Complete three surprise challenges fastest", "2P")}
       ${gameCard("couple-trivia", "💞", "Couple Trivia", "Answer, then let your partner guess", "2P")}
@@ -310,6 +373,84 @@ function renderTicTacToe(content, user, gameState) {
   </div>`;
 }
 
+function renderSosGame(content, user, gameState, presence, selectedLetter) {
+  const uid = user.uid;
+  const state = gameState || null;
+  if (state && !isValidSosState(state)) {
+    content.innerHTML = `<section class="sos-game-page"><header class="sos-header"><button class="sos-back" type="button" data-back-games>← Games</button><h1>SOS</h1></header><p class="error sos-error">This match has invalid game data. Please start a new match.</p></section>`;
+    return;
+  }
+
+  const partnerOnline = Object.entries(presence || {}).some(([playerUid, value]) =>
+    playerUid !== uid && value?.online === true
+  );
+  const member = Boolean(state?.playerUids.includes(uid));
+  const waiting = state?.status === "waiting";
+  const playing = state?.status === "playing";
+  const finished = state?.status === "finished";
+  const ownScore = state?.scores?.[uid] || 0;
+  const partnerUid = state?.playerUids.find(playerUid => playerUid !== uid);
+  const partnerScore = partnerUid ? state.scores[partnerUid] || 0 : 0;
+  let turnMessage = !state
+    ? partnerOnline ? "Your partner is online. Start a live match!" : "Waiting for your partner to come online…"
+    : waiting
+      ? state.playerUids[0] === uid
+        ? partnerOnline ? "Your partner is online — waiting for them to join…" : "Waiting for your partner to come online…"
+        : partnerOnline ? "Your partner is online. Join to start playing!" : "Your partner is offline."
+      : playing
+        ? state.turnUid === uid ? "Your turn — choose S or O, then tap a square." : "Your partner's turn…"
+        : finished
+          ? state.winnerUid ? state.winnerUid === uid ? "You won! 🎉" : "Your partner won this round!" : "It's a tie! 🤝"
+          : "This match was cancelled.";
+
+  const lineCells = new Set((state?.lines || []).flatMap(line => line.cells));
+  const cells = (state?.board || Array(SOS_CELL_COUNT).fill("")).map((letter, index) => {
+    const owner = state?.owners?.[index];
+    const ownership = owner ? owner === uid ? " own" : " partner" : "";
+    const lineClass = lineCells.has(index) ? " sos-line-cell" : "";
+    const disabled = !playing || state.turnUid !== uid || !member || Boolean(letter);
+    return `<button type="button" class="sos-cell${ownership}${lineClass}" data-sos-cell="${index}" aria-label="Row ${Math.floor(index / SOS_COLUMNS) + 1}, column ${index % SOS_COLUMNS + 1}${letter ? `, ${letter}` : ", empty"}${lineCells.has(index) ? ", part of SOS" : ""}"${disabled ? " disabled" : ""}>${esc(letter)}</button>`;
+  }).join("");
+
+  const result = finished
+    ? state.winnerUid
+      ? `${esc(getDisplayName(state.winnerUid, state.players?.[state.winnerUid]?.name || "Your partner"))} wins with ${Math.max(ownScore, partnerScore)} SOS!`
+      : `You both made ${ownScore} SOS. What a match!`
+    : "";
+  const canJoin = waiting && state.playerUids[0] !== uid && partnerOnline;
+  const waitingOwner = waiting && state.playerUids[0] === uid;
+  const startAction = !state || finished || state.status === "cancelled"
+    ? `<button type="button" class="primary sos-action" data-sos-start>${finished || state ? "Play again" : "Start a match"}</button>`
+    : waitingOwner
+      ? `<button type="button" class="secondary sos-action" data-sos-cancel>Cancel waiting match</button>`
+      : waiting
+        ? canJoin
+          ? `<button type="button" class="primary sos-action" data-sos-join>Join match</button>`
+          : `<button type="button" class="secondary sos-action" disabled>Waiting for both players online</button>`
+        : "";
+
+  content.innerHTML = `<section class="sos-game-page${finished && state.winnerUid === uid ? " sos-won" : ""}">
+    <header class="sos-header">
+      <button class="sos-back" type="button" data-back-games>← Games</button>
+      <div class="sos-heading"><p class="eyebrow">LIVE · TWO PLAYERS</p><h1>SOS</h1></div>
+      <span class="sos-online${partnerOnline ? " online" : ""}" aria-label="${partnerOnline ? "Partner online" : "Partner offline"}"></span>
+    </header>
+    <div class="sos-turn" aria-live="polite">${esc(turnMessage)}</div>
+    <div class="sos-symbol-picker" aria-label="Choose your letter">
+      <button type="button" class="sos-symbol${selectedLetter === "S" ? " selected" : ""}" data-sos-letter="S" aria-pressed="${selectedLetter === "S"}">S</button>
+      <button type="button" class="sos-symbol${selectedLetter === "O" ? " selected" : ""}" data-sos-letter="O" aria-pressed="${selectedLetter === "O"}">O</button>
+      ${startAction}
+    </div>
+    ${result ? `<div class="sos-result" aria-live="polite">${result}</div>` : ""}
+    <div class="sos-board" role="grid" aria-label="SOS game board, 7 columns by 9 rows">${cells}</div>
+    <footer class="sos-scoreboard" aria-label="Match scores">
+      <div class="sos-player-score own"><span>You</span><strong>${ownScore}</strong></div>
+      <span class="sos-versus">VS</span>
+      <div class="sos-player-score partner"><span>${esc(partnerUid ? getDisplayName(partnerUid, state?.players?.[partnerUid]?.name || "Partner") : "Partner")}</span><strong>${partnerScore}</strong></div>
+    </footer>
+  </section>`;
+}
+
 function makeMemoryState() {
   const deck = [...symbols, ...symbols].map((symbol, index) => ({ symbol, key: `${symbol}-${index}` }));
   for (let index = deck.length - 1; index > 0; index--) {
@@ -386,6 +527,9 @@ export function renderGames(el, user, profile) {
   let renderedShellGame = "";
   let activeState = null;
   let ticTacToeState = null;
+  let sosGameState = null;
+  let sosPresence = {};
+  let selectedSosLetter = "S";
   let gameRoomState = null;
   let roomStateInitializing = "";
   let savedMatchResults = new Set();
@@ -481,6 +625,69 @@ export function renderGames(el, user, profile) {
     dailyRolloverTimer = scheduleDubaiDayRollover(() => {
       refreshDailyTarget();
       scheduleDailyRollover();
+    });
+  }
+
+  function clearSosSession() {
+    stopSosGame?.();
+    stopSosGame = null;
+    stopSosPresence?.();
+    stopSosPresence = null;
+    stopSosConnection?.();
+    stopSosConnection = null;
+    document.body.classList.remove("sos-fullscreen");
+    if (!rtdb) return;
+    const playerRef = sosPresenceRef(user.uid);
+    onDisconnect(playerRef).cancel()
+      .then(() => remove(playerRef))
+      .catch(error => console.error("SOS presence could not be cleared:", error));
+  }
+
+  function startSosSession() {
+    if (!rtdb) return;
+    stopSosGame = onValue(sosGameRef(), snapshot => {
+      const previousState = sosGameState;
+      sosGameState = snapshot.val();
+      if (isValidSosState(sosGameState) && sosGameState.status === "finished" &&
+          previousState?.status !== "finished" && !savedMatchResults.has(sosGameState.matchId) && firebaseReady) {
+        savedMatchResults.add(sosGameState.matchId);
+        recordGameMatchResult({
+          uid: user.uid,
+          authorId: profile?.id || user.uid,
+          matchId: sosGameState.matchId,
+          game: gameTitles.sos,
+          winnerUid: sosGameState.winnerUid,
+          players: sosGameState.playerUids,
+          scores: sosGameState.scores
+        }).catch(error => {
+          savedMatchResults.delete(sosGameState.matchId);
+          console.error("Could not save SOS result:", error);
+          toast("The match ended, but its result could not be saved.");
+        });
+      }
+      if (activeGame === "sos") renderCurrentGame();
+    }, error => {
+      console.error("SOS game could not be loaded:", error);
+      const content = $("#games-active-content", el);
+      if (content) content.innerHTML = `<p class="error">The live SOS game could not be loaded. Please try again.</p>`;
+    });
+    stopSosPresence = onValue(ref(rtdb, "couples/our-little-world/games/sosPresence"), snapshot => {
+      sosPresence = snapshot.val() || {};
+      if (activeGame === "sos") renderCurrentGame();
+    }, error => {
+      console.error("SOS player presence could not be loaded:", error);
+    });
+    stopSosConnection = onValue(ref(rtdb, ".info/connected"), snapshot => {
+      if (snapshot.val() !== true) return;
+      const playerRef = sosPresenceRef(user.uid);
+      onDisconnect(playerRef).remove()
+        .then(() => set(playerRef, { online: true, name: getDisplayName(user.uid, profile?.name) }))
+        .catch(error => {
+          console.error("SOS presence could not be updated:", error);
+          toast("Your online status could not be shared for SOS.");
+        });
+    }, error => {
+      console.error("SOS connection status could not be loaded:", error);
     });
   }
 
@@ -699,11 +906,38 @@ export function renderGames(el, user, profile) {
 
   function renderCurrentGame() {
     if (!activeGame) {
+      document.body.classList.remove("sos-fullscreen");
+      disposeFindTheWords?.();
+      disposeFindTheWords = null;
       el.innerHTML = gamesHome();
       renderedShellGame = "";
       buildDailyBoard();
       if (dailyGameItems) renderDailyWins(dailyGameItems);
       listenForDailyWins();
+      return;
+    }
+    if (activeGame === "sos") {
+      document.body.classList.add("sos-fullscreen");
+      if (renderedShellGame !== activeGame) {
+        el.innerHTML = `<div id="games-active-content" data-active-game="sos"></div>`;
+        renderedShellGame = activeGame;
+      }
+      if (!rtdb) {
+        $("#games-active-content", el).innerHTML = `<section class="sos-game-page"><header class="sos-header"><button class="sos-back" type="button" data-back-games>← Games</button><h1>SOS</h1></header><p class="error sos-error">Live SOS is unavailable because Firebase Realtime Database is not configured.</p></section>`;
+        return;
+      }
+      renderSosGame($("#games-active-content", el), user, sosGameState, sosPresence, selectedSosLetter);
+      return;
+    }
+    document.body.classList.remove("sos-fullscreen");
+    if (activeGame === "find-words") {
+      if (renderedShellGame !== activeGame) {
+        el.innerHTML = `<section id="find-words-game"></section>`;
+        renderedShellGame = activeGame;
+      }
+      if (!disposeFindTheWords) {
+        disposeFindTheWords = mountFindTheWordsGame($("#find-words-game", el), user, profile);
+      }
       return;
     }
     const gameInfo = {
@@ -817,15 +1051,23 @@ export function renderGames(el, user, profile) {
     if (target.hasAttribute("data-start-game")) {
       if (memoryTimer) clearTimeout(memoryTimer);
       memoryTimer = null;
+      clearSosSession();
       stopTicTacToe?.();
       stopTicTacToe = null;
       stopGameMatch?.();
       stopGameMatch = null;
+      disposeFindTheWords?.();
+      disposeFindTheWords = null;
       activeGame = target.dataset.startGame;
       activeState = resetActiveGame(activeGame);
       ticTacToeState = null;
+      sosGameState = null;
+      sosPresence = {};
+      selectedSosLetter = "S";
       gameRoomState = null;
-      if (activeGame === "tic-tac-toe") {
+      if (activeGame === "sos") {
+        startSosSession();
+      } else if (activeGame === "tic-tac-toe") {
         if (rtdb) {
           stopTicTacToe = onValue(ticTacToeRef(), snapshot => {
             const previousState = ticTacToeState;
@@ -868,7 +1110,7 @@ export function renderGames(el, user, profile) {
         } else {
           ticTacToeState = null;
         }
-      } else if (rtdb) {
+      } else if (rtdb && activeGame !== "find-words") {
         stopGameMatch = onValue(gameMatchRef(activeGame), snapshot => {
           gameRoomState = snapshot.val();
           if (gameRoomState?.status === "finished") recordFinishedMatch(gameRoomState);
@@ -1370,4 +1612,6 @@ export function disposeGames() {
   memoryTimer = null;
   if (dailyRolloverTimer) clearTimeout(dailyRolloverTimer);
   dailyRolloverTimer = null;
+  disposeFindTheWords?.();
+  disposeFindTheWords = null;
 }
