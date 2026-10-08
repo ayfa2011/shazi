@@ -146,3 +146,49 @@ input:focus,textarea:focus{border-color:var(--pink);box-shadow:0 0 0 4px #ef6d9f
   .home-dashboard .today-challenge .today-link { left: 44px; padding: 6px 8px; font-size: 9px; }
 }
 .home-dashboard .today-section .section-head h2 { font-size: 18px; }
+.today-question-category { display: block; width: fit-content; margin-top: 6px; padding: 3px 7px; border-radius: 999px; background: #fff0f6; color: var(--deep); font-size: 9px; font-weight: 700; }
+.today-question-category:empty { display: none; }
+
+.home-drawing-panel { margin-top: 0; padding: 10px; }
+.home-canvas-launch { width: 100%; min-height: 190px; gap: 10px; padding: 10px; border: 0; background: #fff; }
+.home-drawing-preview { width: 100%; min-height: 145px; display: grid; place-items: center; overflow: hidden; border-radius: 14px; background: linear-gradient(145deg,#fff4f8,#ffe7f0); color: var(--pink); }
+.home-drawing-preview img { display: block; width: 100%; height: 100%; min-height: 145px; max-height: 230px; object-fit: cover; }
+.home-drawing-preview small { color: var(--muted); font: 12px "DM Sans",sans-serif; }
+.home-canvas-heart { font-size: 34px; }
+.live-drawing { position: fixed; inset: 0; z-index: 80; width: 100%; max-width: none; height: 100vh; height: 100dvh; display: flex; flex-direction: column; gap: 10px; overflow: hidden; padding: max(10px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left)); background: #fff7fb; }
+.drawing-heading { flex: none; min-height: 42px; padding: 0; gap: 10px; }
+.drawing-heading h1 { flex: 1; margin: 0; color: var(--deep); font-size: 19px; }
+.drawing-close { width: 38px; height: 38px; flex: none; border-radius: 50%; background: #ffe7f0; color: var(--deep); font-size: 25px; line-height: 1; }
+.drawing-heading-actions { display: flex; align-items: center; gap: 7px; }
+.drawing-heading-actions .tool-button,.drawing-heading-actions .primary { min-height: 38px; padding: 8px 13px; border-radius: 999px; }
+.drawing-history-trigger { align-self: center; flex: none; min-width: 88px; padding: 7px 16px; border-radius: 999px; }
+.drawing-tools { flex: none; gap: 7px; padding: 7px; border-radius: 15px; }
+.drawing-custom-color { position: relative; width: 27px; height: 27px; display: grid; place-items: center; overflow: hidden; border: 1px solid #edd5df; border-radius: 50%; background: #fff; color: var(--deep); font-size: 18px; line-height: 1; cursor: pointer; }
+.drawing-custom-color input { position: absolute; inset: -6px; width: 40px; height: 40px; padding: 0; opacity: 0; cursor: pointer; }
+.draw-board { flex: 1; min-height: 0; display: grid; place-items: center; border-radius: 15px; }
+.draw-canvas { width: min(100%,calc((100dvh - 230px)*1.6667)); height: auto; max-height: 100%; min-height: 0; aspect-ratio: 5/3; }
+.drawing-status { flex: none; min-height: 24px; padding: 0 3px; }
+.drawing-history-overlay { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 16px; background: #32162580; }
+.drawing-history-overlay.hidden { display: none; }
+.drawing-history-dialog { width: min(680px,100%); max-height: min(78vh,720px); display: flex; flex-direction: column; overflow: hidden; padding: 16px; border: 1px solid #f1dbe5; border-radius: 20px; background: #fff9fc; box-shadow: 0 20px 60px #54213b30; }
+.drawing-history-dialog>header { display: flex; align-items: center; justify-content: space-between; flex: none; margin-bottom: 12px; }
+.drawing-history-dialog h2 { margin: 0; color: var(--deep); font-size: 20px; }
+.drawing-history-list { overflow-y: auto; grid-template-columns: 1fr; padding-right: 3px; }
+.history-card { min-width: 0; }
+.history-image { flex: none; overflow: hidden; padding: 0; }
+.history-image img { width: 100%; height: 100%; object-fit: cover; }
+@media(max-width:759px) {
+  .home-dashboard .home-canvas-launch { min-height: 150px; padding: 8px; }
+  .home-dashboard .home-drawing-preview,.home-dashboard .home-drawing-preview img { min-height: 105px; }
+  .live-drawing { gap: 8px; padding-left: max(8px,env(safe-area-inset-left)); padding-right: max(8px,env(safe-area-inset-right)); }
+  .drawing-heading { gap: 7px; }
+  .drawing-heading h1 { font-size: 17px; }
+  .drawing-tools { gap: 5px; padding: 6px; }
+  .drawing-tools .tool-button { padding: 8px; }
+  .drawing-tools .tool-group { gap: 5px; padding: 0 3px; }
+  .drawing-tools .colors button { width: 19px; height: 19px; }
+  .drawing-custom-color { width: 24px; height: 24px; }
+  .brush-size input { width: 60px; }
+  .draw-canvas { width: min(100%,calc((100dvh - 230px)*1.6667)); aspect-ratio: 5/3; }
+  .drawing-status { font-size: 10px; }
+}

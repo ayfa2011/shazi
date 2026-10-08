@@ -1,5 +1,5 @@
 import { db, firebaseReady } from "./firebase.js";
-import { collection, doc, addDoc, setDoc, getDoc, getDocs, deleteDoc, updateDoc, query, where, orderBy, onSnapshot, serverTimestamp, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+import { collection, doc, addDoc, setDoc, getDoc, getDocs, deleteDoc, updateDoc, query, where, orderBy, onSnapshot, serverTimestamp, arrayUnion, arrayRemove, runTransaction } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 
 const root = () => {
@@ -120,4 +120,75 @@ export async function getDrawingsFolder() {
 
 export async function saveDrawingsFolder(folderId) {
   await setDoc(doc(db, ...couplePath(), "settings", "drawings"), { folderId, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+const challengeAssignments = () => collection(db, ...couplePath(), "challengeAssignments");
+
+export async function ensureChallengeAssignment(challenge) {
+  if (!firebaseReady) throw new Error("Connect Firebase before using challenges.");
+  const reference = doc(challengeAssignments(), challenge.id);
+  const record = {
+    title: challenge.title,
+    description: challenge.description,
+    challengeDate: challenge.dayKey,
+    status: "upcoming",
+    acceptedBy: [],
+    completedBy: []
+  };
+  return runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(reference);
+    if (snapshot.exists()) return { id: snapshot.id, ...snapshot.data() };
+    transaction.set(reference, record);
+    return { id: challenge.id, ...record };
+  });
+}
+
+async function transitionChallengeAssignment(challengeId, allowedStates, status, actor, extra = {}) {
+  if (!firebaseReady) throw new Error("Connect Firebase before using challenges.");
+  const reference = doc(challengeAssignments(), challengeId);
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists()) throw new Error("This challenge is no longer available.");
+    const current = snapshot.data();
+    if (!allowedStates.includes(current.status || "upcoming")) {
+      throw new Error("This challenge has already changed state.");
+    }
+    transaction.update(reference, {
+      status,
+      updatedAt: serverTimestamp(),
+      ...(status === "in-progress" ? { acceptedBy: arrayUnion(actor) } : {}),
+      ...(status === "skipped" ? { skippedBy: actor, skippedAt: serverTimestamp() } : {}),
+      ...(status === "completed" ? {
+        completedBy: arrayUnion(actor),
+        completedAt: serverTimestamp(),
+        ...extra
+      } : {})
+    });
+  });
+}
+
+export async function acceptChallengeAssignment(challengeId, uid, name) {
+  await transitionChallengeAssignment(challengeId, ["upcoming"], "in-progress", { uid, name });
+}
+
+export async function skipChallengeAssignment(challengeId, uid, name) {
+  await transitionChallengeAssignment(challengeId, ["upcoming", "in-progress"], "skipped", { uid, name });
+}
+
+export async function completeChallengeAssignment(challengeId, actor, note, photoUrl) {
+  await transitionChallengeAssignment(challengeId, ["in-progress"], "completed", {
+    uid: actor.uid,
+    profileKey: actor.profileKey,
+    name: actor.name
+  }, {
+    ...(note ? { note } : {}),
+    ...(photoUrl ? { photoUrl } : {})
+  });
+}
+
+export function watchChallengeAssignments(callback, onError) {
+  if (!firebaseReady) throw new Error("Connect Firebase before using challenges.");
+  return onSnapshot(query(challengeAssignments(), orderBy("challengeDate", "desc")), snapshot => {
+    callback(snapshot.docs.map(item => ({ id: item.id, ...item.data() })));
+  }, onError);
 }

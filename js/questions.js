@@ -1,336 +1,255 @@
-import { $, esc, toast, todayKey, dailyIndex } from "./utils.js";
-import { watchItems, addItem } from "./firestore.js";
+import { $, esc, toast, todayKey } from "./utils.js";
 import { APP_CONFIG } from "../config/app-config.js";
-import { findProfileForAuthor, getDisplayName } from "./profile-data.js";
+import { getProfileKey } from "./profile-data.js";
+import {
+  ensureDailyQuestion,
+  getQuestionAnswer,
+  getQuestionHistory,
+  getQuestionParticipants,
+  migrateLegacyQuestionAnswers,
+  submitQuestionAnswer,
+  watchQuestionParticipants
+} from "./question-service.js";
 
-let stopAnswers = null, active = false;
+let stopParticipants = null, active = false;
+
+function timestamp(value) {
+  if (value?.toDate) return value.toDate().getTime();
+  const parsed = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
 export function renderQuestions(el, user, profile) {
-  stopAnswers?.();
+  disposeQuestions();
   active = true;
-
-  const dateKey = todayKey(); // Standardized Date Key
-  const questionsList = APP_CONFIG.dailyQuestions || [
-    "What is your favourite thing about us?",
-    "What do you think is the most important quality in a partner?",
-    "What is your favorite memory of us together?"
-  ];
-  
-  const currentQuestion = questionsList[dailyIndex(questionsList.length)];
-  const displayDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const ownKey = getProfileKey(profile);
+  const partnerKey = Object.keys(APP_CONFIG.profiles).find(key => key !== ownKey) || "";
+  const dayKey = todayKey();
+  let question = null, participants = {}, ownAnswer = null, partnerAnswer = null, history = [], loadToken = 0;
 
   el.innerHTML = `
     <style>
-      .daily-q-card {
-        background: #ffffff;
-        border-radius: 20px;
-        padding: 20px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.05);
-        font-family: system-ui, -apple-system, sans-serif;
-        max-width: 500px;
-        margin: 0 auto;
-      }
-      .dq-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 16px;
-      }
-      .dq-title {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 18px;
-        font-weight: 700;
-        color: #881337;
-      }
-      .dq-title-icon {
-        width: 28px;
-        height: 28px;
-        background: #ffe4e6;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #e11d48;
-      }
-      .dq-view-all {
-        color: #e11d48;
-        font-size: 13px;
-        font-weight: 600;
-        text-decoration: none;
-        cursor: pointer;
-      }
-      .question-box {
-        background: #fff1f2;
-        border-radius: 16px;
-        padding: 18px;
-        position: relative;
-        margin-bottom: 20px;
-      }
-      .question-text {
-        font-size: 16px;
-        font-weight: 700;
-        color: #881337;
-        margin: 0;
-        line-height: 1.4;
-        max-width: 85%;
-      }
-      .question-heart-art {
-        position: absolute;
-        right: 16px;
-        top: 50%;
-        transform: translateY(-50%);
-        color: #fda4af;
-        font-size: 28px;
-      }
-      .section-label {
-        font-size: 14px;
-        font-weight: 700;
-        color: #881337;
-        margin-bottom: 12px;
-      }
-      .answers-list {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        margin-bottom: 20px;
-      }
-      .answer-item {
-        display: flex;
-        gap: 12px;
-        align-items: flex-start;
-        padding-bottom: 12px;
-        border-bottom: 1px solid #f3f4f6;
-      }
-      .answer-item:last-child {
-        border-bottom: none;
-      }
-      .answer-avatar {
-        width: 42px;
-        height: 42px;
-        border-radius: 50%;
-        object-fit: cover;
-        background: #f1f5f9;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: bold;
-        color: #e11d48;
-      }
-      .answer-content {
-        flex: 1;
-      }
-      .answer-meta {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 4px;
-      }
-      .author-name {
-        font-weight: 700;
-        font-size: 14px;
-        color: #1f2937;
-      }
-      .answer-date {
-        font-size: 12px;
-        color: #9ca3af;
-      }
-      .answer-text-val {
-        font-size: 13.5px;
-        color: #4b5563;
-        line-height: 1.4;
-        margin: 0;
-      }
-      .hidden-answer {
-        font-style: italic;
-        color: #9ca3af;
-        background: #f8fafc;
-        padding: 8px 12px;
-        border-radius: 8px;
-      }
-      .input-answer-box {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        margin-top: 10px;
-      }
-      .input-answer-box textarea {
-        width: 100%;
-        border: 1px solid #fecdd3;
-        border-radius: 12px;
-        padding: 12px;
-        font-family: inherit;
-        font-size: 14px;
-        box-sizing: border-box;
-        resize: none;
-        outline: none;
-      }
-      .input-answer-box textarea:focus {
-        border-color: #f43f5e;
-      }
-      .submit-ans-btn {
-        background: #e11d48;
-        color: white;
-        border: none;
-        padding: 10px 18px;
-        border-radius: 20px;
-        font-weight: 600;
-        font-size: 14px;
-        cursor: pointer;
-        align-self: flex-end;
-      }
-      .both-answered-banner {
-        background: #fff1f2;
-        border-radius: 16px;
-        padding: 14px 18px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-      }
-      .banner-left {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-      .banner-icon {
-        color: #e11d48;
-        font-size: 20px;
-      }
-      .banner-text h4 {
-        margin: 0;
-        font-size: 14px;
-        font-weight: 700;
-        color: #881337;
-      }
-      .banner-text p {
-        margin: 2px 0 0 0;
-        font-size: 11.5px;
-        color: #9f1239;
-      }
+      .question-page { width:min(700px,100%); margin:0 auto; }
+      .question-card,.question-history-card { padding:16px; border:1px solid #f1dbe5; border-radius:18px; background:#fff; }
+      .question-page-header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+      .question-page-header h1 { margin:0; color:var(--deep); font-size:25px; }
+      .question-category { display:inline-flex; padding:5px 10px; border-radius:999px; background:#fff0f6; color:var(--deep); font-size:12px; font-weight:700; }
+      .question-day { color:var(--muted); font-size:11px; }
+      .question-prompt { margin:14px 0; padding:16px; border-radius:15px; background:linear-gradient(120deg,#fff0f6,#fff9fb); color:#60283f; font-size:18px; font-weight:700; line-height:1.45; }
+      .question-answer-form { display:grid; gap:9px; margin:10px 0; }
+      .question-answer-form textarea { width:100%; min-height:86px; resize:vertical; border-color:#f0ccda; }
+      .question-submit { justify-self:end; padding:9px 16px; border-radius:999px; }
+      .question-status { min-height:20px; margin:8px 0; color:var(--muted); font-size:12px; }
+      .question-answers { display:grid; gap:9px; margin-top:14px; }
+      .question-answer { display:flex; align-items:flex-start; gap:10px; padding:11px; border:1px solid #f4e4eb; border-radius:14px; background:#fffafd; }
+      .question-answer-avatar { flex:none; width:36px; height:36px; display:grid; place-items:center; overflow:hidden; border-radius:50%; background:#ffe5ef; color:var(--deep); font-weight:700; }
+      .question-answer-avatar img { width:100%; height:100%; object-fit:cover; }
+      .question-answer-body { min-width:0; flex:1; }
+      .question-answer-body header { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+      .question-answer-body strong { color:#60283f; font-size:13px; }
+      .question-answer-body time { flex:none; color:var(--muted); font-size:10px; }
+      .question-answer-body p { margin:5px 0 0; color:#493540; font-size:13px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; }
+      .question-answer-locked { filter:blur(5px); user-select:none; }
+      .question-reveal-message { padding:12px; border-radius:12px; background:#fff0f6; color:var(--deep); font-size:12px; text-align:center; }
+      .question-history { margin-top:20px; }
+      .question-history-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+      .question-history-heading h2 { margin:0; color:var(--deep); font-size:20px; }
+      .question-history-list { display:grid; gap:9px; }
+      .question-history-item { padding:12px; border:1px solid #f3e1e9; border-radius:15px; background:#fff; }
+      .question-history-item header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+      .question-history-item time { color:var(--muted); font-size:10px; }
+      .question-history-item h3 { margin:9px 0; color:#60283f; font:600 14px/1.4 system-ui,sans-serif; }
+      .question-history-answer { margin:6px 0 0; padding:8px 10px; border-radius:10px; background:#fff7fa; color:#493540; font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; }
+      .question-history-locked { color:var(--muted); font-style:italic; }
+      .question-empty { padding:14px; color:var(--muted); text-align:center; font-size:12px; }
+      @media(max-width:420px) { .question-page-header h1 { font-size:22px; } .question-prompt { font-size:16px; } .question-card,.question-history-card { padding:12px; } }
     </style>
-
-    <div class="daily-q-card">
-      <div class="dq-header">
-        <div class="dq-title">
-          <div class="dq-title-icon">💖</div>
-          <span>Today's Question</span>
-        </div>
-        <span class="dq-view-all">View All →</span>
-      </div>
-
-      <div class="question-box">
-        <p class="question-text">${esc(currentQuestion)}</p>
-        <div class="question-heart-art">♡</div>
-      </div>
-
-      <div class="section-label">Answers</div>
-
-      <div id="answers-container" class="answers-list">
-        <p style="color:#9ca3af; font-size:13px;">Loading answers…</p>
-      </div>
-
-      <div id="my-answer-input-container"></div>
-
-      <div id="both-answered-container" style="display:none;">
-        <div class="both-answered-banner">
-          <div class="banner-left">
-            <span class="banner-icon">💖</span>
-            <div class="banner-text">
-              <h4>You both answered!</h4>
-              <p>Next question will be available tomorrow.</p>
-            </div>
-          </div>
-          <span style="color:#f43f5e; font-size:20px;">♡</span>
-        </div>
-      </div>
-    </div>
+    <section class="question-page">
+      <header class="question-page-header"><h1>Today's Question</h1><span class="question-day">${esc(new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}))}</span></header>
+      <article class="question-card" id="today-question-card"><p class="question-empty">Loading today's question…</p></article>
+      <section class="question-history">
+        <header class="question-history-heading"><h2>Question History</h2></header>
+        <div class="question-history-list" id="question-history-list"><p class="question-empty">Loading history…</p></div>
+      </section>
+    </section>
   `;
 
-  // Realtime Answers Watcher
-  stopAnswers = watchItems("answer", items => {
-    if (!active || !el.isConnected) return;
+  function renderToday() {
+    const card = $("#today-question-card", el);
+    if (!question || !card) return;
+    const answeredByMe = Boolean(participants[ownKey]);
+    const bothAnswered = Boolean(ownKey && partnerKey && participants[ownKey] && participants[partnerKey]);
+    const people = Object.entries(APP_CONFIG.profiles);
 
-    // Filter today's answers for current question
-    const todayAnswers = items.filter(x => x.questionDate === dateKey && x.question === currentQuestion);
-    
-    const answersContainer = $("#answers-container", el);
-    const inputContainer = $("#my-answer-input-container", el);
-    const bothContainer = $("#both-answered-container", el);
-
-    // Check by user UID
-    const myAnswer = todayAnswers.find(x => x.author === user.uid);
-    const bothAnswered = todayAnswers.length >= 2;
-
-    // Render Answers List (with Spoiler Hide)
-    if (todayAnswers.length === 0) {
-      answersContainer.innerHTML = `<p style="color:#9ca3af; font-size:13px; margin:0;">No answers yet today. Be the first to answer! ♡</p>`;
-    } else {
-      answersContainer.innerHTML = todayAnswers.map(x => {
-        const isSelf = x.author === user.uid;
-        const canView = isSelf || bothAnswered;
-        const answerProfile = findProfileForAuthor(x.author, x.authorName || "");
-        const photo = answerProfile?.avatar || x.photoUrl;
-
-        return `
-          <div class="answer-item">
-            <div class="answer-avatar">
-              ${photo ? `<img src="${esc(photo)}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">` : esc(getDisplayName(x.author, x.authorName || "Us")[0])}
-            </div>
-            <div class="answer-content">
-              <div class="answer-meta">
-                <span class="author-name">${esc(getDisplayName(x.author, x.authorName || "Us"))}</span>
-                <span class="answer-date">${displayDate}</span>
+    card.innerHTML = `
+      <span class="question-category">${esc(question.category)}</span>
+      <p class="question-prompt">${esc(question.question)}</p>
+      <p class="question-status">${bothAnswered ? "You both answered. Your answers are revealed below." : answeredByMe ? "Your answer is locked. Waiting for your partner to answer." : participants[partnerKey] ? "Your partner has answered. Add yours to reveal both answers." : "Answer privately. Your partner cannot see it until you have both answered."}</p>
+      ${answeredByMe ? "" : `
+        <form class="question-answer-form" id="question-answer-form">
+          <textarea name="answer" maxlength="1200" placeholder="Write your answer…" required></textarea>
+          <button class="primary question-submit" type="submit">Answer Now ♡</button>
+        </form>
+      `}
+      <div class="question-answers">
+        ${people.map(([key, person]) => {
+          const isMine = key === ownKey;
+          const answer = isMine ? ownAnswer : bothAnswered ? partnerAnswer : null;
+          const isLocked = !isMine && !bothAnswered;
+          const display = answer?.answer || (isMine && answeredByMe ? "Loading your answer…" : "");
+          const answerDate = answer?.answeredAt ? new Date(timestamp(answer.answeredAt)).toLocaleString() : "";
+          return `
+            <article class="question-answer">
+              <div class="question-answer-avatar">${person.avatar ? `<img src="${esc(person.avatar)}" alt="">` : esc(person.name[0])}</div>
+              <div class="question-answer-body">
+                <header><strong>${esc(person.name)}</strong>${answerDate ? `<time>${esc(answerDate)}</time>` : ""}</header>
+                ${isLocked
+                  ? `<p class="question-answer-locked">🔒 Answer hidden until both partners answer</p>`
+                  : display ? `<p>${esc(display)} ♡</p>` : `<p class="question-history-locked">${isMine ? "Your answer will appear here after you submit." : "Waiting for your partner."}</p>`}
               </div>
-              ${canView 
-                ? `<p class="answer-text-val">${esc(x.answer)} ♡</p>` 
-                : `<p class="answer-text-val hidden-answer">🔒 Answer hidden until both partners answer!</p>`}
-            </div>
-          </div>
-        `;
-      }).join("");
-    }
+            </article>
+          `;
+        }).join("")}
+      </div>
+      ${answeredByMe && !bothAnswered ? `<div class="question-reveal-message">Answered! Your answer is locked until your partner answers.</div>` : ""}
+      ${bothAnswered ? `<button type="button" class="question-reveal-message" id="question-view-answers">Answered! Click to view both answers ♡</button>` : ""}
+    `;
 
-    // Input form or Both answered banner
-    if (!myAnswer) {
-      inputContainer.style.display = "block";
-      bothContainer.style.display = "none";
-      inputContainer.innerHTML = `
-        <div class="input-answer-box">
-          <textarea id="answer-text-input" rows="3" placeholder="Type your answer..."></textarea>
-          <button id="submit-ans-btn" class="submit-ans-btn">Submit Answer</button>
-        </div>
-      `;
+    $("#question-view-answers", card)?.addEventListener("click", () => {
+      $(".question-answers", card)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
 
-      $("#submit-ans-btn", inputContainer).onclick = async () => {
-        const text = $("#answer-text-input", inputContainer).value.trim();
-        if (!text) return toast("Please write an answer first!");
-
-        await addItem("answer", {
-          question: currentQuestion,
-          questionDate: dateKey,
-          answer: text,
-          author: user.uid,
-          authorName: profile.name,
-          photoUrl: profile.avatar || "",
-          date: new Date().toISOString()
-        });
-
-        toast("Answer saved ♡");
+    const form = $("#question-answer-form", card);
+    if (form) {
+      form.onsubmit = async event => {
+        event.preventDefault();
+        const answer = form.elements.answer.value.trim();
+        if (!answer) return toast("Write an answer before submitting.");
+        const submit = form.querySelector("button");
+        submit.disabled = true;
+        submit.textContent = "Saving…";
+        try {
+          await submitQuestionAnswer(dayKey, ownKey, answer);
+          ownAnswer = { answer, answeredAt: new Date() };
+          participants[ownKey] = { profileKey: ownKey };
+          renderToday();
+          toast("Your answer is locked until both of you answer ♡");
+        } catch (error) {
+          console.error("Could not save today's answer:", error);
+          toast(error.message || "Could not save your answer.");
+          submit.disabled = false;
+          submit.textContent = "Answer Now ♡";
+        }
       };
-    } else {
-      inputContainer.style.display = "none";
-      if (bothAnswered) {
-        bothContainer.style.display = "block";
-      } else {
-        bothContainer.style.display = "none";
-      }
     }
-  });
+  }
+
+  async function refreshAnswers() {
+    const token = ++loadToken;
+    try {
+      const currentParticipants = await getQuestionParticipants(dayKey);
+      if (!active || token !== loadToken) return;
+      participants = currentParticipants;
+      ownAnswer = ownKey && participants[ownKey] ? await getQuestionAnswer(dayKey, ownKey) : null;
+      const bothAnswered = Boolean(ownKey && partnerKey && participants[ownKey] && participants[partnerKey]);
+      partnerAnswer = bothAnswered ? await getQuestionAnswer(dayKey, partnerKey) : null;
+      if (!active || token !== loadToken) return;
+      renderToday();
+    } catch (error) {
+      console.error("Could not load today's answers:", error);
+      toast("Could not load today's answer status.");
+    }
+  }
+
+  function renderHistory() {
+    const host = $("#question-history-list", el);
+    if (!host) return;
+    if (!history.length) {
+      host.innerHTML = `<p class="question-empty">Your shared question history will appear here.</p>`;
+      return;
+    }
+    host.innerHTML = history.map(item => `
+      <article class="question-history-item" data-history-day="${esc(item.id)}">
+        <header><span class="question-category">${esc(item.category || "💗 About Us")}</span><time>${esc(new Date(`${item.dayKey}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}))}</time></header>
+        <h3>${esc(item.question)}</h3>
+        <div class="question-history-answers"><p class="question-empty">Loading answers…</p></div>
+      </article>
+    `).join("");
+  }
+
+  async function loadHistoryAnswers() {
+    await Promise.all(history.map(async item => {
+      try {
+        let status, mine, partner;
+        if (item.id === dayKey) {
+          status = participants;
+          mine = ownAnswer;
+          partner = partnerAnswer;
+        } else {
+          status = await getQuestionParticipants(item.id);
+          mine = status[ownKey] ? await getQuestionAnswer(item.id, ownKey) : null;
+          partner = status[ownKey] && status[partnerKey]
+            ? await getQuestionAnswer(item.id, partnerKey)
+            : null;
+        }
+        const canReveal = Boolean(status[ownKey] && status[partnerKey]);
+        const card = el.querySelector(`[data-history-day="${item.id}"] .question-history-answers`);
+        if (!card || !active) return;
+        const entries = [
+          [ownKey, mine],
+          [partnerKey, canReveal ? partner : null]
+        ].filter(([key]) => key);
+        card.innerHTML = entries.map(([key, answer]) => {
+          const person = APP_CONFIG.profiles[key];
+          if (answer?.answer) return `<p class="question-history-answer"><strong>${esc(person.name)}:</strong> ${esc(answer.answer)}</p>`;
+          if (key === partnerKey && status[partnerKey] && !canReveal) return `<p class="question-history-answer question-history-locked">${esc(person.name)} answered · locked until both answer</p>`;
+          return `<p class="question-history-answer question-history-locked">${esc(person.name)} has not answered</p>`;
+        }).join("");
+      } catch (error) {
+        console.error(`Could not load question history for ${item.dayKey}:`, error);
+        const card = el.querySelector(`[data-history-day="${item.id}"] .question-history-answers`);
+        if (card) card.innerHTML = `<p class="question-history-locked">Answers could not be loaded.</p>`;
+      }
+    }));
+  }
+
+  async function loadQuestion() {
+    try {
+      question = await ensureDailyQuestion(dayKey);
+      if (!active) return;
+      await migrateLegacyQuestionAnswers(user, ownKey);
+      if (!active) return;
+      renderToday();
+      stopParticipants = watchQuestionParticipants(dayKey, status => {
+        if (!active) return;
+        participants = status;
+        refreshAnswers().then(loadHistoryAnswers);
+      }, error => {
+        console.error("Question status updates failed:", error);
+        toast("Answer status could not be synced.");
+      });
+      await refreshAnswers();
+      history = await getQuestionHistory();
+      if (!active) return;
+      renderHistory();
+      await loadHistoryAnswers();
+    } catch (error) {
+      console.error("Could not load Today's Question:", error);
+      const card = $("#today-question-card", el);
+      if (card) card.innerHTML = `<p class="question-empty">Today's Question could not be loaded. Check your connection and try again.</p>`;
+      toast(error.message || "Today's Question could not be loaded.");
+    }
+  }
+
+  if (!ownKey) {
+    $("#today-question-card", el).innerHTML = `<p class="question-empty">Your profile could not be matched to this account.</p>`;
+    return;
+  }
+  loadQuestion();
 }
 
 export function disposeQuestions() {
   active = false;
-  stopAnswers?.();
-  stopAnswers = null;
+  stopParticipants?.();
+  stopParticipants = null;
 }

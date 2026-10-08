@@ -22,13 +22,6 @@ export const APP_CONFIG = {
       avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&h=256&q=80"
     }
   },
-  dailyQuestions: [
-    "What made you smile today?",
-    "What is one little thing you appreciate about us?",
-    "If we could travel anywhere tomorrow, where would we go?",
-    "What memory of us would you relive?",
-    "What is something you want us to learn together?"
-  ],
   starterChallenges: [
     "Send one kind message today.",
     "Take a photo of something that reminded you of us.",

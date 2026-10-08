@@ -1,19 +1,21 @@
-import { $, esc, toast, dailyIndex, compressImage } from "./utils.js";
-import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, toggleDiaryLike, watchDiaryComments, addDiaryComment, addDiaryPost, updateDiaryPost, deleteDiaryPost } from "./firestore.js";
+import { $, esc, toast, todayKey, compressImage } from "./utils.js";
+import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, watchDiaryComments, addDiaryComment, addDiaryPost, updateDiaryPost, deleteDiaryPost } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
-import { findProfileForAuthor, getDisplayName } from "./profile-data.js";
+import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
+import { ensureDailyQuestion, watchQuestionParticipants } from "./question-service.js";
+import { challengeForDay } from "./challenge-bank.js";
 
-let stopPosts = null, stopRelationship = null, counterTimer = null, active = false, postCommentStops = new Map();
+let stopPosts = null, stopRelationship = null, stopDrawings = null, stopQuestionParticipants = null, counterTimer = null, active = false, postCommentStops = new Map();
 
 export function renderHome(el, user, profile) {
   stopPosts?.();
   stopRelationship?.();
+  stopDrawings?.();
+  stopQuestionParticipants?.();
   clearInterval(counterTimer);
   active = true;
-  const questions = APP_CONFIG.dailyQuestions || [];
-  const challenges = APP_CONFIG.starterChallenges || [];
-  const question = questions[dailyIndex(questions.length)] || "What made you smile today?";
-  const challenge = challenges[dailyIndex(challenges.length)] || "Send one kind message today.";
+  const challenge = challengeForDay(todayKey());
+  let dailyQuestion = null, questionParticipants = {};
 
   el.innerHTML = `
     <style>
@@ -266,8 +268,8 @@ export function renderHome(el, user, profile) {
 
         <aside class="home-drawing-panel">
           <button type="button" class="home-canvas-launch" id="open-drawing">
-            <span class="home-canvas-heart" aria-hidden="true">♡</span>
-            <span>Create something together...</span>
+            <span class="home-drawing-preview" id="home-drawing-preview"><span class="home-canvas-heart" aria-hidden="true">♡</span></span>
+            <span class="home-canvas-action">Open canvas ♡</span>
           </button>
         </aside>
       </section>
@@ -281,16 +283,17 @@ export function renderHome(el, user, profile) {
             <span class="today-icon" aria-hidden="true">♡</span>
             <div class="today-card-copy">
               <strong>Today's Question</strong>
-              <p><em>${esc(question)}</em></p>
-              <button type="button" class="today-link" data-route="questions">View Answer →</button>
+              <span class="today-question-category" id="home-question-category"></span>
+              <p><em id="home-question-text">Loading today's question…</em></p>
+              <button type="button" class="today-link" id="home-question-link">Answer Now →</button>
             </div>
           </article>
-          <article class="card today-challenge">
+          <article class="card today-challenge" id="home-daily-challenge" role="link" tabindex="0" aria-label="Open Daily Challenges">
             <span class="today-icon challenge-icon" aria-hidden="true">★</span>
             <div class="today-card-copy">
               <strong>Daily Challenge</strong>
-              <p><em>${esc(challenge)}</em></p>
-              <button type="button" class="today-link" data-route="challenges">Take the challenge →</button>
+              <p><em>${esc(challenge.title)}</em></p>
+              <button type="button" class="today-link" id="home-challenge-link">Take the challenge →</button>
             </div>
           </article>
         </div>
@@ -302,6 +305,7 @@ export function renderHome(el, user, profile) {
   const composer = $("#home-composer", el);
   const dateButton = $("#relationship-date", el);
   const dateInput = $("#relationship-date-input", el);
+  const questionProfileKey = getProfileKey(profile);
   let startDate = "";
 
   const now = new Date();
@@ -344,8 +348,67 @@ export function renderHome(el, user, profile) {
     updateCounter();
   });
 
+  stopDrawings = watchDrawingMessages(messages => {
+    if (!active || !el.isConnected) return;
+    const preview = $("#home-drawing-preview", el);
+    if (!preview) return;
+    const latest = messages?.[0];
+    if (!latest) {
+      preview.innerHTML = `<span class="home-canvas-heart" aria-hidden="true">♡</span><small>No drawings yet</small>`;
+      return;
+    }
+    const imageUrl = latest.thumbnailUrl || `https://drive.google.com/thumbnail?id=${encodeURIComponent(latest.driveFileId)}&sz=w800`;
+    preview.innerHTML = `<img src="${esc(imageUrl)}" alt="Latest shared drawing">`;
+  });
+
+  function renderQuestionWidget() {
+    const questionText = $("#home-question-text", el);
+    const category = $("#home-question-category", el);
+    const button = $("#home-question-link", el);
+    if (!questionText || !category || !button || !dailyQuestion) return;
+    questionText.textContent = dailyQuestion.question;
+    category.textContent = dailyQuestion.category;
+    category.hidden = false;
+    button.textContent = questionParticipants[questionProfileKey] ? "View Answers →" : "Answer Now →";
+  }
+
+  ensureDailyQuestion(todayKey()).then(questionRecord => {
+    if (!active || !el.isConnected) return;
+    dailyQuestion = questionRecord;
+    renderQuestionWidget();
+    stopQuestionParticipants?.();
+    stopQuestionParticipants = watchQuestionParticipants(todayKey(), status => {
+      if (!active || !el.isConnected) return;
+      questionParticipants = status;
+      renderQuestionWidget();
+    }, error => {
+      console.error("Today's Question status could not be synced:", error);
+      toast("Today's Question status could not be synced.");
+    });
+  }).catch(error => {
+    console.error("Today's Question could not be prepared:", error);
+    const questionText = $("#home-question-text", el);
+    if (questionText) questionText.textContent = "Today's Question is unavailable right now.";
+    const category = $("#home-question-category", el);
+    if (category) category.hidden = true;
+  });
+
   $("#open-drawing", el).onclick = () => window.App.navigate("drawing");
   $("#view-more-posts", el).onclick = () => window.App.navigate("gallery");
+  $("#home-question-link", el).onclick = () => window.App.navigate("questions");
+  const challengeCard = $("#home-daily-challenge", el);
+  const openChallenges = () => window.App.navigate("challenges");
+  challengeCard.onclick = openChallenges;
+  challengeCard.onkeydown = event => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openChallenges();
+    }
+  };
+  $("#home-challenge-link", el).onclick = event => {
+    event.stopPropagation();
+    openChallenges();
+  };
   el.querySelectorAll("[data-route]").forEach(button => {
     button.onclick = () => window.App.navigate(button.dataset.route);
   });
@@ -584,6 +647,10 @@ export function disposeHome() {
   stopPosts = null;
   stopRelationship?.();
   stopRelationship = null;
+  stopDrawings?.();
+  stopDrawings = null;
+  stopQuestionParticipants?.();
+  stopQuestionParticipants = null;
   clearInterval(counterTimer);
   counterTimer = null;
   postCommentStops.forEach((stop) => stop());

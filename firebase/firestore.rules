@@ -9,12 +9,17 @@ service cloud.firestore {
     }
 
     match /couples/{coupleId}/{document=**} {
-      allow read: if isCoupleMember() && coupleId == 'our-little-world';
+      allow read: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && (resource.data.get('type', '') != 'answer'
+          || resource.data.get('author', '') == request.auth.uid);
       allow create: if isCoupleMember()
         && coupleId == 'our-little-world'
+        && request.resource.data.get('type', '') != 'answer'
         && request.resource.__name__ != /databases/$(database)/documents/couples/our-little-world/settings/profiles;
       allow update, delete: if isCoupleMember()
         && coupleId == 'our-little-world'
+        && resource.data.get('type', '') != 'answer'
         && resource.__name__ != /databases/$(database)/documents/couples/our-little-world/settings/profiles;
     }
 
@@ -39,6 +44,75 @@ service cloud.firestore {
             && request.resource.data.get('kebyy', {}) == resource.data.get('kebyy', {}))
         );
       allow delete: if false;
+    }
+
+    function isQuestionCoupleMember(coupleId) {
+      return request.auth != null
+        && request.auth.token.email in ['akabeeram@gmail.com', 'hizasgallery@gmail.com']
+        && coupleId == 'our-little-world';
+    }
+
+    function ownQuestionProfileKey() {
+      return request.auth.token.email == 'akabeeram@gmail.com' ? 'kebyy' : 'shazy';
+    }
+
+    function bothQuestionPartnersAnswered(coupleId, dayKey) {
+      return exists(/databases/$(database)/documents/coupleDailyQuestions/$(coupleId)/days/$(dayKey)/participants/kebyy)
+        && exists(/databases/$(database)/documents/coupleDailyQuestions/$(coupleId)/days/$(dayKey)/participants/shazy);
+    }
+
+    match /coupleQuestionBank/{coupleId}/{collectionName}/{documentId} {
+      allow read: if isQuestionCoupleMember(coupleId);
+      allow create, update: if isQuestionCoupleMember(coupleId)
+        && (
+          (collectionName == 'questions'
+            && request.resource.data.keys().hasOnly(['categoryId', 'category', 'question', 'position'])
+            && request.resource.data.question is string
+            && request.resource.data.question.size() > 0
+            && request.resource.data.question.size() <= 300)
+          || (collectionName == 'meta'
+            && documentId == 'v1'
+            && request.resource.data.keys().hasOnly(['version', 'questionCount', 'seededAt'])
+            && request.resource.data.questionCount == 105)
+        );
+      allow delete: if false;
+    }
+
+    match /coupleDailyQuestions/{coupleId}/days/{questionRecordId} {
+      allow read: if isQuestionCoupleMember(coupleId);
+      allow create: if isQuestionCoupleMember(coupleId)
+        && request.resource.data.keys().hasOnly(['id', 'categoryId', 'category', 'question', 'dayKey', 'createdAt'])
+        && request.resource.data.dayKey.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && (questionRecordId == request.resource.data.dayKey
+          || questionRecordId.matches('^legacy-[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9]+$'))
+        && exists(/databases/$(database)/documents/coupleQuestionBank/$(coupleId)/questions/$(request.resource.data.id))
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+
+      match /participants/{profileKey} {
+        allow read: if isQuestionCoupleMember(coupleId);
+        allow create: if isQuestionCoupleMember(coupleId)
+          && profileKey == ownQuestionProfileKey()
+          && request.resource.data.keys().hasOnly(['profileKey', 'answeredAt'])
+          && request.resource.data.profileKey == profileKey
+          && request.resource.data.answeredAt is timestamp
+          && existsAfter(/databases/$(database)/documents/coupleDailyQuestions/$(coupleId)/days/$(questionRecordId)/answers/$(profileKey));
+        allow update, delete: if false;
+      }
+
+      match /answers/{profileKey} {
+        allow read: if isQuestionCoupleMember(coupleId)
+          && (profileKey == ownQuestionProfileKey() || bothQuestionPartnersAnswered(coupleId, questionRecordId));
+        allow create: if isQuestionCoupleMember(coupleId)
+          && profileKey == ownQuestionProfileKey()
+          && request.resource.data.keys().hasOnly(['profileKey', 'answer', 'answeredAt'])
+          && request.resource.data.profileKey == profileKey
+          && request.resource.data.answer is string
+          && request.resource.data.answer.size() > 0
+          && request.resource.data.answer.size() <= 1200
+          && request.resource.data.answeredAt is timestamp;
+        allow update, delete: if false;
+      }
     }
   }
 }

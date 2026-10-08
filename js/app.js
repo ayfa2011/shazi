@@ -515,7 +515,7 @@ const titles = {
   activities: "Activities",
   more: "More",
   drawing: "Our Drawing Canvas",
-  challenges: "Daily Challenges"
+  challenges: "✨ Challenges"
 };
 
 const routes = {

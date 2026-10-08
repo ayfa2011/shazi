@@ -12,14 +12,52 @@ export function disposeDrawing() { activeDrawingCleanup?.(); activeDrawingCleanu
 
 export function renderDrawing(el, user, profile) {
   disposeDrawing();
-  el.innerHTML = `<section class="live-drawing"><header class="drawing-heading"><div><p class="eyebrow">DRAW • SHARE • KEEP FOREVER</p><h1>Our Drawing Canvas</h1><p class="muted">Make something together, one little stroke at a time ♡</p></div><button class="secondary" id="drawing-save">Save &amp; send</button></header>
- <div class="drawing-tools"><div class="tool-group colors" aria-label="Brush color"><button data-color="#dc4d88" style="--swatch:#dc4d88" aria-label="Pink" class="selected"></button><button data-color="#263b72" style="--swatch:#263b72" aria-label="Navy"></button><button data-color="#f08a36" style="--swatch:#f08a36" aria-label="Orange"></button><button data-color="#222222" style="--swatch:#222222" aria-label="Black"></button></div><label class="brush-size">Size <input id="brush-size" type="range" min="2" max="24" value="5"></label><button class="tool-button selected" data-tool="brush">✎ Brush</button><button class="tool-button" data-tool="eraser">⌫ Eraser</button><button class="tool-button" id="drawing-undo">↶ Undo</button><button class="tool-button" id="drawing-clear">Clear</button></div>
- <div class="draw-board"><canvas class="draw-canvas" id="draw-canvas" width="1200" height="720" aria-label="Shared drawing canvas"></canvas><div class="canvas-watermark">K &amp; S ♡</div></div>
- <div class="drawing-status"><span class="presence-dot"></span><span id="drawing-presence">Connecting…</span><span class="muted">Your strokes sync live when you are online.</span></div>
- <section class="drawing-history"><div class="section-head"><div><p class="eyebrow">OUR LITTLE GALLERY</p><h2>Drawing history</h2></div></div><div id="drawing-history-list" class="drawing-history-list"><p class="muted">Loading saved drawings…</p></div></section></section>`;
+  el.innerHTML = `<section class="live-drawing">
+    <header class="drawing-heading">
+      <button type="button" class="drawing-close" id="drawing-close" aria-label="Close canvas">×</button>
+      <h1>Our Canvas</h1>
+      <div class="drawing-heading-actions">
+        <button type="button" class="primary" id="drawing-save">Share</button>
+      </div>
+    </header>
+    <div class="drawing-tools">
+      <div class="tool-group colors" aria-label="Brush color">
+        <button data-color="#dc4d88" style="--swatch:#dc4d88" aria-label="Pink" class="selected"></button>
+        <button data-color="#263b72" style="--swatch:#263b72" aria-label="Navy"></button>
+        <button data-color="#f08a36" style="--swatch:#f08a36" aria-label="Orange"></button>
+        <button data-color="#222222" style="--swatch:#222222" aria-label="Black"></button>
+        <label class="drawing-custom-color" title="Choose a custom color">
+          <input type="color" id="drawing-custom-color" value="#dc4d88" aria-label="Choose custom brush color">
+          <span aria-hidden="true">+</span>
+        </label>
+      </div>
+      <label class="brush-size">Size <input id="brush-size" type="range" min="2" max="24" value="5"></label>
+      <button class="tool-button selected" data-tool="brush">✎ Brush</button>
+      <button class="tool-button" data-tool="eraser">⌫ Eraser</button>
+      <button class="tool-button" id="drawing-undo">↶ Undo</button>
+      <button class="tool-button" id="drawing-clear">Clear</button>
+    </div>
+    <div class="draw-board"><canvas class="draw-canvas" id="draw-canvas" width="1200" height="720" aria-label="Shared drawing canvas"></canvas><div class="canvas-watermark">K &amp; S ♡</div></div>
+    <button type="button" class="tool-button drawing-history-trigger" id="drawing-history-open">History</button>
+    <div class="drawing-status"><span class="presence-dot"></span><span id="drawing-presence">Connecting…</span></div>
+    <div class="drawing-history-overlay hidden" id="drawing-history-overlay" role="dialog" aria-modal="true" aria-labelledby="drawing-history-title">
+      <section class="drawing-history-dialog">
+        <header><h2 id="drawing-history-title">Drawing history</h2><button type="button" class="drawing-close" id="drawing-history-close" aria-label="Close history">×</button></header>
+        <div id="drawing-history-list" class="drawing-history-list"><p class="muted">Loading saved drawings…</p></div>
+      </section>
+    </div>
+  </section>`;
 
   const canvas = $("#draw-canvas", el), ctx = canvas.getContext("2d"), strokeRef = ref(rtdb, `${root}/strokes`), presenceRef = ref(rtdb, `${root}/presence/${profile.id}`), connectedRef = ref(rtdb, ".info/connected"), unsubs = [];
-  let color = "#dc4d88", size = 5, tool = "brush", drawing = false, last = null, activeStroke = null, allStrokes = [];
+  let color = "#dc4d88", size = 5, tool = "brush", drawing = false, active = true, last = null, activeStroke = null, allStrokes = [];
+  const historyOverlay = $("#drawing-history-overlay", el);
+
+  $("#drawing-close", el).onclick = () => window.App?.navigate("home");
+  $("#drawing-history-open", el).onclick = () => historyOverlay.classList.remove("hidden");
+  $("#drawing-history-close", el).onclick = () => historyOverlay.classList.add("hidden");
+  historyOverlay.onclick = event => {
+    if (event.target === historyOverlay) historyOverlay.classList.add("hidden");
+  };
 
   function point(e) {
     const r = canvas.getBoundingClientRect();
@@ -78,6 +116,7 @@ export function renderDrawing(el, user, profile) {
   canvas.addEventListener("pointercancel", endStroke);
 
   unsubs.push(onChildAdded(strokeRef, s => {
+    if (!active) return;
     const v = s.val();
     if (!v) return;
 
@@ -104,6 +143,7 @@ export function renderDrawing(el, user, profile) {
   }));
 
   unsubs.push(onValue(connectedRef, s => {
+    if (!active) return;
     if (s.val()) {
       set(presenceRef, { name: profile.name, uid: user.uid, state: "online", lastSeen: Date.now() });
       onDisconnect(presenceRef).set({ name: profile.name, uid: user.uid, state: "offline", lastSeen: Date.now() });
@@ -112,9 +152,12 @@ export function renderDrawing(el, user, profile) {
 
   const presenceListRef = ref(rtdb, `${root}/presence`);
   unsubs.push(onValue(presenceListRef, s => {
+    if (!active || !el.isConnected) return;
     const people = Object.values(s.val() || {}), online = people.filter(p => p.state === "online");
-    $("#drawing-presence", el).textContent = online.length >= 2 ? "Both online · Drawing together!" : online.length ? `${online[0].name} online · Waiting for your person…` : "You are offline · Draw and send when you reconnect";
-    $(".presence-dot", el).classList.toggle("online", online.length > 0);
+    const presence = $("#drawing-presence", el), dot = $(".presence-dot", el);
+    if (!presence || !dot) return;
+    presence.textContent = online.length >= 2 ? "Both online · Drawing together!" : online.length ? `${online[0].name} online · Waiting for your person…` : "You are offline · Draw and send when you reconnect";
+    dot.classList.toggle("online", online.length > 0);
   }));
 
   el.querySelectorAll("[data-color]").forEach(b => b.onclick = () => {
@@ -122,6 +165,11 @@ export function renderDrawing(el, user, profile) {
     el.querySelectorAll("[data-color]").forEach(x => x.classList.toggle("selected", x === b));
     el.querySelector("[data-tool=brush]").click();
   });
+  $("#drawing-custom-color", el).oninput = event => {
+    color = event.target.value;
+    el.querySelectorAll("[data-color]").forEach(button => button.classList.remove("selected"));
+    el.querySelector("[data-tool=brush]").click();
+  };
   el.querySelectorAll("[data-tool]").forEach(b => b.onclick = () => {
     tool = b.dataset.tool;
     el.querySelectorAll("[data-tool]").forEach(x => x.classList.toggle("selected", x === b));
@@ -220,12 +268,16 @@ export function renderDrawing(el, user, profile) {
   }
 
   unsubs.push(watchDrawingMessages(messages => {
-    $("#drawing-history-list", el).innerHTML = messages.map(m => `
+    if (!active || !el.isConnected) return;
+    const sortedMessages = [...messages].sort((a, b) => drawingTimestamp(b) - drawingTimestamp(a));
+    const historyList = $("#drawing-history-list", el);
+    if (!historyList) return;
+    historyList.innerHTML = sortedMessages.map(m => `
       <article class="history-card">
-        <button class="history-image" data-open-drawing="${esc(m.driveFileId)}">${m.thumbnailUrl ? `<img src="${esc(m.thumbnailUrl)}" alt="Drawing">` : `<span>♡</span><small>Open</small>`}</button>
+        <button class="history-image" data-open-drawing="${esc(m.driveFileId)}">${m.thumbnailUrl ? `<img src="${esc(m.thumbnailUrl)}" alt="Drawing">` : `<img src="https://drive.google.com/thumbnail?id=${encodeURIComponent(m.driveFileId)}&amp;sz=w256" alt="Drawing">`}</button>
         <div>
           <strong>${esc(getDisplayName(m.authorId, m.authorName || "Us"))}</strong>
-          <small>${m.createdAt?.toDate ? m.createdAt.toDate().toLocaleString() : new Date(m.createdAtMs || Date.now()).toLocaleString()}</small>
+          <small>${new Date(drawingTimestamp(m)).toLocaleString()}</small>
           <a href="${esc(m.driveUrl || `https://drive.google.com/file/d/${m.driveFileId}/view`)}" target="_blank" rel="noopener">Open Drive ↗</a>
         </div>
       </article>
@@ -233,6 +285,12 @@ export function renderDrawing(el, user, profile) {
 
     el.querySelectorAll("[data-open-drawing]").forEach(b => b.onclick = () => loadSaved(b.dataset.openDrawing));
   }));
+
+  function drawingTimestamp(message) {
+    if (message.createdAt?.toDate) return message.createdAt.toDate().getTime();
+    if (message.createdAtMs) return message.createdAtMs;
+    return 0;
+  }
 
   async function loadSaved(fileId) {
     try {
@@ -242,6 +300,8 @@ export function renderDrawing(el, user, profile) {
       img.onload = () => {
         ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
         ctx.drawImage(img, 0, 0, canvas.clientWidth, canvas.clientHeight);
+        historyOverlay.classList.add("hidden");
+        URL.revokeObjectURL(img.src);
       };
       img.src = URL.createObjectURL(await r.blob());
     } catch (e) {
@@ -250,6 +310,7 @@ export function renderDrawing(el, user, profile) {
   }
 
   activeDrawingCleanup = () => {
+    active = false;
     unsubs.forEach(stop => stop());
     onDisconnect(presenceRef).cancel();
     set(presenceRef, { name: profile.name, uid: user.uid, state: "offline", lastSeen: Date.now() });
