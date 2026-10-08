@@ -5,7 +5,7 @@ import { renderMemories, disposeMemories } from "./memories.js";
 import { renderGames, disposeGames } from "./games.js";
 import { renderLetters, disposeLetters } from "./letters.js";
 import { renderQuestions, disposeQuestions } from "./questions.js";
-import { watchItems, watchDiaryPosts, toggleDiaryLike, watchDiaryComments, addDiaryComment, addDiaryPost, deleteDiaryPost, setItem } from "./firestore.js";
+import { watchItems, watchDiaryPosts, toggleDiaryLike, watchDiaryComments, addDiaryComment, addDiaryPost, updateDiaryPost, deleteDiaryPost } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { renderBucket, disposeBucket } from "./bucket-list.js";
 import { renderActivities } from "./activities.js";
@@ -124,6 +124,12 @@ function renderPostFeed(el, user, profile) {
       .tw-user-handle {
         color: #536471;
         margin-left: 4px;
+      }
+      .tw-post-time {
+        display: block;
+        margin-top: 2px;
+        color: #8b98a5;
+        font-size: 11px;
       }
       .tw-post-text {
         font-size: 15px;
@@ -267,10 +273,14 @@ function renderPostFeed(el, user, profile) {
     }
 
     feed.innerHTML = posts.map((post) => {
-      const own = post.authorId === user.uid;
+      const own = post.authorId === user.uid || post.authorId === profile.id;
       const isLiked = (post.likedBy || []).includes(user.uid);
       const likeCount = (post.likedBy || []).length;
       const handle = `@${(post.authorName || 'us').toLowerCase()}`;
+      const createdAt = post.createdAt?.toDate ? post.createdAt.toDate() : post.createdAt ? new Date(post.createdAt) : null;
+      const timeStr = createdAt && !Number.isNaN(createdAt.getTime())
+        ? createdAt.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
+        : "Just now";
 
       return `
         <div class="tw-post-card" id="post-${post.id}">
@@ -280,6 +290,7 @@ function renderPostFeed(el, user, profile) {
               <div class="tw-user-info">
                 <span class="tw-user-name">${esc(post.authorName || 'Us')}</span>
                 <span class="tw-user-handle">${handle}</span>
+                <time class="tw-post-time">${timeStr}</time>
               </div>
               ${own ? `
                 <div style="display:flex; gap:8px;">
@@ -335,8 +346,8 @@ function renderPostFeed(el, user, profile) {
       if (editBtn) {
         editBtn.onclick = async () => {
           const newText = prompt("Edit your post:", post.text);
-          if (newText !== null && newText.trim() !== "") {
-            await setItem(post.id, { text: newText.trim() }, "diary");
+          if (newText !== null && newText.trim() !== (post.text || "")) {
+            await updateDiaryPost(post.id, { text: newText.trim() });
             toast("Post updated!");
           }
         };
@@ -386,7 +397,7 @@ function renderPostFeed(el, user, profile) {
 
 // Router & Page Handlers
 const titles = {
-  home: "Dashboard",
+  home: "Keby & Shazy",
   memories: "Memories",
   games: "Games",
   gallery: "Post",
@@ -419,6 +430,7 @@ window.App = {
 };
 
 export function navigate(route = "home") {
+  document.body.classList.toggle("home-dashboard", route === "home");
   // Dispose active listeners based on previous page to stop leaks
   if (route !== "home") disposeHome();
   if (route !== "drawing") disposeDrawing();

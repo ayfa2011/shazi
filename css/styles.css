@@ -54,3 +54,94 @@ input:focus,textarea:focus{border-color:var(--pink);box-shadow:0 0 0 4px #ef6d9f
 .bottom-nav button .nav-post-icon{font-size:22px;line-height:23px}
 .post-page{width:min(680px,100%);margin:0 auto}.post-page-head{display:flex;align-items:center;justify-content:space-between;margin:4px 0 12px}.post-page-head .eyebrow{margin:0 0 2px}.post-page-head h1{margin:0;color:var(--deep);font-size:30px}.post-compose-open{padding:9px 15px;border-radius:999px}.post-profiles{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-bottom:12px;padding:4px;border-radius:16px;background:#ffeaf2}.post-profiles button{padding:9px 5px;border-radius:12px;background:transparent;color:#916b7d;font-size:13px}.post-profiles button.selected{background:#fff;color:#c83272;box-shadow:0 2px 8px #8f315d12;font-weight:700}.post-page-composer{margin:0 0 12px;padding:12px 13px 10px 62px;border-color:#f3d5e1}.post-page-composer textarea{min-height:55px;padding:8px;font-size:14px}.post-page-composer .feed-avatar{left:12px;top:15px;width:36px;height:36px}.post-page-composer .composer-actions{gap:7px}.post-page-composer .primary{padding:9px 14px}.post-page-feed{display:grid;gap:10px}.social-post{padding:13px 14px;background:#fff;border:1px solid #f2dce5;border-radius:17px;box-shadow:0 4px 16px #8f315d08}.social-post>header{display:flex;align-items:center;gap:9px}.social-avatar{width:38px;height:38px;display:grid;place-items:center;border-radius:50%;background:linear-gradient(135deg,#f7a8c5,#de4e88);color:#fff;font-weight:700}.social-author{display:grid;gap:2px}.social-author strong{font-size:13px;color:#60283f}.social-author small{font-size:10px;color:var(--muted)}.social-post .post-delete{margin-left:auto}.social-post-text{margin:10px 0;line-height:1.45;font-size:14px;overflow-wrap:anywhere}.social-post-photo{overflow:hidden;margin:9px 0;border-radius:13px;background:#fff2f7}.social-post-photo img{display:block;width:100%;max-height:440px;aspect-ratio:4/3;object-fit:cover}.post-drive-load{width:100%;min-height:130px;background:#fff2f7;color:var(--deep)}.social-post-actions{display:flex;align-items:center;gap:14px;padding:7px 0;border-top:1px solid #faedf2;border-bottom:1px solid #faedf2}.social-post-actions a{margin-left:auto;color:var(--deep);font-size:11px;text-decoration:none}.social-comments{display:grid;gap:3px}.post-comment{margin:7px 0 0;padding:7px 9px;border-radius:10px;background:#fff7fa;font-size:12px}.post-comment strong{color:var(--deep)}.social-comment-form{display:flex;grid-template-columns:none;gap:6px;margin:8px 0 0;text-align:left}.social-comment-form input{min-width:0;flex:1;padding:9px 10px;font-size:12px}.social-comment-form button{padding:7px 11px;border-radius:10px;background:#ffe8f1;color:var(--deep);font-size:11px}
 @media(max-width:420px){.post-page-head h1{font-size:27px}.post-profiles button{font-size:12px}.post-page-composer{padding-left:54px}.post-page-composer .feed-avatar{width:32px;height:32px}.social-post{padding:11px}.social-post-photo img{max-height:340px}.bottom-nav{bottom:max(8px,env(safe-area-inset-bottom));padding:6px 4px}.bottom-nav button{font-size:18px;padding:5px 0}.bottom-nav button span{font-size:9px}}
+
+.home-dashboard {
+  background: linear-gradient(160deg, #fff3f8 0%, #fff8fb 48%, #fff0f6 100%);
+}
+.home-dashboard .topbar {
+  height: 52px;
+  justify-content: center;
+  padding: 4px 12px;
+  border: 0;
+  background: transparent;
+}
+.home-dashboard .top-brand { display: none; }
+.home-dashboard .top-actions {
+  position: absolute;
+  inset: 0 16px;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.home-dashboard .top-actions button { pointer-events: auto; }
+.home-dashboard .content { padding-top: 0; }
+.home-dashboard .icon-btn,
+.home-dashboard .avatar {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #ffe3ef;
+  color: var(--deep);
+  box-shadow: 0 4px 14px #8f315d10;
+}
+.home-dashboard .together-counter {
+  justify-content: space-between;
+  min-height: 174px;
+  border: 1px solid #f6bdd2;
+  background:
+    radial-gradient(ellipse at 91% 90%, #a94b6c99 0, transparent 37%),
+    linear-gradient(110deg, #f8c3d7 0%, #f9d4df 52%, #eca2bb 100%);
+}
+.home-dashboard .home-counter-art { font-size: 174px; }
+.home-dashboard .home-date-control { cursor: pointer; }
+.home-dashboard .home-date-control:hover { background: #fff; }
+.home-dashboard .home-post-card { border: 1px solid #f5e1e9; }
+.home-dashboard .home-drawing-panel { align-self: stretch; padding: 10px; }
+.home-dashboard .home-canvas-launch { width: 100%; }
+.home-dashboard .today-cards .card {
+  border-color: #f4dbe5;
+  box-shadow: 0 8px 24px #8f315d0b;
+}
+.home-dashboard .today-question .today-link,
+.home-dashboard .today-challenge .today-link {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #e65391;
+  color: white;
+  font-size: 11px;
+}
+.home-dashboard .today-challenge .today-link { background: #e98a37; }
+.home-dashboard .bottom-nav {
+  bottom: max(12px, env(safe-area-inset-bottom));
+  background: #fffdfef5;
+}
+@media (max-width: 759px) {
+  .home-dashboard .content { padding-left: 12px; padding-right: 12px; }
+  .home-dashboard .couple-brand { padding-top: 0; }
+  .home-dashboard .together-counter { margin-top: 12px; }
+}
+@media (min-width: 360px) and (max-width: 759px) {
+  .home-dashboard .home-feature-grid,
+  .home-dashboard .today-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+  .home-dashboard .home-post-panel,
+  .home-dashboard .home-drawing-panel { padding: 10px; }
+  .home-dashboard .home-composer-head { gap: 6px; }
+  .home-dashboard .home-composer-head strong { font-size: 11px; }
+  .home-dashboard .home-avatar { width: 30px; height: 30px; }
+  .home-dashboard .home-composer-card textarea { padding: 8px; font-size: 12px; }
+  .home-dashboard .home-composer-actions { gap: 5px; flex-wrap: wrap; }
+  .home-dashboard .home-post-btn { padding: 7px 10px; font-size: 11px; }
+  .home-dashboard .home-canvas-launch { min-height: 150px; padding: 9px; font-size: 13px; }
+  .home-dashboard .today-cards .card { gap: 7px; padding: 10px; }
+  .home-dashboard .today-icon { width: 28px; height: 28px; font-size: 17px; }
+  .home-dashboard .today-card-copy strong { font-size: 11px; }
+  .home-dashboard .today-card-copy p { font-size: 11px; }
+  .home-dashboard .today-question,
+  .home-dashboard .today-challenge { padding-bottom: 42px !important; }
+  .home-dashboard .today-question .today-link,
+  .home-dashboard .today-challenge .today-link { left: 44px; padding: 6px 8px; font-size: 9px; }
+}
+.home-dashboard .today-section .section-head h2 { font-size: 18px; }
