@@ -35,7 +35,7 @@ export function renderChallenges(el, user, profile) {
   const ownKey = getProfileKey(profile);
   const dayKey = todayKey();
   const week = challengeDays(dayKey, 7);
-  let assignments = [], legacyCompletions = [];
+  let assignments = [], legacyCompletions = [], assignmentsReady = false;
   let selectedTab = "today";
   let showSkipped = false;
 
@@ -156,6 +156,10 @@ export function renderChallenges(el, user, profile) {
 
   function render() {
     if (!active || !el.isConnected) return;
+    if (!assignmentsReady) {
+      list.innerHTML = `<p class="challenge-empty">Loading your challenges…</p>`;
+      return;
+    }
     if (selectedTab === "today") {
       renderToday();
     } else if (selectedTab === "week") {
@@ -279,7 +283,12 @@ export function renderChallenges(el, user, profile) {
 
   async function prepareWeek() {
     try {
-      await Promise.all(week.map(challenge => ensureChallengeAssignment(challenge)));
+      const prepared = await Promise.all(week.map(challenge => ensureChallengeAssignment(challenge)));
+      const current = new Map(prepared.map(assignment => [assignment.id, assignment]));
+      assignments.forEach(assignment => current.set(assignment.id, assignment));
+      assignments = [...current.values()];
+      assignmentsReady = true;
+      render();
     } catch (error) {
       console.error("Could not prepare this week's challenges:", error);
       if (active) {

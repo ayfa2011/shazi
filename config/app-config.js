@@ -21,12 +21,5 @@ export const APP_CONFIG = {
       bioConfigured: false,
       avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&h=256&q=80"
     }
-  },
-  starterChallenges: [
-    "Send one kind message today.",
-    "Take a photo of something that reminded you of us.",
-    "Tell each other one thing you are grateful for.",
-    "Plan one tiny future adventure.",
-    "Draw something silly together."
-  ]
+  }
 };
