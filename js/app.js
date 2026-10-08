@@ -2,12 +2,12 @@ import { initAuth, logout } from "./auth.js";
 import { $,$$, esc, toast } from "./utils.js";
 import { renderHome, disposeHome } from "./dashboard.js";
 import { renderMemories, disposeMemories } from "./memories.js";
-import { renderGames } from "./games.js";
+import { renderGames, disposeGames } from "./games.js";
 import { renderLetters, disposeLetters } from "./letters.js";
 import { renderQuestions, disposeQuestions } from "./questions.js";
 import { watchItems, watchDiaryPosts, toggleDiaryLike, watchDiaryComments, addDiaryComment, addDiaryPost, deleteDiaryPost, setItem } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
-import { renderBucket } from "./bucket-list.js";
+import { renderBucket, disposeBucket } from "./bucket-list.js";
 import { renderActivities } from "./activities.js";
 import { renderMore } from "./more.js";
 import { renderDrawing, disposeDrawing } from "./drawing.js";
@@ -193,7 +193,7 @@ function renderPostFeed(el, user, profile) {
       </div>
 
       <form class="tw-composer" id="tw-main-composer">
-        <div class="tw-avatar">${esc(profile.name[0])}</div>
+        <div class="tw-avatar">${esc((profile.name || "U")[0])}</div>
         <div class="tw-composer-input">
           <textarea name="text" rows="3" placeholder="What's happening?"></textarea>
           <div class="tw-composer-actions">
@@ -238,7 +238,7 @@ function renderPostFeed(el, user, profile) {
       }
 
       await addDiaryPost({
-        authorId: profile.id,
+        authorId: user.uid,
         authorName: profile.name,
         wallId: APP_CONFIG.coupleId,
         text,
@@ -256,7 +256,7 @@ function renderPostFeed(el, user, profile) {
 
   stopPostFeed = watchDiaryPosts((items) => {
     if (!active) return;
-    posts = items;
+    posts = items || [];
     render();
   });
 
@@ -267,7 +267,7 @@ function renderPostFeed(el, user, profile) {
     }
 
     feed.innerHTML = posts.map((post) => {
-      const own = post.authorId === profile.id;
+      const own = post.authorId === user.uid;
       const isLiked = (post.likedBy || []).includes(user.uid);
       const likeCount = (post.likedBy || []).length;
       const handle = `@${(post.authorName || 'us').toLowerCase()}`;
@@ -364,7 +364,7 @@ function renderPostFeed(el, user, profile) {
           const text = commentForm.elements.reply.value.trim();
           if (!text) return;
           await addDiaryComment(post.id, {
-            authorId: profile.id,
+            authorId: user.uid,
             authorName: profile.name,
             text
           });
@@ -418,7 +418,7 @@ window.App = {
   navigate
 };
 
-function navigate(route = "home") {
+export function navigate(route = "home") {
   // Dispose active listeners based on previous page to stop leaks
   if (route !== "home") disposeHome();
   if (route !== "drawing") disposeDrawing();
@@ -426,6 +426,8 @@ function navigate(route = "home") {
   if (route !== "letters") disposeLetters?.();
   if (route !== "questions") disposeQuestions?.();
   if (route !== "challenges") disposeChallenges?.();
+  if (route !== "games") disposeGames?.();
+  if (route !== "bucket") disposeBucket?.();
   if (route !== "gallery") {
     disposePostFeed?.();
     disposePostFeed = null;
@@ -484,8 +486,10 @@ initAuth(
     disposeLetters?.();
     disposeQuestions?.();
     disposeChallenges?.();
+    disposeGames?.();
+    disposeBucket?.();
     disposePostFeed?.();
-    
+
     const appView = $("#app-view");
     const authView = $("#auth-view");     if (appView) appView.classList.add("hidden");     if (authView) authView.classList.remove("hidden");   } );  // Event Listeners setup document.addEventListener("DOMContentLoaded", () => {   $$(".bottom-nav button").forEach((b) => {
     b.addEventListener("click", () => {
