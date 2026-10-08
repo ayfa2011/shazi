@@ -5,6 +5,7 @@ let stopBucketWatcher = null;
 
 export function renderBucket(el, user) {
   stopBucketWatcher?.();
+  const currentYear = new Date().getFullYear();
   let currentFilter = "All";
   let allItems = [];
 
@@ -55,7 +56,7 @@ export function renderBucket(el, user) {
         <input type="text" id="modal-title" placeholder="Title (e.g. Visit Paris)">
         
         <label style="font-size:12px; color:#666;">Target Date / Year:</label>
-        <input type="text" id="modal-date" placeholder="Target Date (e.g. 2027)">
+        <input type="text" id="modal-date" placeholder="Target Date (e.g. ${currentYear + 1})">
         
         <label style="font-size:12px; color:#666;">Status:</label>
         <select id="modal-status">
@@ -82,14 +83,14 @@ export function renderBucket(el, user) {
       $("#bucket-modal-title", el).textContent = "Edit Dream";
       $("#modal-item-id", el).value = item.id;
       $("#modal-title", el).value = item.title || "";
-      $("#modal-date", el).value = item.dateStr || "";
+      $("#modal-date", el).value = item.dateStr || String(currentYear);
       $("#modal-status", el).value = item.status || "Upcoming";
       $("#modal-delete", el).style.display = "block";
     } else {
       $("#bucket-modal-title", el).textContent = "Add to Bucket List";
       $("#modal-item-id", el).value = "";
       $("#modal-title", el).value = "";
-      $("#modal-date", el).value = "";
+      $("#modal-date", el).value = String(currentYear);
       $("#modal-status", el).value = "Upcoming";
       $("#modal-delete", el).style.display = "none";
     }
@@ -125,7 +126,7 @@ export function renderBucket(el, user) {
   $("#modal-save", el).onclick = async () => {
     const id = $("#modal-item-id", el).value;
     const title = $("#modal-title", el).value.trim();
-    const dateStr = $("#modal-date", el).value.trim() || "2026";
+    const dateStr = $("#modal-date", el).value.trim() || String(currentYear);
     const status = $("#modal-status", el).value;
 
     if (!title) return toast("Please enter a title");
@@ -135,16 +136,14 @@ export function renderBucket(el, user) {
         title,
         dateStr,
         status,
-        done: status === "Completed",
-        author: user.uid,
-        createdAt: Date.now()
+        done: status === "Completed"
       };
 
       if (id) {
         await setItem(id, payload);
         toast("Dream updated ♡");
       } else {
-        await addItem("bucket", payload);
+        await addItem("bucket", { ...payload, author: user.uid });
         toast("New dream added ♡");
       }
 
@@ -178,7 +177,7 @@ export function renderBucket(el, user) {
             <div style="font-size:20px;">✨</div>
             <div>
               <h4 style="margin:0; font-size:15px; color:#374151;">${esc(x.title)}</h4>
-              <p style="margin:2px 0 0 0; font-size:12px; color:#9ca3af;">${esc(x.dateStr || "2026")}</p>
+              <p style="margin:2px 0 0 0; font-size:12px; color:#9ca3af;">${esc(x.dateStr || currentYear)}</p>
             </div>
           </div>
           <div style="display:flex; align-items:center; gap:8px;">
@@ -211,6 +210,10 @@ export function renderBucket(el, user) {
   stopBucketWatcher = watchItems("bucket", (items) => {
     allItems = items || [];
     renderList();
+  }, error => {
+    console.error("Bucket list could not be loaded:", error);
+    const listEl = $("#bucket-list-items", el);
+    if (listEl) listEl.innerHTML = `<p style="text-align:center; color:#9ca3af; padding:20px 0;">Bucket list could not be loaded. Please try again.</p>`;
   });
 }
 

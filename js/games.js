@@ -1,15 +1,8 @@
-import { $, toast } from "./utils.js";
-import { addItem, watchItems } from "./firestore.js";
+import { $, toast, todayKey, dailyIndex } from "./utils.js";
+import { recordDailyGameWin, watchItems } from "./firestore.js";
 
 function getDailySeed() {
-  const d = new Date();
-  const dateStr = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-  let hash = 0;
-  for (let i = 0; i < dateStr.length; i++) {
-    hash = (hash << 5) - hash + dateStr.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash) % 9;
+  return dailyIndex(9);
 }
 
 let stopGames = null;
@@ -66,12 +59,8 @@ export function renderGames(el, user) {
           toast("Congratulations! Daily heart found! ♡");
           
           try {
-            await addItem("game", {
-              game: "Today's Hidden Heart",
-              result: "won",
-              author: user.uid,
-              createdAt: new Date().toISOString()
-            });
+            const recorded = await recordDailyGameWin(user.uid, todayKey());
+            if (!recorded) resultText.textContent = "You already found today's hidden heart ♡";
           } catch (err) {
             console.error("Failed to save score:", err);
             toast("Could not save score history.");
@@ -97,16 +86,28 @@ export function renderGames(el, user) {
       return;
     }
 
-    const wins = items.filter((x) => x.result === "won").slice(0, 5);
-    if (wins.length === 0) {
+    const wins = items.filter((x) => x.result === "won");
+    const alreadyWonToday = wins.some(win => {
+      if (win.author !== user.uid) return false;
+      if (win.gameDay) return win.gameDay === todayKey();
+      const createdAt = win.createdAt?.toDate?.() || (win.createdAt ? new Date(win.createdAt) : null);
+      return createdAt && todayKey(createdAt) === todayKey();
+    });
+    if (alreadyWonToday) {
+      finished = true;
+      resultText.textContent = "You already found today's hidden heart ♡";
+      board.querySelectorAll("button").forEach(button => { button.disabled = true; });
+    }
+    const recentWins = wins.slice(0, 5);
+    if (recentWins.length === 0) {
       listEl.innerHTML = `<p style="color:#94a3b8; font-size:12px;">No wins recorded yet.</p>`;
       return;
     }
 
-    listEl.innerHTML = wins
+    listEl.innerHTML = recentWins
       .map((w) => {
         const d = w.createdAt
-          ? new Date(w.createdAt).toLocaleDateString("en-GB", {
+          ? (w.createdAt?.toDate?.() || new Date(w.createdAt)).toLocaleDateString("en-GB", {
               day: "numeric",
               month: "short"
             })
@@ -119,6 +120,10 @@ export function renderGames(el, user) {
       `;
       })
       .join("");
+  }, error => {
+    console.error("Game scores could not be loaded:", error);
+    const listEl = $("#game-scores-list", el);
+    if (listEl) listEl.innerHTML = `<p style="color:#94a3b8; font-size:12px;">Game wins could not be loaded.</p>`;
   });
 }
 

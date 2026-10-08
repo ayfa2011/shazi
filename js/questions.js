@@ -1,4 +1,4 @@
-import { $, esc, toast, todayKey } from "./utils.js";
+import { $, esc, toast, todayKey, scheduleDubaiDayRollover } from "./utils.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { getProfileKey } from "./profile-data.js";
 import {
@@ -11,7 +11,8 @@ import {
   watchQuestionParticipants
 } from "./question-service.js";
 
-let stopParticipants = null, active = false;
+let stopParticipants = null, dayRolloverTimer = null, questionRenderToken = 0;
+const legacyMigrationPromises = new Map();
 
 function timestamp(value) {
   if (value?.toDate) return value.toDate().getTime();
@@ -19,10 +20,41 @@ function timestamp(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function migrateLegacyAnswersOnce(user, profileKey, isCurrent) {
+  const marker = `question-legacy-migrated-v1-${user.uid}`;
+  try {
+    if (localStorage.getItem(marker) === "true") return null;
+  } catch (error) {
+    console.error("Legacy question migration status could not be read:", error);
+    if (isCurrent()) toast("Legacy question history could not be checked.");
+    return null;
+  }
+  if (legacyMigrationPromises.has(user.uid)) return legacyMigrationPromises.get(user.uid);
+
+  const migration = migrateLegacyQuestionAnswers(user, profileKey)
+    .then(() => {
+      localStorage.setItem(marker, "true");
+      return true;
+    })
+    .catch(error => {
+      console.error("Legacy question answers could not be migrated:", error);
+      if (isCurrent()) toast("Legacy question history could not be migrated.");
+      return false;
+    })
+    .finally(() => legacyMigrationPromises.delete(user.uid));
+  legacyMigrationPromises.set(user.uid, migration);
+  return migration;
+}
+
 export function renderQuestions(el, user, profile) {
   disposeQuestions();
-  active = true;
+  const renderToken = questionRenderToken;
+  const isCurrent = () => renderToken === questionRenderToken && el.isConnected;
   const ownKey = getProfileKey(profile);
+  clearTimeout(dayRolloverTimer);
+  dayRolloverTimer = scheduleDubaiDayRollover(() => {
+    if (isCurrent()) window.App?.navigate("questions");
+  });
   const partnerKey = Object.keys(APP_CONFIG.profiles).find(key => key !== ownKey) || "";
   const dayKey = todayKey();
   let question = null, participants = {}, ownAnswer = null, partnerAnswer = null, history = [], loadToken = 0;
@@ -148,14 +180,15 @@ export function renderQuestions(el, user, profile) {
     const token = ++loadToken;
     try {
       const currentParticipants = await getQuestionParticipants(dayKey);
-      if (!active || token !== loadToken) return;
+      if (!isCurrent() || token !== loadToken) return;
       participants = currentParticipants;
       ownAnswer = ownKey && participants[ownKey] ? await getQuestionAnswer(dayKey, ownKey) : null;
       const bothAnswered = Boolean(ownKey && partnerKey && participants[ownKey] && participants[partnerKey]);
       partnerAnswer = bothAnswered ? await getQuestionAnswer(dayKey, partnerKey) : null;
-      if (!active || token !== loadToken) return;
+      if (!isCurrent() || token !== loadToken) return;
       renderToday();
     } catch (error) {
+      if (!isCurrent()) return;
       console.error("Could not load today's answers:", error);
       toast("Could not load today's answer status.");
     }
@@ -177,8 +210,9 @@ export function renderQuestions(el, user, profile) {
     `).join("");
   }
 
-  async function loadHistoryAnswers() {
-    await Promise.all(history.map(async item => {
+  async function loadHistoryAnswers(todayOnly = false) {
+    const historyItems = todayOnly ? history.filter(item => item.id === dayKey) : history;
+    await Promise.all(historyItems.map(async item => {
       try {
         let status, mine, partner;
         if (item.id === dayKey) {
@@ -194,7 +228,7 @@ export function renderQuestions(el, user, profile) {
         }
         const canReveal = Boolean(status[ownKey] && status[partnerKey]);
         const card = el.querySelector(`[data-history-day="${item.id}"] .question-history-answers`);
-        if (!card || !active) return;
+        if (!card || !isCurrent()) return;
         const entries = [
           [ownKey, mine],
           [partnerKey, canReveal ? partner : null]
@@ -213,27 +247,39 @@ export function renderQuestions(el, user, profile) {
     }));
   }
 
+  async function refreshHistory() {
+    history = await getQuestionHistory();
+    if (!isCurrent()) return;
+    renderHistory();
+    await loadHistoryAnswers();
+  }
+
   async function loadQuestion() {
     try {
       question = await ensureDailyQuestion(dayKey);
-      if (!active) return;
-      await migrateLegacyQuestionAnswers(user, ownKey);
-      if (!active) return;
+      if (!isCurrent()) return;
       renderToday();
       stopParticipants = watchQuestionParticipants(dayKey, status => {
-        if (!active) return;
+        if (!isCurrent()) return;
         participants = status;
-        refreshAnswers().then(loadHistoryAnswers);
+        refreshAnswers().then(() => loadHistoryAnswers(true));
       }, error => {
+        if (!isCurrent()) return;
         console.error("Question status updates failed:", error);
         toast("Answer status could not be synced.");
       });
+      const migration = migrateLegacyAnswersOnce(user, ownKey, isCurrent);
       await refreshAnswers();
-      history = await getQuestionHistory();
-      if (!active) return;
-      renderHistory();
-      await loadHistoryAnswers();
+      await refreshHistory();
+      migration?.then(migrated => {
+        if (!migrated || !isCurrent()) return;
+        refreshHistory().catch(error => {
+          console.error("Migrated question history could not be refreshed:", error);
+          if (isCurrent()) toast("Migrated question history could not be loaded.");
+        });
+      });
     } catch (error) {
+      if (!isCurrent()) return;
       console.error("Could not load Today's Question:", error);
       const card = $("#today-question-card", el);
       if (card) card.innerHTML = `<p class="question-empty">Today's Question could not be loaded. Check your connection and try again.</p>`;
@@ -249,7 +295,9 @@ export function renderQuestions(el, user, profile) {
 }
 
 export function disposeQuestions() {
-  active = false;
+  questionRenderToken++;
+  clearTimeout(dayRolloverTimer);
+  dayRolloverTimer = null;
   stopParticipants?.();
   stopParticipants = null;
 }

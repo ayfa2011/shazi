@@ -144,14 +144,14 @@ export async function migrateLegacyQuestionAnswers(user, profileKey) {
     if (!questionText) continue;
     const legacyQuestionId = `legacy-${hashQuestion(questionText)}`;
     const dayDocumentId = `legacy-${dayKey}-${hashQuestion(questionText)}`;
-    const existingAnswer = await getDoc(answerRef(dayDocumentId, profileKey));
-    if (existingAnswer.exists()) continue;
     await setDoc(doc(bankRef(), legacyQuestionId), {
-      categoryId: "about-us",
-      category: "💗 About Us",
+      categoryId: "legacy",
+      category: "Legacy question",
       question: questionText,
       position: 0
     }, { merge: true });
+    const existingAnswer = await getDoc(answerRef(dayDocumentId, profileKey));
+    if (existingAnswer.exists()) continue;
     const legacyDailyRef = dailyRef(dayDocumentId);
     await runTransaction(db, async transaction => {
       const existing = await transaction.get(legacyDailyRef);

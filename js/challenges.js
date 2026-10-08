@@ -1,4 +1,4 @@
-import { $, esc, toast, todayKey, compressImage } from "./utils.js";
+import { $, esc, toast, todayKey, compressImage, scheduleDubaiDayRollover } from "./utils.js";
 import {
   ensureChallengeAssignment,
   watchChallengeAssignments,
@@ -7,10 +7,11 @@ import {
   completeChallengeAssignment,
   skipChallengeAssignment
 } from "./firestore.js";
+import { APP_CONFIG } from "../config/app-config.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { challengeDays } from "./challenge-bank.js";
 
-let stopChallenges = null, stopLegacyChallenges = null, active = false;
+let stopChallenges = null, stopLegacyChallenges = null, dayRolloverTimer = null, challengeRenderToken = 0;
 
 function friendlyDate(dayKey) {
   return new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-GB", {
@@ -31,11 +32,16 @@ function statusLabel(status) {
 
 export function renderChallenges(el, user, profile) {
   disposeChallenges();
-  active = true;
+  const renderToken = challengeRenderToken;
+  const isCurrent = () => renderToken === challengeRenderToken && el.isConnected;
+  clearTimeout(dayRolloverTimer);
+  dayRolloverTimer = scheduleDubaiDayRollover(() => {
+    if (isCurrent()) window.App?.navigate("challenges");
+  });
   const ownKey = getProfileKey(profile);
   const dayKey = todayKey();
   const week = challengeDays(dayKey, 7);
-  let assignments = [], legacyCompletions = [], assignmentsReady = false;
+  let assignments = [], legacyCompletions = [], assignmentsReady = false, assignmentsError = false;
   let selectedTab = "today";
   let showSkipped = false;
 
@@ -104,30 +110,64 @@ export function renderChallenges(el, user, profile) {
   });
 
   function assignmentFor(challenge) {
-    return assignments.find(item => item.id === challenge.id) || {
+    const storedAssignment = assignments.find(item => item.id === challenge.id);
+    const assignment = storedAssignment ? {
+      ...storedAssignment,
+      acceptedBy: Array.isArray(storedAssignment.acceptedBy) ? storedAssignment.acceptedBy : [],
+      skippedBy: Array.isArray(storedAssignment.skippedBy)
+        ? storedAssignment.skippedBy
+        : storedAssignment.skippedBy ? [storedAssignment.skippedBy] : [],
+      completedBy: Array.isArray(storedAssignment.completedBy) ? storedAssignment.completedBy : []
+    } : {
       id: challenge.id,
       ...challenge,
       status: "upcoming",
       acceptedBy: [],
+      skippedBy: [],
       completedBy: []
     };
+    const participantCount = Math.max(1, Object.keys(APP_CONFIG.profiles).length);
+    if ((assignment.completedBy || []).length >= participantCount ||
+      (assignment.status === "completed" && !assignment.completedBy?.length)) {
+      return { ...assignment, status: "completed" };
+    }
+    if ((assignment.skippedBy || []).length >= participantCount ||
+      (assignment.status === "skipped" && !assignment.skippedBy?.length)) {
+      return { ...assignment, status: "skipped" };
+    }
+    if ((assignment.acceptedBy || []).length || (assignment.completedBy || []).length) {
+      return { ...assignment, status: "in-progress" };
+    }
+    return { ...assignment, status: "upcoming" };
   }
 
   function challengeCard(challenge, showDate = false) {
     const assignment = assignmentFor(challenge);
     const status = assignment.status || "upcoming";
+    const hasSkipped = (assignment.skippedBy || []).some(person => person.uid === user.uid || person.profileKey === ownKey);
+    const hasCompleted = (assignment.completedBy || []).some(person => person.uid === user.uid || person.profileKey === ownKey);
     const badgeClass = status === "completed" || status === "skipped" ? ` ${status}` : "";
     const dateText = showDate ? `<span class="challenge-date">${esc(friendlyDate(challenge.dayKey))}</span>` : "";
     const actions = status === "upcoming"
-      ? `<div class="challenge-actions"><button class="challenge-secondary" data-action="skip" data-id="${esc(assignment.id)}">Skip</button><button class="challenge-main" data-action="accept" data-id="${esc(assignment.id)}">Accept</button></div>`
+      ? `<div class="challenge-actions">${hasSkipped ? `<button class="challenge-main" data-action="accept" data-id="${esc(assignment.id)}">Accept instead</button>` : `<button class="challenge-secondary" data-action="skip" data-id="${esc(assignment.id)}">Skip</button><button class="challenge-main" data-action="accept" data-id="${esc(assignment.id)}">Accept</button>`}</div>`
       : status === "in-progress"
-        ? `<div class="challenge-actions"><button class="challenge-secondary" data-action="skip" data-id="${esc(assignment.id)}">Skip</button><button class="challenge-main" data-action="complete" data-id="${esc(assignment.id)}">Mark Complete</button></div>`
+        ? hasCompleted
+          ? `<p class="challenge-completed-by">Your completion is saved; waiting for your partner ♡</p>`
+          : `<div class="challenge-actions">${hasSkipped ? `<button class="challenge-secondary" data-action="accept" data-id="${esc(assignment.id)}">Join in</button>` : `<button class="challenge-secondary" data-action="skip" data-id="${esc(assignment.id)}">Skip</button>`}<button class="challenge-main" data-action="complete" data-id="${esc(assignment.id)}">Mark Complete</button></div>`
         : "";
-    const completion = status === "completed" ? `
-      ${assignment.photoUrl ? `<img class="challenge-completion-photo" src="${esc(assignment.photoUrl)}" alt="Challenge completion">` : ""}
-      ${assignment.note ? `<p class="challenge-completed-note">${esc(assignment.note)}</p>` : ""}
-      ${(assignment.completedBy || []).length ? `<p class="challenge-completed-by">Completed by ${(assignment.completedBy || []).map(person => esc(person.name)).join(" &amp; ")}${assignment.completedAt?.toDate ? ` · ${esc(assignment.completedAt.toDate().toLocaleString())}` : ""}</p>` : ""}
-    ` : "";
+    const completion = status === "completed"
+      ? (assignment.completedBy || []).map(person => `
+        <div class="challenge-completion-entry">
+          <p class="challenge-completed-by">Completed by ${esc(person.name || "Us")}${person.completedAt ? ` · ${esc(new Date(person.completedAt).toLocaleString())}` : ""}</p>
+          ${person.photoUrl ? `<img class="challenge-completion-photo" src="${esc(person.photoUrl)}" alt="${esc(person.name || "Partner")} completion photo">` : ""}
+          ${person.note ? `<p class="challenge-completed-note">${esc(person.note)}</p>` : ""}
+        </div>
+      `).join("") || `
+        ${assignment.photoUrl ? `<img class="challenge-completion-photo" src="${esc(assignment.photoUrl)}" alt="Challenge completion">` : ""}
+        ${assignment.note ? `<p class="challenge-completed-note">${esc(assignment.note)}</p>` : ""}
+        <p class="challenge-completed-by">Completed by ${(assignment.completedBy || []).map(person => esc(person.name)).join(" &amp; ")}</p>
+      `
+      : "";
     return `
       <article class="challenge-card">
         <div class="challenge-card-head"><div>${dateText}<h2>${esc(assignment.title || challenge.title)}</h2></div><span class="challenge-status${badgeClass}">${esc(statusLabel(status))}</span></div>
@@ -152,10 +192,19 @@ export function renderChallenges(el, user, profile) {
       }
     }
     list.innerHTML = html;
+    $("#toggle-skipped", list)?.addEventListener("click", () => {
+      showSkipped = !showSkipped;
+      renderToday();
+      bindActions();
+    });
   }
 
   function render() {
-    if (!active || !el.isConnected) return;
+    if (!isCurrent()) return;
+    if (assignmentsError) {
+      list.innerHTML = `<p class="challenge-empty">Challenges could not be loaded. Please check your connection and try again.</p>`;
+      return;
+    }
     if (!assignmentsReady) {
       list.innerHTML = `<p class="challenge-empty">Loading your challenges…</p>`;
       return;
@@ -186,11 +235,6 @@ export function renderChallenges(el, user, profile) {
       : `<p class="challenge-empty">Completed challenges will be saved here ♡</p>`;
     }
 
-    $("#toggle-skipped", el)?.addEventListener("click", () => {
-      showSkipped = !showSkipped;
-      renderToday();
-      bindActions();
-    });
     bindActions();
   }
 
@@ -203,10 +247,10 @@ export function renderChallenges(el, user, profile) {
         button.disabled = true;
         try {
           if (button.dataset.action === "accept") {
-            await acceptChallengeAssignment(assignmentId, user.uid, profile.name);
+            await acceptChallengeAssignment(assignmentId, user.uid, ownKey, profile.name);
             toast("Challenge accepted. Have fun together ♡");
           } else if (button.dataset.action === "skip") {
-            await skipChallengeAssignment(assignmentId, user.uid, profile.name);
+            await skipChallengeAssignment(assignmentId, user.uid, ownKey, profile.name);
             toast("Challenge moved to Skipped.");
           } else {
             openCompletionModal(assignmentId, assignment);
@@ -228,7 +272,7 @@ export function renderChallenges(el, user, profile) {
           <p class="muted">${esc(assignment.title)}</p>
           <form class="challenge-complete-form" id="challenge-complete-form">
             <label>Note (optional)<textarea name="note" maxlength="500" placeholder="Add a little note about it…"></textarea></label>
-            <label>Photo (optional)<input type="file" name="photo" accept="image/*" capture="environment"></label>
+            <label>Photo (optional)<input type="file" name="photo" accept="image/*"></label>
             <img class="challenge-photo-preview hidden" id="challenge-photo-preview" alt="Selected completion photo">
             <div class="challenge-modal-actions"><button type="button" class="challenge-secondary" data-close-modal>Cancel</button><button type="submit" class="challenge-main">Save completion ♡</button></div>
           </form>
@@ -291,7 +335,7 @@ export function renderChallenges(el, user, profile) {
       render();
     } catch (error) {
       console.error("Could not prepare this week's challenges:", error);
-      if (active) {
+      if (isCurrent()) {
         list.innerHTML = `<p class="challenge-empty">Challenges could not be loaded. Please check your connection and try again.</p>`;
         toast(error.message || "Could not load challenges.");
       }
@@ -299,23 +343,34 @@ export function renderChallenges(el, user, profile) {
   }
 
   stopChallenges = watchChallengeAssignments(items => {
-    if (!active) return;
+    if (!isCurrent()) return;
+    assignmentsError = false;
     assignments = items;
     render();
   }, error => {
     console.error("Challenge updates could not be synced:", error);
+    if (!isCurrent()) return;
+    assignmentsError = true;
+    assignmentsReady = true;
+    list.innerHTML = `<p class="challenge-empty">Challenges could not be loaded. Please check your connection and try again.</p>`;
     toast("Challenge updates could not be synced.");
   });
   stopLegacyChallenges = watchItems("challenge", items => {
-    if (!active) return;
+    if (!isCurrent()) return;
     legacyCompletions = items.filter(item => item.done);
     if (selectedTab === "completed") render();
+  }, error => {
+    console.error("Older challenges could not be loaded:", error);
+    if (!isCurrent()) return;
+    toast("Older challenges could not be loaded.");
   });
   prepareWeek();
 }
 
 export function disposeChallenges() {
-  active = false;
+  challengeRenderToken++;
+  clearTimeout(dayRolloverTimer);
+  dayRolloverTimer = null;
   stopChallenges?.();
   stopChallenges = null;
   stopLegacyChallenges?.();

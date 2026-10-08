@@ -37,8 +37,7 @@ window.addEventListener("couple-profiles-updated", () => {
   if (!currentUser) return;
   currentProfile = Object.values(APP_CONFIG.profiles).find(person => person.email === currentUser.email) || currentProfile;
   if (currentProfile) updateProfileAvatar(currentProfile);
-  if (currentRoute !== "more") navigate(currentRoute);
-  else $("#more-detail")?.dispatchEvent(new Event("couple-profile-settings-changed"));
+  if (currentRoute === "more") $("#more-detail")?.dispatchEvent(new Event("couple-profile-settings-changed"));
 });
 
 // Post / Twitter Feed Logic
@@ -51,6 +50,7 @@ let stopPostFeed = null, disposePostFeed = null, postCommentStops = new Map();
 function renderPostFeed(el, user, profile) {
   disposePostFeed?.();
   let active = true, selectedProfile = "all", posts = [];
+  const commentsByPost = new Map();
 
   el.innerHTML = `
     <style>
@@ -295,6 +295,9 @@ function renderPostFeed(el, user, profile) {
     const file = composer.elements.photo.files[0];
 
     if (!text && !file) return toast("Write something first!");
+    const submitButton = composer.querySelector('[type="submit"]');
+    if (submitButton.disabled) return;
+    submitButton.disabled = true;
 
     try {
       const photoUrl = file ? await compressImage(file) : "";
@@ -315,6 +318,8 @@ function renderPostFeed(el, user, profile) {
     } catch (err) {
       console.error("Could not create post:", err);
       toast("Could not post.");
+    } finally {
+      submitButton.disabled = false;
     }
   };
 
@@ -323,6 +328,16 @@ function renderPostFeed(el, user, profile) {
     posts = items || [];
     render();
   });
+
+  function renderComments(postId, comments) {
+    const target = feed.querySelector(`#comments-${postId}`);
+    if (!target) return;
+    target.innerHTML = comments.map(c => `
+      <div class="tw-comment-item">
+        <strong>${esc(getDisplayName(c.authorId, c.authorName || "Us"))}:</strong> ${esc(c.text || '')}
+      </div>
+    `).join("");
+  }
 
   function render() {
     const visiblePosts = selectedProfile === "all"
@@ -459,17 +474,12 @@ function renderPostFeed(el, user, profile) {
       if (!postCommentStops.has(post.id)) {
         const stop = watchDiaryComments(post.id, (comments) => {
           if (!active) return;
-          const target = feed.querySelector(`#comments-${post.id}`);
-          if (target) {
-            target.innerHTML = comments.map(c => `
-              <div class="tw-comment-item">
-                <strong>${esc(getDisplayName(c.authorId, c.authorName || "Us"))}:</strong> ${esc(c.text || '')}
-              </div>
-            `).join("");
-          }
+          commentsByPost.set(post.id, comments);
+          renderComments(post.id, comments);
         });
         postCommentStops.set(post.id, stop);
       }
+      renderComments(post.id, commentsByPost.get(post.id) || []);
 
       const commentForm = feed.querySelector(`.tw-comment-form[data-post-id="${post.id}"]`);
       if (commentForm) {
@@ -603,8 +613,7 @@ initAuth(
       if (applyCoupleProfiles(data)) {
         currentProfile = Object.values(APP_CONFIG.profiles).find(person => person.email === user.email) || currentProfile;
         updateProfileAvatar(currentProfile);
-        if (currentRoute !== "more") navigate(currentRoute);
-        else $("#more-detail")?.dispatchEvent(new Event("couple-profile-settings-changed"));
+        if (currentRoute === "more") $("#more-detail")?.dispatchEvent(new Event("couple-profile-settings-changed"));
       }
     }, error => {
       console.error("Shared profile updates failed:", error);
@@ -618,7 +627,6 @@ initAuth(
     if (appView) appView.classList.remove("hidden");
 
     // Update Avatar
-    const avatarElem = $("#avatar-letter");
     updateProfileAvatar(currentProfile);
 
     // Route to Home by default
@@ -658,6 +666,14 @@ initAuth(
 
 // Event Listeners setup
 document.addEventListener("DOMContentLoaded", () => {
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register(new URL("../sw.js", import.meta.url), {
+      scope: new URL("../", import.meta.url).pathname
+    }).catch(error => {
+      console.error("Offline app support could not be installed:", error);
+    });
+  }
+
   $$(".bottom-nav button").forEach((b) => {
     b.addEventListener("click", () => {
       const route = b.dataset.route;

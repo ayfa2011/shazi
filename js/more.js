@@ -18,6 +18,11 @@ export function renderMore(el, user, profile) {
         <p class="muted" style="margin: 0; font-size: 13px;">Your private profile.</p>
       </button>
 
+      <button class="card" id="activities-card" style="cursor: pointer; text-align: left; padding: 16px;">
+        <h3 style="margin: 0 0 6px 0;">✨ Activities</h3>
+        <p class="muted" style="margin: 0; font-size: 13px;">Questions, games and things to do together.</p>
+      </button>
+
       <button class="card" id="logout-card" style="cursor: pointer; text-align: left; padding: 16px;">
         <h3 style="margin: 0 0 6px 0; color: #dc2626;">🚪 Log out</h3>
         <p class="muted" style="margin: 0; font-size: 13px;">Leave our little world.</p>
@@ -41,6 +46,8 @@ export function renderMore(el, user, profile) {
     detailEl.innerHTML = "";
     renderProfile(detailEl, user, profile);
   };
+
+  $("#activities-card", el).onclick = () => window.App?.navigate("activities");
 
   // Logout Button Click
   $("#logout-card", el).onclick = () => logout();

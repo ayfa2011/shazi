@@ -1,21 +1,29 @@
-import { $, esc, toast, todayKey, compressImage } from "./utils.js";
+import { $, esc, toast, todayKey, compressImage, scheduleDubaiDayRollover } from "./utils.js";
 import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, watchDiaryComments, addDiaryComment, addDiaryPost, updateDiaryPost, deleteDiaryPost } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 import { ensureDailyQuestion, watchQuestionParticipants } from "./question-service.js";
 import { challengeForDay } from "./challenge-bank.js";
 
-let stopPosts = null, stopRelationship = null, stopDrawings = null, stopQuestionParticipants = null, counterTimer = null, active = false, postCommentStops = new Map();
+let stopPosts = null, stopRelationship = null, stopDrawings = null, stopQuestionParticipants = null, counterTimer = null, dayRolloverTimer = null, homeRenderToken = 0, postCommentStops = new Map();
 
 export function renderHome(el, user, profile) {
+  const renderToken = ++homeRenderToken;
+  const isCurrent = () => renderToken === homeRenderToken && el.isConnected;
   stopPosts?.();
   stopRelationship?.();
   stopDrawings?.();
   stopQuestionParticipants?.();
+  postCommentStops.forEach(stop => stop());
+  postCommentStops.clear();
   clearInterval(counterTimer);
-  active = true;
+  clearTimeout(dayRolloverTimer);
+  dayRolloverTimer = scheduleDubaiDayRollover(() => {
+    if (isCurrent()) window.App?.navigate("home");
+  });
   const challenge = challengeForDay(todayKey());
   let dailyQuestion = null, questionParticipants = {};
+  const commentsByPost = new Map();
 
   el.innerHTML = `
     <style>
@@ -312,6 +320,7 @@ export function renderHome(el, user, profile) {
   dateInput.max = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
   function updateCounter() {
+    if (!isCurrent()) return;
     $("#relationship-date-label", el).textContent = startDate
       ? new Date(`${startDate}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
       : "Choose our date";
@@ -331,6 +340,7 @@ export function renderHome(el, user, profile) {
     if (!dateInput.value) return;
     try {
       await saveRelationshipStartDate(dateInput.value);
+      if (!isCurrent()) return;
       startDate = dateInput.value;
       updateCounter();
       toast("Your date together has been saved ♡");
@@ -342,14 +352,14 @@ export function renderHome(el, user, profile) {
   updateCounter();
   counterTimer = setInterval(updateCounter, 1000);
   stopRelationship = watchRelationshipStartDate(date => {
-    if (!active || !el.isConnected) return;
+    if (!isCurrent()) return;
     startDate = date || "";
     dateInput.value = startDate;
     updateCounter();
   });
 
   stopDrawings = watchDrawingMessages(messages => {
-    if (!active || !el.isConnected) return;
+    if (!isCurrent()) return;
     const preview = $("#home-drawing-preview", el);
     if (!preview) return;
     const latest = messages?.[0];
@@ -357,9 +367,11 @@ export function renderHome(el, user, profile) {
       preview.innerHTML = `<span class="home-canvas-heart" aria-hidden="true">♡</span><small>No drawings yet</small>`;
       return;
     }
-    const imageUrl = latest.thumbnailUrl || `https://drive.google.com/thumbnail?id=${encodeURIComponent(latest.driveFileId)}&sz=w800`;
+    const imageUrl = latest.photoUrl || (latest.driveFileId
+      ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(latest.driveFileId)}&sz=w800`
+      : latest.thumbnailUrl);
     preview.innerHTML = `<img src="${esc(imageUrl)}" alt="Latest shared drawing">`;
-  });
+  }, 1);
 
   function renderQuestionWidget() {
     const questionText = $("#home-question-text", el);
@@ -373,19 +385,21 @@ export function renderHome(el, user, profile) {
   }
 
   ensureDailyQuestion(todayKey()).then(questionRecord => {
-    if (!active || !el.isConnected) return;
+    if (!isCurrent()) return;
     dailyQuestion = questionRecord;
     renderQuestionWidget();
     stopQuestionParticipants?.();
     stopQuestionParticipants = watchQuestionParticipants(todayKey(), status => {
-      if (!active || !el.isConnected) return;
+      if (!isCurrent()) return;
       questionParticipants = status;
       renderQuestionWidget();
     }, error => {
+      if (!isCurrent()) return;
       console.error("Today's Question status could not be synced:", error);
       toast("Today's Question status could not be synced.");
     });
   }).catch(error => {
+    if (!isCurrent()) return;
     console.error("Today's Question could not be prepared:", error);
     const questionText = $("#home-question-text", el);
     if (questionText) questionText.textContent = "Today's Question is unavailable right now.";
@@ -425,6 +439,9 @@ export function renderHome(el, user, profile) {
     const file = composer.elements.photo.files[0];
 
     if (!text && !file) return toast("Write something or pick a photo first!");
+    const submitButton = composer.querySelector('[type="submit"]');
+    if (submitButton.disabled) return;
+    submitButton.disabled = true;
 
     try {
       const photoUrl = file ? await compressImage(file) : "";
@@ -444,14 +461,16 @@ export function renderHome(el, user, profile) {
     } catch (err) {
       console.error("Could not save post:", err);
       toast("Could not save post.");
+    } finally {
+      submitButton.disabled = false;
     }
   };
 
   // Watch All Posts (Both Kebyy and Shazy)
   stopPosts = watchDiaryPosts((items) => {
-    if (!active) return;
-    renderFeed(items.slice(0, 1));
-  });
+    if (!isCurrent()) return;
+    renderFeed(items);
+  }, 1);
 
   function renderFeed(posts) {
     if (posts.length === 0) {
@@ -571,41 +590,13 @@ export function renderHome(el, user, profile) {
       // Comments Watcher
       if (!postCommentStops.has(post.id)) {
         const stop = watchDiaryComments(post.id, (comments) => {
-          if (!active) return;
-          const target = feed.querySelector(`#home-comments-${post.id}`);
-          if (target) {
-            const roots = comments.filter(comment => !comment.parentId);
-            target.innerHTML = roots.map(comment => {
-              const replies = comments.filter(reply => reply.parentId === comment.id);
-              return `
-                <div class="home-comment-thread">
-                  <div class="home-comment-item">
-                    <strong>${esc(getDisplayName(comment.authorId, comment.authorName || "Us"))}</strong>
-                    <p>${esc(comment.text || "")}</p>
-                    <button class="home-comment-reply-btn" type="button" data-comment-id="${comment.id}" data-author="${esc(getDisplayName(comment.authorId, comment.authorName || "Us"))}">Reply</button>
-                  </div>
-                  ${replies.length ? `<div class="home-comment-replies">${replies.map(reply => `
-                    <div class="home-comment-item"><strong>${esc(getDisplayName(reply.authorId, reply.authorName || "Us"))}</strong><p>${esc(reply.text || "")}</p></div>
-                  `).join("")}</div>` : ""}
-                </div>
-              `;
-            }).join("");
-
-            target.querySelectorAll(".home-comment-reply-btn").forEach(button => {
-              button.onclick = () => {
-                const form = feed.querySelector(`.home-comment-form[data-post-id="${post.id}"]`);
-                const replyIndicator = form.querySelector(".home-replying-to");
-                form.elements.parentId.value = button.dataset.commentId;
-                replyIndicator.querySelector("span").textContent = `Replying to ${button.dataset.author}`;
-                replyIndicator.hidden = false;
-                form.elements.comment.placeholder = `Reply to ${button.dataset.author}...`;
-                form.elements.comment.focus();
-              };
-            });
-          }
+          if (!isCurrent()) return;
+          commentsByPost.set(post.id, comments);
+          renderComments(post.id, comments);
         });
         postCommentStops.set(post.id, stop);
       }
+      renderComments(post.id, commentsByPost.get(post.id) || []);
 
       // Submit Comment
       const commentForm = feed.querySelector(`.home-comment-form[data-post-id="${post.id}"]`);
@@ -639,10 +630,43 @@ export function renderHome(el, user, profile) {
       }
     });
   }
+
+  function renderComments(postId, comments) {
+    const target = feed.querySelector(`#home-comments-${postId}`);
+    if (!target) return;
+    const roots = comments.filter(comment => !comment.parentId);
+    target.innerHTML = roots.map(comment => {
+      const replies = comments.filter(reply => reply.parentId === comment.id);
+      return `
+        <div class="home-comment-thread">
+          <div class="home-comment-item">
+            <strong>${esc(getDisplayName(comment.authorId, comment.authorName || "Us"))}</strong>
+            <p>${esc(comment.text || "")}</p>
+            <button class="home-comment-reply-btn" type="button" data-comment-id="${comment.id}" data-author="${esc(getDisplayName(comment.authorId, comment.authorName || "Us"))}">Reply</button>
+          </div>
+          ${replies.length ? `<div class="home-comment-replies">${replies.map(reply => `
+            <div class="home-comment-item"><strong>${esc(getDisplayName(reply.authorId, reply.authorName || "Us"))}</strong><p>${esc(reply.text || "")}</p></div>
+          `).join("")}</div>` : ""}
+        </div>
+      `;
+    }).join("");
+
+    target.querySelectorAll(".home-comment-reply-btn").forEach(button => {
+      button.onclick = () => {
+        const form = feed.querySelector(`.home-comment-form[data-post-id="${postId}"]`);
+        const replyIndicator = form.querySelector(".home-replying-to");
+        form.elements.parentId.value = button.dataset.commentId;
+        replyIndicator.querySelector("span").textContent = `Replying to ${button.dataset.author}`;
+        replyIndicator.hidden = false;
+        form.elements.comment.placeholder = `Reply to ${button.dataset.author}...`;
+        form.elements.comment.focus();
+      };
+    });
+  }
 }
 
 export function disposeHome() {
-  active = false;
+  homeRenderToken++;
   stopPosts?.();
   stopPosts = null;
   stopRelationship?.();
@@ -653,6 +677,8 @@ export function disposeHome() {
   stopQuestionParticipants = null;
   clearInterval(counterTimer);
   counterTimer = null;
+  clearTimeout(dayRolloverTimer);
+  dayRolloverTimer = null;
   postCommentStops.forEach((stop) => stop());
   postCommentStops.clear();
 }

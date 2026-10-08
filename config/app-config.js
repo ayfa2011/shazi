@@ -1,7 +1,5 @@
 export const APP_CONFIG = {
   coupleId: "our-little-world",
-  googleDriveClientId: "343413324901-3ifkpvaf76f7hu3mju1h3r18d3iga4hs.apps.googleusercontent.com",
-  googleDriveFolderId: "1kg2aPDolpEFCowyMQjmLxPsb1u_UeBNN",
   profiles: {
     kebyy: {
       id: "profile-one",

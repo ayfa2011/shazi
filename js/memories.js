@@ -1,7 +1,5 @@
-import { $, esc, toast, uid } from "./utils.js";
+import { $, esc, toast, compressImage } from "./utils.js";
 import { watchItems, addItem, removeItem, setItem } from "./firestore.js";
-import { storage } from "./firebase.js";
-import { ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-storage.js";
 
 let stopMemories = null;
 let active = false;
@@ -154,43 +152,27 @@ export function renderMemories(el, user, profile) {
     const file = fileInput.files?.[0];
 
     let photoUrl = "";
-    if (file) {
-      try {
-        if (storage) {
-          const storageRef = ref(storage, `memories/${uid()}-${file.name}`);
-          await uploadBytes(storageRef, file);
-          photoUrl = await getDownloadURL(storageRef);
-        } else {
-          photoUrl = await new Promise((res) => {
-            const r = new FileReader();
-            r.onload = (ev) => res(ev.target.result);
-            r.readAsDataURL(file);
-          });
-        }
-      } catch (err) {
-        console.warn("Storage upload failed, fallback to inline preview", err);
-        toast("Photo upload failed, saving text only.");
-      }
-    }
-
-    let formattedDate = "";
-    if (dateVal) {
-      const d = parseLocalMemoryDate(dateVal);
-      formattedDate = d.toLocaleDateString("en-GB", {
-        day: "numeric",
-        month: "short",
-        year: "numeric"
-      });
-    }
-
     try {
+      if (file) {
+        photoUrl = await compressImage(file);
+        if (!photoUrl) throw new Error("Could not read that photo. Please choose another image.");
+      }
+
+      let formattedDate = "";
+      if (dateVal) {
+        const d = parseLocalMemoryDate(dateVal);
+        formattedDate = d.toLocaleDateString("en-GB", {
+          day: "numeric",
+          month: "short",
+          year: "numeric"
+        });
+      }
+
       const payload = {
         title,
         date: formattedDate,
         rawDate: dateVal,
-        note,
-        author: user.uid,
-        createdAt: new Date().toISOString()
+        note
       };
 
       if (photoUrl) payload.photoUrl = photoUrl;
@@ -199,7 +181,7 @@ export function renderMemories(el, user, profile) {
         await setItem(editId, payload);
         toast("Memory updated ♡");
       } else {
-        await addItem("memory", payload);
+        await addItem("memory", { ...payload, author: user.uid });
         toast("Memory saved ♡");
       }
 
@@ -207,7 +189,7 @@ export function renderMemories(el, user, profile) {
       form.reset();
     } catch (err) {
       console.error(err);
-      toast("Could not save memory.");
+      toast(err.message || "Could not save memory.");
     } finally {
       submitBtn.disabled = false;
     }
@@ -284,6 +266,10 @@ export function renderMemories(el, user, profile) {
     if (!active || !el.isConnected) return;
     allMemories = items || [];
     renderGrid();
+  }, error => {
+    console.error("Memories could not be loaded:", error);
+    const container = $("#memories-grid-container", el);
+    if (container) container.innerHTML = `<p style="color:#9ca3af; font-size:13px; grid-column:1/-1;">Memories could not be loaded. Please try again.</p>`;
   });
 }
 

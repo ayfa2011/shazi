@@ -1,14 +1,33 @@
 import { $, esc, toast } from "./utils.js";
-import { watchItems, addItem } from "./firestore.js";
-import { getDisplayName } from "./profile-data.js";
+import { watchItems, addLetter, getScheduledLetterBody, migrateScheduledLetterBody } from "./firestore.js";
+import { getDisplayName, getProfileKey } from "./profile-data.js";
+import { APP_CONFIG } from "../config/app-config.js";
 
-let stopLetters = null, active = false;
+let stopLetters = null, deliveryTimer = null, active = false;
 
 export function renderLetters(el, user, profile) {
   stopLetters?.();
+  clearTimeout(deliveryTimer);
+  deliveryTimer = null;
   active = true;
-
+  const ownKey = getProfileKey(profile);
   let currentTab = "Inbox";
+
+  function recipientKey(recipient) {
+    const normalized = String(recipient || "").trim().toLocaleLowerCase();
+    const match = Object.entries(APP_CONFIG.profiles).find(([key, person]) =>
+      key.toLocaleLowerCase() === normalized ||
+      person.name.toLocaleLowerCase() === normalized ||
+      person.previousNames?.some(name => name.toLocaleLowerCase() === normalized) ||
+      (key === "kebyy" && normalized === "kebyy")
+    );
+    return match?.[0] || "";
+  }
+
+  function recipientName(recipient) {
+    const key = recipientKey(recipient);
+    return key ? APP_CONFIG.profiles[key].name : recipient || "Us";
+  }
 
   el.innerHTML = `
     <style>
@@ -217,8 +236,7 @@ export function renderLetters(el, user, profile) {
         <form id="write-letter-form">
           <label style="font-size:12px; color:#666;">To Recipient:</label>
           <select id="letter-to" required>
-            <option value="Kebyy">To Kebyy</option>
-            <option value="Shazy">To Shazy</option>
+            ${Object.entries(APP_CONFIG.profiles).map(([key, person]) => `<option value="${esc(key)}">To ${esc(person.name)}</option>`).join("")}
           </select>
           
           <label style="font-size:12px; color:#666;">Message:</label>
@@ -262,6 +280,7 @@ export function renderLetters(el, user, profile) {
   const deliverGroup = $("#deliver-date-group", el);
   const deliverInput = $("#letter-deliver-date", el);
   const submitBtn = $("#submit-letter-btn", el);
+  const migratingLetters = new Set();
 
   statusSelect.onchange = () => {
     if (statusSelect.value === "Scheduled") {
@@ -297,7 +316,7 @@ export function renderLetters(el, user, profile) {
     const deliverDate = status === "Scheduled" ? new Date(deliverInput.value).toISOString() : new Date().toISOString();
 
     try {
-      await addItem("letter", {
+      await addLetter({
         recipient,
         body,
         status,
@@ -321,14 +340,17 @@ export function renderLetters(el, user, profile) {
 
   function renderList() {
     const container = $("#letters-list-container", el);
-    const now = new Date().toISOString();
+    const now = new Date();
+    const nowIso = now.toISOString();
 
     const filtered = allLetters.filter((item) => {
-      const isDelivered = !item.deliverDate || item.deliverDate <= now;
+      const deliveryTime = item.deliverDate ? new Date(item.deliverDate).getTime() : 0;
+      const isDelivered = !deliveryTime || deliveryTime <= now.getTime();
       const isAuthor = item.author === user.uid;
 
       if (currentTab === "Inbox") {
-        return !isAuthor && (item.status === "Sent" || isDelivered);
+        return !isAuthor && recipientKey(item.recipient) === ownKey &&
+          (item.status === "Sent" || (item.status === "Scheduled" && isDelivered));
       } else if (currentTab === "Sent") {
         return isAuthor && (item.status === "Sent" || isDelivered);
       } else if (currentTab === "Scheduled") {
@@ -339,30 +361,31 @@ export function renderLetters(el, user, profile) {
 
     if (filtered.length === 0) {
       container.innerHTML = `<p style="text-align:center; color:#9ca3af; padding:20px 0;">No letters in ${currentTab}</p>`;
-      return;
+    } else {
+      container.innerHTML = filtered.map((item) => {
+        const dateVal = item.deliverDate || item.createdAt;
+        const dateStr = dateVal ? new Date(dateVal).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : "Just now";
+        const deliveryTime = item.deliverDate ? new Date(item.deliverDate).getTime() : 0;
+        const isScheduled = item.status === "Scheduled" && deliveryTime > now.getTime();
+        const isLocked = isScheduled && item.author !== user.uid;
+
+        return `
+          <div class="letter-item" data-id="${item.id}">
+            <div class="letter-left">
+              <div class="letter-avatar">💌</div>
+              <div class="letter-info">
+                <h4>${esc(item.recipient ? `To ${recipientName(item.recipient)}` : `From ${getDisplayName(item.author, item.authorName || "Us")}`)}</h4>
+                <p>${isLocked ? '🔒 <i>Scheduled Surprise (Hidden)</i>' : esc(item.body || '')}</p>
+              </div>
+            </div>
+            <div class="letter-date">${isLocked ? '⏳ ' : ''}${dateStr}</div>
+          </div>
+        `;
+      }).join("");
     }
 
-    container.innerHTML = filtered.map((item) => {
-      const dateVal = item.deliverDate || item.createdAt;
-      const dateStr = dateVal ? new Date(dateVal).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : "Just now";
-      const isScheduled = item.status === "Scheduled" && item.deliverDate > now;
-      
-      return `
-        <div class="letter-item" data-id="${item.id}">
-          <div class="letter-left">
-            <div class="letter-avatar">💌</div>
-            <div class="letter-info">
-              <h4>${esc(item.recipient ? `To ${getDisplayName("", item.recipient)}` : `From ${getDisplayName(item.author, item.authorName || "Us")}`)}</h4>
-              <p>${isScheduled ? '🔒 <i>Scheduled Surprise (Hidden)</i>' : esc(item.body || '')}</p>
-            </div>
-          </div>
-          <div class="letter-date">${isScheduled ? '⏳ ' : ''}${dateStr}</div>
-        </div>
-      `;
-    }).join("");
-
     container.querySelectorAll(".letter-item").forEach((row) => {
-      row.onclick = () => {
+      row.onclick = async () => {
         const letter = allLetters.find((l) => l.id === row.dataset.id);
         if (letter) {
           const nowIso = new Date().toISOString();
@@ -370,24 +393,57 @@ export function renderLetters(el, user, profile) {
             toast("This letter is a surprise and locked until delivery date!");
             return;
           }
-          $("#read-letter-title", el).textContent = `To ${getDisplayName("", letter.recipient || "Us")} (From ${getDisplayName(letter.author, letter.authorName || "Us")})`;
-          $("#read-letter-date", el).textContent = letter.deliverDate ? `Deliver Date: ${new Date(letter.deliverDate).toLocaleString()}` : "";
-          $("#read-letter-body", el).textContent = letter.body;
-          readModal.style.display = "flex";
+          try {
+            const body = letter.status === "Scheduled"
+              ? letter.body || await getScheduledLetterBody(letter.id)
+              : letter.body || "";
+            $("#read-letter-title", el).textContent = `To ${recipientName(letter.recipient)} (From ${getDisplayName(letter.author, letter.authorName || "Us")})`;
+            $("#read-letter-date", el).textContent = letter.deliverDate ? `Deliver Date: ${new Date(letter.deliverDate).toLocaleString()}` : "";
+            $("#read-letter-body", el).textContent = body;
+            readModal.style.display = "flex";
+          } catch (error) {
+            console.error("Could not open letter:", error);
+            toast(error.message || "Could not open this letter.");
+          }
         }
       };
     });
+
+    const nextDelivery = allLetters
+      .filter(item => item.status === "Scheduled" && item.deliverDate)
+      .map(item => new Date(item.deliverDate).getTime())
+      .filter(time => Number.isFinite(time) && time > now.getTime())
+      .sort((a, b) => a - b)[0];
+    clearTimeout(deliveryTimer);
+    deliveryTimer = nextDelivery
+      ? setTimeout(renderList, Math.min(nextDelivery - now.getTime() + 1, 2147483647))
+      : null;
   }
 
   stopLetters = watchItems("letter", (items) => {
     if (!active || !el.isConnected) return;
     allLetters = items;
     renderList();
+    for (const letter of items) {
+      const canMigrate = letter.author === user.uid || recipientKey(letter.recipient) === ownKey;
+      if (letter.status !== "Scheduled" || !letter.body || !canMigrate || migratingLetters.has(letter.id)) continue;
+      migratingLetters.add(letter.id);
+      migrateScheduledLetterBody(letter).catch(error => {
+        console.error("Could not secure scheduled letter content:", error);
+        if (active && el.isConnected) toast("A scheduled letter could not be secured.");
+      }).finally(() => migratingLetters.delete(letter.id));
+    }
+  }, error => {
+    console.error("Letters could not be loaded:", error);
+    const container = $("#letters-list-container", el);
+    if (container) container.innerHTML = `<p style="text-align:center; color:#9ca3af; padding:20px 0;">Letters could not be loaded. Please try again.</p>`;
   });
 }
 
 export function disposeLetters() {
   active = false;
+  clearTimeout(deliveryTimer);
+  deliveryTimer = null;
   stopLetters?.();
   stopLetters = null;
 }

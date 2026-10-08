@@ -53,7 +53,7 @@ export function renderProfile(el, user, profile) {
               <textarea name="bio" maxlength="160" placeholder="A little about you...">${esc(bio)}</textarea>
             </label>
             <label class="profile-photo-picker">Profile photo
-              <input name="photo" type="file" accept="image/*" capture="environment" aria-label="Choose or take a profile photo">
+              <input name="photo" type="file" accept="image/*" aria-label="Choose or take a profile photo">
             </label>
             <button class="primary profile-save" type="submit">Save</button>
           </form>
@@ -104,15 +104,13 @@ export function renderProfile(el, user, profile) {
           bio,
           bioConfigured: true,
           avatar: person.avatar || "",
-          driveFileId: person.driveFileId || "",
           authUid: person.authUid || (key === ownProfileKey ? user.uid : ""),
           previousNames
         };
 
         if (selectedPhoto) {
-          const uploaded = await uploadProfilePhoto(selectedPhoto, name);
+          const uploaded = await uploadProfilePhoto(selectedPhoto);
           savedProfile.avatar = uploaded.avatar;
-          savedProfile.driveFileId = uploaded.driveFileId;
         }
 
         await saveCoupleProfile(key, savedProfile);

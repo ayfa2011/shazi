@@ -1,7 +1,6 @@
 import { $, esc, toast } from "./utils.js";
 import { rtdb } from "./firebase.js";
-import { addDrawingMessage, watchDrawingMessages, getDrawingsFolder, saveDrawingsFolder } from "./firestore.js";
-import { APP_CONFIG } from "../config/app-config.js";
+import { addDrawingMessage, watchDrawingMessages } from "./firestore.js";
 import { getDisplayName } from "./profile-data.js";
 import { ref, push, onChildAdded, onValue, onDisconnect, set, remove } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
@@ -68,10 +67,10 @@ export function renderDrawing(el, user, profile) {
     ctx.save();
     ctx.globalCompositeOperation = mode === "eraser" ? "destination-out" : "source-over";
     ctx.beginPath();
-    ctx.moveTo(a.x / 1200 * canvas.clientWidth, a.y / 720 * canvas.clientHeight);
-    ctx.lineTo(b.x / 1200 * canvas.clientWidth, b.y / 720 * canvas.clientHeight);
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
     ctx.strokeStyle = strokeColor;
-    ctx.lineWidth = strokeSize * canvas.clientWidth / 1200;
+    ctx.lineWidth = strokeSize;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.stroke();
@@ -79,7 +78,7 @@ export function renderDrawing(el, user, profile) {
   }
 
   function redrawCanvas() {
-    ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     for (const stroke of allStrokes) {
       if (!stroke.points || stroke.points.length < 2) continue;
       for (let i = 1; i < stroke.points.length; i++) {
@@ -122,7 +121,7 @@ export function renderDrawing(el, user, profile) {
 
     if (v.type === "clear") {
       allStrokes = [];
-      ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       return;
     }
 
@@ -193,44 +192,6 @@ export function renderDrawing(el, user, profile) {
 
   $("#drawing-save", el).onclick = saveDrawing;
 
-  async function getToken() {
-    if (!APP_CONFIG.googleDriveClientId) throw new Error("Add Google OAuth client ID.");
-    if (!window.google?.accounts?.oauth2) {
-      await new Promise((resolve, reject) => {
-        const s = document.createElement("script");
-        s.src = "https://accounts.google.com/gsi/client";
-        s.onload = resolve;
-        s.onerror = () => reject(new Error("Google sign-in error."));
-        document.head.appendChild(s);
-      });
-    }
-    return new Promise((resolve, reject) => {
-      const client = window.google.accounts.oauth2.initTokenClient({
-        client_id: APP_CONFIG.googleDriveClientId,
-        scope: "https://www.googleapis.com/auth/drive.file",
-        callback: r => r.access_token ? resolve(r.access_token) : reject(new Error("Drive permission error.")),
-        error_callback: () => reject(new Error("Sign-in cancelled."))
-      });
-      client.requestAccessToken();
-    });
-  }
-
-  async function driveFolder(token) {
-    if (APP_CONFIG.googleDriveDrawingsFolderId) return APP_CONFIG.googleDriveDrawingsFolderId;
-    let folderId = await getDrawingsFolder();
-    if (!folderId) {
-      const created = await fetch("https://www.googleapis.com/drive/v3/files?fields=id", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "Our Little World Drawings", mimeType: "application/vnd.google-apps.folder", ...(APP_CONFIG.googleDriveFolderId ? { parents: [APP_CONFIG.googleDriveFolderId] } : {}) })
-      });
-      if (!created.ok) throw new Error("Could not create drawings folder.");
-      folderId = (await created.json()).id;
-      await saveDrawingsFolder(folderId);
-    }
-    return folderId;
-  }
-
   async function saveDrawing() {
     if (!allStrokes.length) {
       toast("Add a drawing before sending.");
@@ -240,19 +201,16 @@ export function renderDrawing(el, user, profile) {
     btn.disabled = true;
     btn.textContent = "Saving…";
     try {
-      const token = await getToken(), folderId = await driveFolder(token), blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
-      if (!blob) throw new Error("Drawing preparation failed.");
-      const metadata = { name: `Drawing - ${profile.name} - ${new Date().toLocaleString()}.png`, mimeType: "image/png", parents: [folderId] }, body = new FormData();
-      body.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
-      body.append("file", blob, "drawing.png");
-
-      const uploaded = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,thumbnailLink", {
-        method: "POST", headers: { Authorization: `Bearer ${token}` }, body
-      });
-      if (!uploaded.ok) throw new Error("Drive upload failed.");
-      const file = await uploaded.json();
-
-      await addDrawingMessage({ authorId: profile.id, authorName: profile.name, driveFileId: file.id, driveUrl: file.webViewLink, thumbnailUrl: file.thumbnailLink || "", folderId, createdAtMs: Date.now() });
+      const exportCanvas = document.createElement("canvas");
+      exportCanvas.width = canvas.width;
+      exportCanvas.height = canvas.height;
+      const exportContext = exportCanvas.getContext("2d");
+      if (!exportContext) throw new Error("Drawing preparation failed.");
+      exportContext.fillStyle = "#fff";
+      exportContext.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+      exportContext.drawImage(canvas, 0, 0);
+      const photoUrl = exportCanvas.toDataURL("image/jpeg", 0.75);
+      await addDrawingMessage({ authorId: user.uid, authorName: profile.name, photoUrl, createdAtMs: Date.now() });
 
       // Clean up Realtime DB old strokes after saving
       await remove(strokeRef);
@@ -274,16 +232,28 @@ export function renderDrawing(el, user, profile) {
     if (!historyList) return;
     historyList.innerHTML = sortedMessages.map(m => `
       <article class="history-card">
-        <button class="history-image" data-open-drawing="${esc(m.driveFileId)}">${m.thumbnailUrl ? `<img src="${esc(m.thumbnailUrl)}" alt="Drawing">` : `<img src="https://drive.google.com/thumbnail?id=${encodeURIComponent(m.driveFileId)}&amp;sz=w256" alt="Drawing">`}</button>
+        <button class="history-image" data-open-drawing="${esc(m.photoUrl || "")}">${m.photoUrl
+          ? `<img src="${esc(m.photoUrl)}" alt="Drawing">`
+          : m.driveFileId
+            ? `<img src="https://drive.google.com/thumbnail?id=${encodeURIComponent(m.driveFileId)}&amp;sz=w256" alt="Drawing">`
+            : m.thumbnailUrl ? `<img src="${esc(m.thumbnailUrl)}" alt="Drawing">` : ""}</button>
         <div>
           <strong>${esc(getDisplayName(m.authorId, m.authorName || "Us"))}</strong>
           <small>${new Date(drawingTimestamp(m)).toLocaleString()}</small>
-          <a href="${esc(m.driveUrl || `https://drive.google.com/file/d/${m.driveFileId}/view`)}" target="_blank" rel="noopener">Open Drive ↗</a>
+          ${m.driveFileId ? `<a href="${esc(m.driveUrl || `https://drive.google.com/file/d/${m.driveFileId}/view`)}" target="_blank" rel="noopener">Open Drive ↗</a>` : ""}
         </div>
       </article>
     `).join("") || `<div class="empty-diary"><span>♡</span><p>No drawings saved yet.</p></div>`;
 
-    el.querySelectorAll("[data-open-drawing]").forEach(b => b.onclick = () => loadSaved(b.dataset.openDrawing));
+    el.querySelectorAll("[data-open-drawing]").forEach((b, index) => {
+      const message = sortedMessages[index];
+      b.onclick = () => {
+        if (b.dataset.openDrawing) loadSaved(b.dataset.openDrawing);
+        else if (message?.driveUrl || message?.driveFileId) {
+          window.open(message.driveUrl || `https://drive.google.com/file/d/${message.driveFileId}/view`, "_blank", "noopener");
+        }
+      };
+    });
   }));
 
   function drawingTimestamp(message) {
@@ -292,21 +262,15 @@ export function renderDrawing(el, user, profile) {
     return 0;
   }
 
-  async function loadSaved(fileId) {
-    try {
-      const token = await getToken(), r = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!r.ok) throw new Error("Download failed.");
-      const img = new Image();
-      img.onload = () => {
-        ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
-        ctx.drawImage(img, 0, 0, canvas.clientWidth, canvas.clientHeight);
-        historyOverlay.classList.add("hidden");
-        URL.revokeObjectURL(img.src);
-      };
-      img.src = URL.createObjectURL(await r.blob());
-    } catch (e) {
-      toast(e.message);
-    }
+  function loadSaved(photoUrl) {
+    const img = new Image();
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      historyOverlay.classList.add("hidden");
+    };
+    img.onerror = () => toast("Could not open this drawing.");
+    img.src = photoUrl;
   }
 
   activeDrawingCleanup = () => {

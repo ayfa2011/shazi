@@ -16,6 +16,12 @@ export function todayKey(date = new Date()) {
   return `${parts.find(x => x.type === "year").value}-${parts.find(x => x.type === "month").value}-${parts.find(x => x.type === "day").value}`;
 }
 
+export function scheduleDubaiDayRollover(callback) {
+  const [year, month, day] = todayKey().split("-").map(Number);
+  const nextMidnight = Date.UTC(year, month - 1, day + 1) - 4 * 60 * 60 * 1000;
+  return setTimeout(callback, Math.max(0, nextMidnight - Date.now() + 50));
+}
+
 export function dailyIndex(length, date = new Date()) {
   if (!length) return 0;
   const day = Date.parse(`${todayKey(date)}T00:00:00Z`) / 86400000;
