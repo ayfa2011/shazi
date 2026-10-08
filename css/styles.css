@@ -165,8 +165,8 @@ input:focus,textarea:focus{border-color:var(--pink);box-shadow:0 0 0 4px #ef6d9f
 .drawing-tools { flex: none; gap: 7px; padding: 7px; border-radius: 15px; }
 .drawing-custom-color { position: relative; width: 27px; height: 27px; display: grid; place-items: center; overflow: hidden; border: 1px solid #edd5df; border-radius: 50%; background: #fff; color: var(--deep); font-size: 18px; line-height: 1; cursor: pointer; }
 .drawing-custom-color input { position: absolute; inset: -6px; width: 40px; height: 40px; padding: 0; opacity: 0; cursor: pointer; }
-.draw-board { flex: 1; min-height: 0; display: grid; place-items: center; border-radius: 15px; }
-.draw-canvas { width: min(100%,calc((100dvh - 230px)*1.6667)); height: auto; max-height: 100%; min-height: 0; aspect-ratio: 5/3; }
+.draw-board { flex: 1; min-width: 0; min-height: 0; display: grid; place-items: center; border-radius: 15px; }
+.draw-canvas { width: 100%; height: 100%; min-height: 0; }
 .drawing-status { flex: none; min-height: 24px; padding: 0 3px; }
 .drawing-history-overlay { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 16px; background: #32162580; }
 .drawing-history-overlay.hidden { display: none; }
@@ -189,6 +189,6 @@ input:focus,textarea:focus{border-color:var(--pink);box-shadow:0 0 0 4px #ef6d9f
   .drawing-tools .colors button { width: 19px; height: 19px; }
   .drawing-custom-color { width: 24px; height: 24px; }
   .brush-size input { width: 60px; }
-  .draw-canvas { width: min(100%,calc((100dvh - 230px)*1.6667)); aspect-ratio: 5/3; }
+  .draw-canvas { width: 100%; height: 100%; }
   .drawing-status { font-size: 10px; }
 }
