@@ -1,5 +1,5 @@
-import { $, esc, toast, todayKey, compressImage, scheduleDubaiDayRollover } from "./utils.js";
-import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, watchDiaryComments, addDiaryComment, addDiaryPost, updateDiaryPost, deleteDiaryPost, watchItems } from "./firestore.js";
+import { $, esc, toast, todayKey, scheduleDubaiDayRollover } from "./utils.js";
+import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, watchDiaryComments, addDiaryComment, watchItems } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 import { formatSpecialDayDate, specialDayCountdown } from "./special-day-utils.js";
@@ -42,24 +42,14 @@ export function renderHome(el, user, profile) {
         background: #fff;
         box-shadow: 0 8px 30px #8f315d0a;
       }
-      .home-post-panel .home-composer-card {
-        margin: 12px 0;
-        padding: 13px;
-        border: 1px solid var(--line);
-        box-shadow: none;
-      }
       .home-date-control { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-self: center; gap: 7px; width: fit-content; max-width: 100%; padding: 5px 11px; border: 1px solid #e89ab8; border-radius: 999px; background: #fff8fbdd; color: #741e4b; font-size: 12px; line-height: 1.2; font-weight: 600; }
       .home-date-heart { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; background: #ffe4ef; color: #d74482; font-size: 14px; line-height: 1; }
       .home-date-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
       .home-counter-art { position: absolute; right: 15px; bottom: -26px; color: #fff9; font: 190px/1 "Playfair Display",serif; pointer-events: none; }
       .home-counter-content { position: relative; z-index: 1; }
       .home-drawing-panel { margin-top: 0; border: 1px solid var(--line); }
-      .home-post-panel { padding: 10px; }
-      .home-post-panel .home-composer-card { margin: 0 0 10px; padding: 10px; }
+      .home-post-panel { padding: 14px; }
       .home-post-panel .home-avatar { width: 32px; height: 32px; }
-      .home-post-panel .home-composer-card textarea { min-height: 54px; padding: 8px 10px; font-size: 13px; }
-      .home-post-panel .home-composer-actions { margin-top: 7px; }
-      .home-post-panel .home-post-btn { padding: 7px 12px; font-size: 12px; }
       .home-post-panel .home-feed { gap: 9px; }
       .home-view-more { width: 100%; margin-top: 9px; padding: 8px 10px; border: 1px solid #f4d6e2; border-radius: 999px; background: #fff4f8; color: var(--deep); font-size: 11px; font-weight: 600; cursor: pointer; }
       .home-view-more span { margin-left: 5px; color: var(--pink); }
@@ -86,19 +76,6 @@ export function renderHome(el, user, profile) {
       .today-card-copy strong { display: block; }
       .today-card-copy p { color: var(--muted); }
       .today-link { border: 0; background: none; cursor: pointer; }
-      .home-composer-card {
-        background: #ffffff;
-        border-radius: 20px;
-        padding: 16px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.05);
-        margin-bottom: 20px;
-      }
-      .home-composer-head {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-bottom: 12px;
-      }
       .home-avatar {
         width: 38px;
         height: 38px;
@@ -111,26 +88,6 @@ export function renderHome(el, user, profile) {
         font-weight: bold;
       }
       .home-avatar img { width:100%; height:100%; border-radius:50%; object-fit:cover; }
-      .home-composer-card textarea {
-        width: 100%;
-        border: 1px solid #fecdd3;
-        border-radius: 12px;
-        padding: 12px;
-        font-family: inherit;
-        font-size: 14px;
-        box-sizing: border-box;
-        resize: none;
-        outline: none;
-      }
-      .home-composer-card textarea:focus {
-        border-color: #f43f5e;
-      }
-      .home-composer-actions {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-top: 10px;
-      }
       .home-post-btn {
         background: #e11d48;
         color: white;
@@ -262,21 +219,10 @@ export function renderHome(el, user, profile) {
 
       <section class="home-feature-grid">
         <div class="home-post-panel">
-          <form class="home-composer-card" id="home-composer">
-            <textarea name="text" rows="2" placeholder="Write a post..."></textarea>
-            <div class="home-composer-actions">
-              <label style="cursor:pointer; color:#e11d48; font-weight:600; font-size:13px;">
-                📷 Add Photo
-                <input type="file" name="photo" accept="image/*" style="display:none;">
-              </label>
-              <span class="home-photo-selected" style="font-size:12px; color:#9ca3af;"></span>
-              <button type="submit" class="home-post-btn">Post ♡</button>
-            </div>
-          </form>
           <div id="home-posts-feed" class="home-feed">
-            <p style="text-align:center; color:#9ca3af; padding:20px;">Loading our posts…</p>
+            <p style="text-align:center; color:#9ca3af; padding:20px;">Loading your partner's posts…</p>
           </div>
-          <button type="button" class="home-view-more" id="view-more-posts">View more posts <span aria-hidden="true">→</span></button>
+          <button type="button" class="home-view-more" id="view-more-posts">Open all posts <span aria-hidden="true">→</span></button>
         </div>
 
         <aside class="home-drawing-panel">
@@ -315,7 +261,6 @@ export function renderHome(el, user, profile) {
   `;
 
   const feed = $("#home-posts-feed", el);
-  const composer = $("#home-composer", el);
   const dateButton = $("#relationship-date", el);
   const dateInput = $("#relationship-date-input", el);
   const questionProfileKey = getProfileKey(profile);
@@ -462,59 +407,32 @@ export function renderHome(el, user, profile) {
     button.onclick = () => window.App.navigate(button.dataset.route);
   });
 
-  // File select label update
-  composer.elements.photo.onchange = () => {
-    composer.querySelector(".home-photo-selected").textContent = composer.elements.photo.files[0]?.name || "";
-  };
+  const partnerProfile = Object.values(APP_CONFIG.profiles).find(candidate =>
+    candidate.id !== profile.id && candidate.email !== profile.email
+  );
+  const partnerAuthorIds = [...new Set([partnerProfile?.id, partnerProfile?.authUid].filter(Boolean))];
 
-  // Submit Post Logic
-  composer.onsubmit = async (e) => {
-    e.preventDefault();
-    const text = composer.elements.text.value.trim();
-    const file = composer.elements.photo.files[0];
-
-    if (!text && !file) return toast("Write something or pick a photo first!");
-    const submitButton = composer.querySelector('[type="submit"]');
-    if (submitButton.disabled) return;
-    submitButton.disabled = true;
-
-    try {
-      const photoUrl = file ? await compressImage(file) : "";
-      if (file && !photoUrl) return toast("Could not read that photo. Please choose another image.");
-
-      await addDiaryPost({
-        authorId: user.uid,
-        authorName: profile.name,
-        wallId: APP_CONFIG.coupleId,
-        text,
-        ...(photoUrl ? { photoUrl } : {})
-      });
-
-      composer.reset();
-      composer.querySelector(".home-photo-selected").textContent = "";
-      toast("Post added to our feed! ♡");
-    } catch (err) {
-      console.error("Could not save post:", err);
-      toast("Could not save post.");
-    } finally {
-      submitButton.disabled = false;
-    }
-  };
-
-  // Watch All Posts (Both Kebyy and Shazy)
   stopPosts = watchDiaryPosts((items) => {
     if (!isCurrent()) return;
     renderFeed(items);
-  }, 1);
+  }, 2, partnerAuthorIds);
 
   function renderFeed(posts) {
+    const visiblePostIds = new Set(posts.map(post => post.id));
+    for (const [postId, stop] of postCommentStops) {
+      if (!visiblePostIds.has(postId)) {
+        stop();
+        postCommentStops.delete(postId);
+        commentsByPost.delete(postId);
+      }
+    }
+
     if (posts.length === 0) {
-      feed.innerHTML = `<p style="text-align:center; color:#9ca3af; padding:16px 8px; font-size:12px;">No posts yet</p>`;
+      feed.innerHTML = `<p style="text-align:center; color:#9ca3af; padding:16px 8px; font-size:12px;">Your partner's posts will appear here ♡</p>`;
       return;
     }
 
     feed.innerHTML = posts.map((post) => {
-      const own = post.authorId === user.uid || post.authorId === profile.id;
       const author = findProfileForAuthor(post.authorId, post.authorName || "");
       const authorName = getDisplayName(post.authorId, post.authorName || "Us");
       const isLiked = (post.likedBy || []).includes(user.uid);
@@ -537,12 +455,6 @@ export function renderHome(el, user, profile) {
                 <small>${timeStr}</small>
               </div>
             </div>
-            ${own ? `
-              <div style="display:flex; gap:8px;">
-                <button class="home-action-btn home-edit-btn" data-id="${post.id}">✏️ Edit</button>
-                <button class="home-action-btn home-del-btn" data-id="${post.id}" style="color:#dc2626;">🗑️ Delete</button>
-              </div>
-            ` : ''}
           </div>
 
           ${post.text ? `<p class="home-post-text">${esc(post.text).replace(/\n/g, '<br>')}</p>` : ''}
@@ -584,43 +496,6 @@ export function renderHome(el, user, profile) {
       feed.querySelector(`.home-reply-focus-btn[data-id="${post.id}"]`)?.addEventListener("click", () => {
         feed.querySelector(`.home-comment-form[data-post-id="${post.id}"] input[name="comment"]`)?.focus();
       });
-
-      // Delete Post
-      const delBtn = feed.querySelector(`.home-del-btn[data-id="${post.id}"]`);
-      if (delBtn) {
-        delBtn.onclick = async () => {
-          if (confirm("Delete this post?")) {
-            try {
-              await deleteDiaryPost(post.id);
-              toast("Deleted post");
-            } catch (err) {
-              console.error("Could not delete post:", err);
-              toast("Could not delete post.");
-            }
-          }
-        };
-      }
-
-      // Edit Post
-      const editBtn = feed.querySelector(`.home-edit-btn[data-id="${post.id}"]`);
-      if (editBtn) {
-        editBtn.onclick = async () => {
-          const newText = prompt("Edit post:", post.text || "");
-          if (newText !== null && newText.trim() !== (post.text || "")) {
-            if (!newText.trim() && !post.photoUrl) {
-              toast("A post needs text or a photo.");
-              return;
-            }
-            try {
-              await updateDiaryPost(post.id, { text: newText.trim() });
-              toast("Post updated! ♡");
-            } catch (err) {
-              console.error("Could not update post:", err);
-              toast("Could not update post.");
-            }
-          }
-        };
-      }
 
       // Comments Watcher
       if (!postCommentStops.has(post.id)) {

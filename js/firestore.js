@@ -213,8 +213,11 @@ export async function deleteDiaryPost(postId) {
   }
 }
 
-export function watchDiaryPosts(cb, maxItems) {
-  const constraints = [orderBy("createdAt", "desc")];
+export function watchDiaryPosts(cb, maxItems, authorIds = []) {
+  const authors = [...new Set(authorIds.filter(authorId => typeof authorId === "string" && authorId))];
+  const constraints = [];
+  if (authors.length) constraints.push(where("authorId", authors.length === 1 ? "==" : "in", authors.length === 1 ? authors[0] : authors));
+  constraints.push(orderBy("createdAt", "desc"));
   if (maxItems) constraints.push(limit(maxItems));
   return onSnapshot(query(diaryCollection(), ...constraints), s => {
     cb(s.docs.filter(d => !d.data().deleting).map(d => ({ id: d.id, ...d.data() })));

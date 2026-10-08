@@ -160,11 +160,7 @@ input:focus,textarea:focus{border-color:var(--pink);box-shadow:0 0 0 4px #ef6d9f
   .home-dashboard .today-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
   .home-dashboard .home-post-panel,
   .home-dashboard .home-drawing-panel { padding: 10px; }
-  .home-dashboard .home-composer-head { gap: 6px; }
-  .home-dashboard .home-composer-head strong { font-size: 11px; }
   .home-dashboard .home-avatar { width: 30px; height: 30px; }
-  .home-dashboard .home-composer-card textarea { padding: 8px; font-size: 12px; }
-  .home-dashboard .home-composer-actions { gap: 5px; flex-wrap: wrap; }
   .home-dashboard .home-post-btn { padding: 7px 10px; font-size: 11px; }
   .home-dashboard .home-canvas-launch { min-height: 150px; padding: 9px; font-size: 13px; }
   .home-dashboard .today-cards .card { gap: 7px; padding: 10px; }
