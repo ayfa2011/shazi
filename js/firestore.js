@@ -90,7 +90,12 @@ export async function addDrawingMessage(data) {
 }
 
 export function watchDrawingMessages(cb) {
-  return onSnapshot(query(drawingCollection(), orderBy("createdAt", "desc")), s => cb(s.docs.map(d => ({ id: d.id, ...d.data() })));
+  return onSnapshot(
+    query(drawingCollection(), orderBy("createdAt", "desc")),
+    s => {
+      cb(s.docs.map(d => ({ id: d.id, ...d.data() })));
+    }
+  );
 }
 
 export async function getDrawingsFolder() {

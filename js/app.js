@@ -491,7 +491,15 @@ initAuth(
     disposePostFeed?.();
 
     const appView = $("#app-view");
-    const authView = $("#auth-view");     if (appView) appView.classList.add("hidden");     if (authView) authView.classList.remove("hidden");   } );  // Event Listeners setup document.addEventListener("DOMContentLoaded", () => {   $$(".bottom-nav button").forEach((b) => {
+    const authView = $("#auth-view");
+    if (appView) appView.classList.add("hidden");
+    if (authView) authView.classList.remove("hidden");
+  }
+);
+
+// Event Listeners setup
+document.addEventListener("DOMContentLoaded", () => {
+  $$(".bottom-nav button").forEach((b) => {
     b.addEventListener("click", () => {
       const route = b.dataset.route;
       if (route) navigate(route);

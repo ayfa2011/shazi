@@ -1,5 +1,5 @@
 import { $, esc, toast } from "./utils.js";
-import { watchItems, addItem, setItem, deleteItem } from "./firestore.js";
+import { watchItems, addItem, setItem, removeItem } from "./firestore.js";
 
 let stopBucketWatcher = null;
 
@@ -112,7 +112,7 @@ export function renderBucket(el, user) {
     const id = $("#modal-item-id", el).value;
     if (id && confirm("Delete this dream?")) {
       try {
-        await deleteItem("bucket", id);
+        await removeItem(id);
         toast("Dream deleted");
         modal.style.display = "none";
       } catch (err) {
@@ -141,7 +141,7 @@ export function renderBucket(el, user) {
       };
 
       if (id) {
-        await setItem("bucket", id, payload);
+        await setItem(id, payload);
         toast("Dream updated ♡");
       } else {
         await addItem("bucket", payload);

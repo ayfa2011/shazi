@@ -1,5 +1,5 @@
 import { $, esc, toast, uid } from "./utils.js";
-import { watchItems, addItem, deleteItem, setItem } from "./firestore.js";
+import { watchItems, addItem, removeItem, setItem } from "./firestore.js";
 import { storage } from "./firebase.js";
 import { ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-storage.js";
 
@@ -130,7 +130,7 @@ export function renderMemories(el, user, profile) {
     const editId = $("#mem-edit-id", el).value;
     if (editId && confirm("Are you sure you want to delete this memory?")) {
       try {
-        await deleteItem("memory", editId);
+        await removeItem(editId);
         toast("Memory deleted");
         addModal.style.display = "none";
         viewModal.style.display = "none";
@@ -196,7 +196,7 @@ export function renderMemories(el, user, profile) {
       if (photoUrl) payload.photoUrl = photoUrl;
 
       if (editId) {
-        await setItem("memory", editId, payload);
+        await setItem(editId, payload);
         toast("Memory updated ♡");
       } else {
         await addItem("memory", payload);
