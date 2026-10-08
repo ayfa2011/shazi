@@ -274,6 +274,29 @@ export async function recordDailyGameWin(uid, dayKey) {
   });
 }
 
+export async function recordGameMatchResult({ uid, authorId, matchId, game, winnerUid, players, scores }) {
+  if (!firebaseReady) throw new Error("Connect Firebase before saving game results.");
+  if (!uid || !authorId || typeof matchId !== "string" || !/^[A-Za-z0-9_-]{1,120}$/.test(matchId) ||
+      typeof game !== "string" || !game || !Array.isArray(players) || players.length !== 2 ||
+      new Set(players).size !== 2 || !players.every(player => typeof player === "string" && player) ||
+      (winnerUid && !players.includes(winnerUid))) {
+    throw new Error("Game result details are incomplete.");
+  }
+  if (!players.includes(uid)) throw new Error("Only a match participant can save its result.");
+  return setItem(`game-match-${matchId}-${uid}`, {
+    type: "game",
+    game,
+    result: winnerUid ? "won" : "draw",
+    winnerUid: winnerUid || "",
+    players,
+    scores,
+    matchId,
+    author: uid,
+    authorId,
+    createdAt: serverTimestamp()
+  });
+}
+
 const challengeAssignments = () => collection(db, ...couplePath(), "challengeAssignments");
 
 export async function ensureChallengeAssignment(challenge) {

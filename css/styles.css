@@ -333,6 +333,23 @@ input:focus,textarea:focus{border-color:var(--pink);box-shadow:0 0 0 4px #ef6d9f
 .special-days-form-actions button{min-width:92px}
 .special-day-delete{margin-top:13px;padding:8px 0;background:none;color:#b43c64;font-size:12px;font-weight:700}
 .special-day-delete.hidden{display:none}
+.more-page{max-width:760px;margin:0 auto}
+.more-page-heading{display:flex;align-items:center;justify-content:space-between;margin:0 0 18px}
+.more-page-heading .eyebrow{margin:0 0 5px}
+.more-page-heading h1{margin:0;color:var(--deep);font-size:clamp(28px,6vw,38px)}
+.more-logout{width:34px;height:34px;display:grid;place-items:center;padding:0;border:1px solid var(--line);border-radius:50%;background:#fff;color:#b43c64;font-size:18px}
+.more-logout:hover{background:#fff0f5}
+.more-page-actions{display:grid;gap:10px}
+.more-action{width:100%;display:flex;align-items:center;gap:12px;padding:14px;text-align:left}
+.more-action-icon{width:42px;height:42px;flex:none;display:grid;place-items:center;border-radius:14px;background:#fff0f6;font-size:21px}
+.more-action>span:nth-child(2){min-width:0;flex:1;display:grid;gap:4px}
+.more-action strong{color:var(--deep);font-size:14px}
+.more-action small{color:var(--muted);font-size:11px;line-height:1.4}
+.more-action-arrow{color:var(--muted);font-size:24px}
+.bucket-page-header{display:flex;align-items:center;gap:12px;max-width:640px;margin:0 auto 14px}
+.bucket-page-header .games-back-button{flex:none}
+.bucket-page-header .eyebrow{margin:0 0 4px}
+.bucket-page-header h1{margin:0;color:var(--deep);font-size:clamp(24px,5vw,32px)}
 @media(min-width:600px){.games-hub-grid{gap:14px}.games-hub-card{min-height:145px;padding:19px}.games-card-copy strong{font-size:16px}.games-card-copy>span{font-size:12px}.games-daily,.game-panel{padding:24px}}
 @media(max-width:360px){.games-hub-grid{gap:8px}.games-hub-card{min-height:122px;padding:12px;border-radius:17px}.games-card-emoji{width:42px;height:42px;font-size:23px}.games-card-copy strong{font-size:13px}.games-card-copy>span{font-size:10px}.games-card-label{top:11px;right:11px;font-size:8px}.games-card-arrow{right:11px;bottom:10px}}
 @media(max-width:420px){.special-days-header{align-items:flex-start}.special-days-add{padding:9px 10px}.special-day-item{gap:8px;padding:10px}.special-day-item-icon{width:34px;height:34px;font-size:18px}.special-day-countdown{max-width:68px;font-size:10px}}

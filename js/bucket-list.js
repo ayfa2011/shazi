@@ -28,6 +28,10 @@ export function renderBucket(el, user) {
       .modal-box input, .modal-box select { width: 100%; padding: 10px; margin: 6px 0 12px 0; box-sizing: border-box; border: 1px solid #ddd; border-radius: 8px; font-family: inherit; }
     </style>
 
+    <header class="bucket-page-header">
+      <button type="button" class="games-back-button" data-bucket-back>← More</button>
+      <div><p class="eyebrow">OUR FUTURE DREAMS</p><h1>Our Bucket List</h1></div>
+    </header>
     <div class="bucket-card">
       <div class="bucket-header">
         <div class="bucket-title">
@@ -77,6 +81,7 @@ export function renderBucket(el, user) {
   `;
 
   const modal = $("#bucket-modal", el);
+  $("[data-bucket-back]", el).onclick = () => window.App?.navigate("more");
 
   function openModal(item = null) {
     if (item) {

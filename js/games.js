@@ -1,10 +1,11 @@
-import { $, toast, todayKey, dailyIndex, esc } from "./utils.js";
-import { recordDailyGameWin, watchItems } from "./firestore.js";
-import { rtdb } from "./firebase.js";
+import { $, toast, todayKey, dailyIndex, scheduleDubaiDayRollover, esc } from "./utils.js";
+import { recordDailyGameWin, recordGameMatchResult, watchItems } from "./firestore.js";
+import { firebaseReady, rtdb } from "./firebase.js";
 import { getDisplayName } from "./profile-data.js";
 import { onValue, ref, runTransaction } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
 const ticTacToeRef = () => ref(rtdb, "couples/our-little-world/games/ticTacToe");
+const gameMatchRef = game => ref(rtdb, `couples/our-little-world/games/matches/${game}`);
 const symbols = ["🌸", "🌙", "🍓", "🐻", "💌", "🦋"];
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 const challenges = [
@@ -41,10 +42,119 @@ const winningLines = [
 
 let stopGames = null;
 let stopTicTacToe = null;
+let stopGameMatch = null;
 let memoryTimer = null;
+let dailyRolloverTimer = null;
 
 function getDailySeed() {
   return dailyIndex(9);
+}
+
+function shuffle(items) {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index--) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
+function makeEmojiQuestions() {
+  return shuffle(emojiQuestions).map(question => {
+    const options = shuffle(question.options.map((text, index) => ({ text, index })));
+    return {
+      ...question,
+      options: options.map(option => option.text),
+      answer: options.findIndex(option => option.index === question.answer)
+    };
+  });
+}
+
+function makeTriviaQuestions() {
+  return shuffle(triviaQuestions).map(question => ({ ...question, options: shuffle(question.options) }));
+}
+
+const gameTitles = {
+  "memory-match": "Memory Match",
+  "word-guess": "Word Guess",
+  "emoji-quiz": "Emoji Quiz",
+  "spin-wheel": "Spin Wheel",
+  "couple-trivia": "Couple Trivia",
+  "tic-tac-toe": "Tic Tac Toe",
+  "daily-hidden-heart": "Today's Hidden Heart"
+};
+
+function gameIsComplete(game, state) {
+  if (!state) return false;
+  if (game === "memory-match") return state.matched.length === state.cards.length;
+  if (game === "word-guess") {
+    const won = [...state.word.toLocaleLowerCase()].every(char => !/[a-z]/.test(char) || state.guessed.includes(char));
+    return Boolean(state.word) && (won || state.guessesLeft === 0);
+  }
+  if (game === "emoji-quiz" || game === "couple-trivia") return state.question >= state.questions.length;
+  if (game === "spin-wheel") return state.completedChallenges >= 3;
+  return false;
+}
+
+function gameScore(game, state) {
+  if (game === "memory-match") return state.moves;
+  if (game === "word-guess") {
+    const solved = [...state.word.toLocaleLowerCase()].every(char => !/[a-z]/.test(char) || state.guessed.includes(char));
+    return solved ? state.guessesLeft + 1 : 0;
+  }
+  if (game === "emoji-quiz" || game === "couple-trivia") return state.score;
+  if (game === "spin-wheel") return Date.now() - state.startedAt;
+  return 0;
+}
+
+function isValidActiveGameState(game, state) {
+  if (!state || typeof state !== "object") return false;
+  if (game === "memory-match") return Array.isArray(state.cards) && state.cards.length === symbols.length * 2 &&
+    state.cards.every(symbol => symbols.includes(symbol)) && Array.isArray(state.flipped) &&
+    Array.isArray(state.matched) && Number.isInteger(state.moves) && state.moves >= 0 &&
+    typeof state.locked === "boolean";
+  if (game === "word-guess") return typeof state.word === "string" && state.word.length <= 32 &&
+    Array.isArray(state.guessed) && state.guessed.every(letter => /^[a-z]$/.test(letter)) &&
+    Number.isInteger(state.guessesLeft) && state.guessesLeft >= 0 && state.guessesLeft <= 7;
+  if (game === "emoji-quiz" || game === "couple-trivia") return Array.isArray(state.questions) &&
+    state.questions.length === (game === "emoji-quiz" ? emojiQuestions.length : triviaQuestions.length) &&
+    Number.isInteger(state.question) && state.question >= 0 && state.question <= state.questions.length &&
+    Number.isInteger(state.score) && state.score >= 0;
+  if (game === "spin-wheel") return typeof state.challenge === "string" &&
+    Number.isInteger(state.completedChallenges) && state.completedChallenges >= 0 && state.completedChallenges <= 3 &&
+    Number.isFinite(state.startedAt);
+  return false;
+}
+
+function gameWinner(game, playerUids, results) {
+  const [firstUid, secondUid] = playerUids;
+  const firstScore = results[firstUid]?.score;
+  const secondScore = results[secondUid]?.score;
+  if (firstScore === secondScore) return "";
+  if (game === "memory-match" || game === "spin-wheel") return firstScore < secondScore ? firstUid : secondUid;
+  return firstScore > secondScore ? firstUid : secondUid;
+}
+
+function formatGameScore(game, score) {
+  if (score == null) return "—";
+  if (game === "memory-match") return `${score} moves`;
+  if (game === "spin-wheel") return `${(score / 1000).toFixed(1)}s`;
+  return `${score} points`;
+}
+
+function isDailyHeartWin(item) {
+  return item.game === gameTitles["daily-hidden-heart"] || item.game === "Find the heart";
+}
+
+function uniqueMatchResults(items) {
+  const seen = new Set();
+  return items.filter(item => {
+    if (!item.matchId) return true;
+    const key = `${item.game}:${item.matchId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function gameCard(id, emoji, title, description, label = "") {
@@ -61,15 +171,15 @@ function gamesHome() {
     <header class="games-intro">
       <p class="eyebrow">A LITTLE FRIENDLY COMPETITION</p>
       <h1>Our Games <span aria-hidden="true">🎮</span></h1>
-      <p class="muted">Pick a game, make a memory, and have fun together.</p>
+      <p class="muted">Start a match on one device, then join it from your partner's device.</p>
     </header>
     <div class="games-hub-grid">
       ${gameCard("tic-tac-toe", "⭕", "Tic Tac Toe", "A real-time game for two", "LIVE")}
-      ${gameCard("memory-match", "🧠", "Memory Match", "Find all the matching pairs")}
-      ${gameCard("word-guess", "🔤", "Word Guess", "Choose a secret word to guess")}
-      ${gameCard("emoji-quiz", "🌙", "Emoji Quiz", "Decode a little love in emojis")}
-      ${gameCard("spin-wheel", "🎡", "Spin Wheel", "Get a sweet surprise challenge")}
-      ${gameCard("couple-trivia", "💞", "Couple Trivia", "See how well you know each other")}
+      ${gameCard("memory-match", "🧠", "Memory Match", "Take turns finding matching pairs", "2P")}
+      ${gameCard("word-guess", "🔤", "Word Guess", "Set words for each other to guess", "2P")}
+      ${gameCard("emoji-quiz", "🌙", "Emoji Quiz", "Take turns decoding love in emojis", "2P")}
+      ${gameCard("spin-wheel", "🎡", "Spin Wheel", "Complete three surprise challenges fastest", "2P")}
+      ${gameCard("couple-trivia", "💞", "Couple Trivia", "Answer, then let your partner guess", "2P")}
     </div>
     <section class="games-daily">
       <div class="games-daily-heading"><span aria-hidden="true">♡</span><div><p class="eyebrow">DAILY MINI GAME</p><h2>Today's Hidden Heart</h2></div></div>
@@ -77,6 +187,7 @@ function gamesHome() {
       <div id="game-board" class="game-board" aria-label="Find the hidden heart"></div>
       <p id="game-result" class="game-result" aria-live="polite"></p>
       <div class="score-history"><h3>Recent Game Wins 🏆</h3><div id="game-scores-list"><p class="muted">Loading wins…</p></div></div>
+      <div id="games-leaderboards"></div>
     </section>
   </section>`;
 }
@@ -84,59 +195,72 @@ function gamesHome() {
 function activeShell(id, title, description, emoji) {
   return `<section class="games-page games-play-page">
     <button class="games-back-button" type="button" data-back-games>← All games</button>
-    <header class="games-play-heading"><span class="games-card-emoji" aria-hidden="true">${emoji}</span><div><p class="eyebrow">OUR GAMES</p><h1>${title}</h1><p class="muted">${description}</p></div></header>
+    <header class="games-play-heading"><span class="games-card-emoji" aria-hidden="true">${emoji}</span><div><p class="eyebrow">OUR GAMES · TWO DEVICES</p><h1>${title}</h1><p class="muted">${description}</p></div></header>
+    <div id="games-room-status"></div>
     <div id="games-active-content" class="games-active-content" data-active-game="${id}"></div>
   </section>`;
 }
 
-function renderActiveGame(el, game, user, profile, state) {
+function renderActiveGame(el, game, user, profile, state, liveMatch = false) {
   const content = $("#games-active-content", el);
   if (!content) return;
+  if (game !== "tic-tac-toe" && !isValidActiveGameState(game, state)) {
+    content.innerHTML = `<div class="game-panel"><p class="error">This game's saved progress is invalid. Please start a new match.</p></div>`;
+    return;
+  }
 
   if (game === "memory-match") {
     const cards = state.cards.map((symbol, index) => {
       const revealed = state.flipped.includes(index) || state.matched.includes(index);
       return `<button type="button" class="memory-card${state.matched.includes(index) ? " matched" : ""}" data-memory-card="${index}" aria-label="${revealed ? esc(symbol) : "Hidden card"}"${revealed || state.locked ? " disabled" : ""}>${revealed ? esc(symbol) : "♡"}</button>`;
     }).join("");
-    content.innerHTML = `<div class="game-panel"><p class="games-instructions">Flip two cards at a time and find every matching pair.</p><div class="memory-board">${cards}</div><p class="game-result" aria-live="polite">${state.matched.length === state.cards.length ? `You found them all in ${state.moves} moves! 🎉` : `${state.matched.length / 2} of ${symbols.length} pairs found · ${state.moves} moves`}</p><button type="button" class="secondary" data-reset-game>Play again</button></div>`;
+    content.innerHTML = `<div class="game-panel"><p class="games-instructions">Flip two cards at a time and find every matching pair.</p><div class="memory-board">${cards}</div><p class="game-result" aria-live="polite">${state.matched.length === state.cards.length ? `You found them all in ${state.moves} moves! 🎉` : `${state.matched.length / 2} of ${symbols.length} pairs found · ${state.moves} moves`}</p>${liveMatch ? "" : `<button type="button" class="secondary" data-reset-game>Play again</button>`}</div>`;
     return;
   }
 
   if (game === "word-guess") {
     if (!state.word) {
-      content.innerHTML = `<div class="game-panel"><p class="games-instructions">One of you picks a word, then passes the device so your partner can guess it. The word stays hidden after you submit it.</p><form id="word-guess-setup" class="game-form"><label for="word-guess-word">Choose a secret word</label><input id="word-guess-word" type="password" maxlength="32" autocomplete="off" placeholder="At least 3 letters" required><button class="primary" type="submit">Set the secret word</button><p class="game-form-error" aria-live="polite"></p></form></div>`;
+      content.innerHTML = `<div class="game-panel"><p class="games-instructions">${liveMatch ? "Choose a secret word for your partner to guess." : "One of you picks a word, then passes the device so your partner can guess it. The word stays hidden after you submit it."}</p><form id="word-guess-setup" class="game-form"><label for="word-guess-word">Choose a secret word</label><input id="word-guess-word" type="password" maxlength="32" autocomplete="off" placeholder="At least 3 letters" required><button class="primary" type="submit">Set the secret word</button><p class="game-form-error" aria-live="polite"></p></form></div>`;
       return;
     }
     const visibleWord = [...state.word].map(char => /[a-z]/i.test(char) && !state.guessed.includes(char.toLocaleLowerCase()) ? "_" : char).join(" ");
     const won = [...state.word.toLocaleLowerCase()].every(char => !/[a-z]/.test(char) || state.guessed.includes(char));
     const lost = state.guessesLeft === 0 && !won;
-    content.innerHTML = `<div class="game-panel"><p class="games-instructions">Pass the device to your partner, then guess the secret word.</p><div class="word-guess-word" aria-label="Secret word">${visibleWord}</div><p class="game-result" aria-live="polite">${won ? "You guessed it! 🎉" : lost ? `Out of guesses! The word was ${esc(state.word)}.` : `${state.guessesLeft} guesses left`}</p>${won || lost ? `<button type="button" class="primary" data-reset-game>Choose another word</button>` : `<div class="letter-board">${alphabet.map(letter => `<button type="button" data-word-letter="${letter.toLocaleLowerCase()}"${state.guessed.includes(letter.toLocaleLowerCase()) ? " disabled" : ""}>${letter}</button>`).join("")}</div><button type="button" class="secondary word-reset" data-reset-game>Start over</button>`}</div>`;
+    content.innerHTML = `<div class="game-panel"><p class="games-instructions">${liveMatch ? "Guess your own secret word to complete this turn, then pass the match to your partner." : "Pass the device to your partner, then guess the secret word."}</p><div class="word-guess-word" aria-label="Secret word">${visibleWord}</div><p class="game-result" aria-live="polite">${won ? "You guessed it! 🎉" : lost ? `Out of guesses! The word was ${esc(state.word)}.` : `${state.guessesLeft} guesses left`}</p>${won || lost ? (liveMatch ? "" : `<button type="button" class="primary" data-reset-game>Choose another word</button>`) : `<div class="letter-board">${alphabet.map(letter => `<button type="button" data-word-letter="${letter.toLocaleLowerCase()}"${state.guessed.includes(letter.toLocaleLowerCase()) ? " disabled" : ""}>${letter}</button>`).join("")}</div>${liveMatch ? "" : `<button type="button" class="secondary word-reset" data-reset-game>Start over</button>`}`}</div>`;
     return;
   }
 
   if (game === "emoji-quiz") {
-    const question = emojiQuestions[state.question % emojiQuestions.length];
+    if (state.question >= state.questions.length) {
+      content.innerHTML = `<div class="game-panel quiz-panel"><p class="eyebrow">QUIZ COMPLETE</p><h2 class="trivia-question">You got ${state.score} of ${state.questions.length} right! 💖</h2>${liveMatch ? "" : `<button type="button" class="primary" data-reset-game>Play again</button>`}</div>`;
+      return;
+    }
+    const question = state.questions[state.question];
     content.innerHTML = `<div class="game-panel quiz-panel"><p class="games-instructions">What do these emojis mean?</p><div class="emoji-question">${question.emojis}</div><div class="quiz-options">${question.options.map((option, index) => `<button type="button" class="quiz-option${state.answered && index === question.answer ? " correct" : ""}${state.answered && index === state.selected && index !== question.answer ? " incorrect" : ""}" data-emoji-answer="${index}"${state.answered ? " disabled" : ""}>${esc(option)}</button>`).join("")}</div>${state.answered ? `<p class="game-result" aria-live="polite">${state.selected === question.answer ? "That's right! 💖" : "Not quite — love is in the details! 💕"} ${state.score} correct</p><button type="button" class="primary" data-next-emoji>Next question</button>` : ""}</div>`;
     return;
   }
 
   if (game === "spin-wheel") {
-    content.innerHTML = `<div class="game-panel spin-panel"><div class="spin-wheel" aria-hidden="true">🎡</div><p class="games-instructions">Ready for a little surprise?</p><button type="button" class="primary" data-spin-wheel>Spin for a challenge</button>${state.challenge ? `<div class="spin-result" aria-live="polite"><p class="eyebrow">🎉 YOUR CHALLENGE</p><strong>${esc(state.challenge)}</strong><button type="button" class="secondary" data-spin-wheel>Spin again</button></div>` : ""}</div>`;
+    content.innerHTML = `<div class="game-panel spin-panel"><div class="spin-wheel" aria-hidden="true">🎡</div><p class="games-instructions">${liveMatch ? `Complete three challenges for your turn (${state.completedChallenges}/3).` : "Ready for a little surprise?"}</p><button type="button" class="primary" data-spin-wheel${liveMatch && state.completedChallenges >= 3 ? " disabled" : ""}>Spin for a challenge</button>${state.challenge ? `<div class="spin-result" aria-live="polite"><p class="eyebrow">🎉 YOUR CHALLENGE</p><strong>${esc(state.challenge)}</strong>${liveMatch ? `<button type="button" class="secondary" data-complete-challenge${state.completedChallenges >= 3 ? " disabled" : ""}>I completed it</button>` : `<button type="button" class="secondary" data-spin-wheel>Spin again</button>`}</div>` : ""}</div>`;
     return;
   }
 
   if (game === "couple-trivia") {
-    const question = triviaQuestions[state.question % triviaQuestions.length];
+    if (state.question >= state.questions.length) {
+      content.innerHTML = `<div class="game-panel quiz-panel"><p class="eyebrow">TRIVIA COMPLETE</p><h2 class="trivia-question">Final score: ${state.score} of ${state.questions.length} 💞</h2>${liveMatch ? "" : `<button type="button" class="primary" data-reset-game>Play again</button>`}</div>`;
+      return;
+    }
+    const question = state.questions[state.question];
     if (state.stage === "guess") {
-      content.innerHTML = `<div class="game-panel quiz-panel"><p class="games-instructions">Now pass the device to your partner. Guess what ${esc(state.answerer)} picked!</p><h2 class="trivia-question">${esc(question.prompt)}</h2><div class="quiz-options">${question.options.map((option, index) => `<button type="button" class="quiz-option" data-trivia-guess="${index}">${esc(option)}</button>`).join("")}</div></div>`;
+      content.innerHTML = `<div class="game-panel quiz-panel"><p class="games-instructions">${liveMatch ? `${esc(state.answerer)} answered. Choose what you think they picked.` : `Now pass the device to your partner. Guess what ${esc(state.answerer)} picked!`}</p><h2 class="trivia-question">${esc(question.prompt)}</h2><div class="quiz-options">${question.options.map((option, index) => `<button type="button" class="quiz-option" data-trivia-guess="${index}">${esc(option)}</button>`).join("")}</div></div>`;
       return;
     }
     if (state.stage === "result") {
       const matched = state.guess === state.answer;
-      content.innerHTML = `<div class="game-panel quiz-panel"><p class="eyebrow">THE REVEAL</p><h2 class="trivia-question">${esc(question.prompt)}</h2><p class="trivia-answer">${esc(state.answerer)} picked <strong>${esc(question.options[state.answer])}</strong>.</p><p class="trivia-answer">Their partner guessed <strong>${esc(question.options[state.guess])}</strong>.</p><p class="game-result" aria-live="polite">${matched ? "You know each other so well! 💞" : "The fun is in learning something new! 💗"} Score: ${state.score}</p><button type="button" class="primary" data-next-trivia>Next question</button></div>`;
+      content.innerHTML = `<div class="game-panel quiz-panel"><p class="eyebrow">THE REVEAL</p><h2 class="trivia-question">${esc(question.prompt)}</h2><p class="trivia-answer">${esc(state.answerer)} picked <strong>${esc(question.options[state.answer])}</strong>.</p><p class="trivia-answer">Their partner guessed <strong>${esc(question.options[state.guess])}</strong>.</p><p class="game-result" aria-live="polite">${matched ? "You know each other so well! 💞" : "The fun is in learning something new! 💗"} Score: ${state.score}</p>${liveMatch ? state.canAdvance ? `<button type="button" class="primary" data-next-trivia>Next question</button>` : "" : `<button type="button" class="primary" data-next-trivia>Next question</button>`}</div>`;
       return;
     }
-    content.innerHTML = `<div class="game-panel quiz-panel"><p class="games-instructions">${state.stage === "first" ? `First, ${esc(getDisplayName(user.uid, profile?.name))} answers honestly. Your partner will guess after you pass the device.` : "Pass the device to your partner to guess your answer."}</p><h2 class="trivia-question">${esc(question.prompt)}</h2><div class="quiz-options">${question.options.map((option, index) => `<button type="button" class="quiz-option" data-trivia-answer="${index}">${esc(option)}</button>`).join("")}</div></div>`;
+    content.innerHTML = `<div class="game-panel quiz-panel"><p class="games-instructions">${liveMatch ? "Choose your honest answer. Your partner will guess from their device." : `First, ${esc(getDisplayName(user.uid, profile?.name))} answers honestly. Your partner will guess after you pass the device.`}</p><h2 class="trivia-question">${esc(question.prompt)}</h2><div class="quiz-options">${question.options.map((option, index) => `<button type="button" class="quiz-option" data-trivia-answer="${index}">${esc(option)}</button>`).join("")}</div></div>`;
     return;
   }
 
@@ -146,29 +270,42 @@ function renderActiveGame(el, game, user, profile, state) {
 function renderTicTacToe(content, user, gameState) {
   const uid = user?.uid;
   const state = gameState || null;
-  const cells = Array.isArray(state?.board) && state.board.length === 9 ? state.board : Array(9).fill("");
+  if (state && !isValidTicTacToeState(state)) {
+    content.innerHTML = `<div class="game-panel tic-tac-toe-panel"><p class="error">This match has invalid game data. Start a new match to continue.</p><button type="button" class="primary" data-ttt-start>Start a new match</button></div>`;
+    return;
+  }
+  const cells = state?.board || Array(9).fill("");
   const mark = state?.xUid === uid ? "X" : state?.oUid === uid ? "O" : "";
   const isPlaying = state?.status === "playing";
+  const isFinished = state?.status === "finished";
   const waitingForOpponent = state?.status === "waiting" && state.xUid === uid;
   const canJoin = state?.status === "waiting" && state.xUid !== uid && !state.oUid;
   const turnText = !state
     ? "Start a match or join your partner's waiting game."
-    : waitingForOpponent
-      ? "Waiting for your partner to join…"
-      : canJoin
-        ? "Your partner is waiting. Join the match!"
-        : !mark
-          ? "This match is for your partner. Start a new game after it ends."
-          : isPlaying
-            ? state.turnUid === uid ? "Your turn!" : "Waiting for your partner's move…"
-            : state.winnerUid ? (state.winnerUid === uid ? "You won! 🎉" : "Your partner won this round!") : "It's a draw! 🤝";
-  const isFinished = state?.status === "finished";
+    : isFinished
+      ? state.cancelled
+        ? "The waiting match was canceled."
+        : state.endedByUid
+          ? "This match was ended."
+          : state.winnerUid
+            ? state.winnerUid === uid ? "You won! 🎉" : "Your partner won this round!"
+            : "It's a draw! 🤝"
+      : waitingForOpponent
+        ? "Waiting for your partner to join…"
+        : canJoin
+          ? "Your partner is waiting. Join the match!"
+          : !mark
+            ? "This match is for your partner. Start a new game after it ends."
+            : isPlaying
+              ? state.turnUid === uid ? "Your turn!" : "Waiting for your partner's move…"
+              : "Waiting for your partner to join…";
 
   content.innerHTML = `<div class="game-panel tic-tac-toe-panel">
     <p class="games-instructions">Play live against your partner. Your moves appear on both screens.</p>
     <p class="tic-tac-toe-status" aria-live="polite">${esc(turnText)}</p>
     ${state?.status === "waiting" || isPlaying || isFinished ? `<div class="tic-tac-toe-board" role="grid" aria-label="Tic Tac Toe board">${cells.map((cell, index) => `<button type="button" class="tic-tac-toe-cell${cell ? ` played played-${cell.toLocaleLowerCase()}` : ""}" data-ttt-cell="${index}" aria-label="Row ${Math.floor(index / 3) + 1}, column ${index % 3 + 1}${cell ? `, ${cell}` : ""}"${!isPlaying || state.turnUid !== uid || cell || !mark ? " disabled" : ""}>${esc(cell)}</button>`).join("")}</div>` : ""}
     ${!state || isFinished ? `<button type="button" class="primary" data-ttt-start>${isFinished ? "Start a new match" : "Start a match"}</button>` : canJoin ? `<button type="button" class="primary" data-ttt-start>Join your partner</button>` : ""}
+    ${(state?.status === "waiting" && state.xUid === uid) || (isPlaying && (state.xUid === uid || state.oUid === uid)) ? `<button type="button" class="secondary" data-ttt-reset>${state.status === "waiting" ? "Cancel waiting match" : "End this match"}</button>` : ""}
     <p class="tic-tac-toe-legend">${mark ? `You are ${mark} · ${mark === "X" ? "❌" : "⭕"}` : "❌ goes first"}</p>
   </div>`;
 }
@@ -182,14 +319,14 @@ function makeMemoryState() {
   return { cards: deck.map(card => card.symbol), flipped: [], matched: [], moves: 0, locked: false };
 }
 
-function resetActiveGame(game, state) {
+function resetActiveGame(game) {
   if (memoryTimer) clearTimeout(memoryTimer);
   memoryTimer = null;
   if (game === "memory-match") return makeMemoryState();
   if (game === "word-guess") return { word: "", guessed: [], guessesLeft: 7 };
-  if (game === "emoji-quiz") return { question: 0, answered: false, selected: -1, score: 0 };
-  if (game === "spin-wheel") return { challenge: "" };
-  if (game === "couple-trivia") return { question: state?.question || 0, stage: "first", answer: -1, guess: -1, answerer: "", score: state?.score || 0 };
+  if (game === "emoji-quiz") return { questions: makeEmojiQuestions(), question: 0, answered: false, selected: -1, score: 0 };
+  if (game === "spin-wheel") return { challenge: "", completedChallenges: 0, startedAt: Date.now() };
+  if (game === "couple-trivia") return { questions: makeTriviaQuestions(), question: 0, stage: "first", answer: -1, guess: -1, answerer: "", score: 0 };
   return {};
 }
 
@@ -197,7 +334,47 @@ function hasWinningLine(board, mark) {
   return winningLines.some(line => line.every(index => board[index] === mark));
 }
 
+function isValidTicTacToeState(state) {
+  if (!state ||
+      !["waiting", "playing", "finished"].includes(state.status) ||
+      typeof state.xUid !== "string" || !state.xUid ||
+      typeof state.oUid !== "string" ||
+      typeof state.turnUid !== "string" ||
+      typeof state.winnerUid !== "string" ||
+      !Array.isArray(state.board) || state.board.length !== 9 ||
+      !state.board.every(cell => cell === "" || cell === "X" || cell === "O")) return false;
+  if (state.status === "waiting") return !state.oUid && state.turnUid === state.xUid;
+  if (state.status === "playing") return Boolean(state.oUid && state.oUid !== state.xUid && [state.xUid, state.oUid].includes(state.turnUid));
+  return !state.turnUid && (!state.winnerUid || [state.xUid, state.oUid].includes(state.winnerUid));
+}
+
+function isValidGameRoom(room, game) {
+  if (!room || room.game !== game || typeof room.matchId !== "string" ||
+      !["waiting", "playing", "finished", "cancelled"].includes(room.status) ||
+      !Array.isArray(room.playerUids) || room.playerUids.length < 1 ||
+      room.playerUids.length > 2 || new Set(room.playerUids).size !== room.playerUids.length ||
+      !room.playerUids.every(uid => typeof uid === "string" && uid) ||
+      !room.players || typeof room.players !== "object") return false;
+  if (room.status === "waiting") return room.playerUids.length === 1;
+  if (room.status === "cancelled") return true;
+  if (room.playerUids.length !== 2 || !room.playerUids.every(uid => room.players[uid])) return false;
+  if (game === "word-guess" && (!["setter", "guessing", "result"].includes(room.wordPhase) ||
+      !Number.isInteger(room.wordRoundNumber) || room.wordRoundNumber < 0 || room.wordRoundNumber > 1 ||
+      (room.wordPhase === "guessing" &&
+        (!room.wordRound || typeof room.wordRound.word !== "string" ||
+          !room.playerUids.includes(room.wordSetterUid))))) return false;
+  if (game === "couple-trivia" && (!Array.isArray(room.questions) || room.questions.length !== triviaQuestions.length ||
+      !Number.isInteger(room.triviaQuestionIndex) || room.triviaQuestionIndex < 0 ||
+      room.triviaQuestionIndex >= room.questions.length ||
+      !["first", "guess", "result", "finished"].includes(room.triviaStage) ||
+      !room.playerUids.includes(room.triviaAnswererUid))) return false;
+  if (room.status === "playing") return room.playerUids.includes(room.turnUid);
+  return !room.turnUid && (!room.winnerUid || room.playerUids.includes(room.winnerUid));
+}
+
 export function renderGames(el, user, profile) {
+  if (dailyRolloverTimer) clearTimeout(dailyRolloverTimer);
+  dailyRolloverTimer = null;
   stopGames?.();
   stopGames = null;
   stopTicTacToe?.();
@@ -206,39 +383,74 @@ export function renderGames(el, user, profile) {
   memoryTimer = null;
 
   let activeGame = "";
+  let renderedShellGame = "";
   let activeState = null;
   let ticTacToeState = null;
+  let gameRoomState = null;
+  let roomStateInitializing = "";
+  let savedMatchResults = new Set();
   let dailyGameItems = null;
-  const dailyTarget = getDailySeed();
+  let dailyDayKey = todayKey();
+  let dailyTarget = getDailySeed();
   let finished = false;
+  let savingDailyWin = false;
 
   el.innerHTML = gamesHome();
+
+  function ownDailyWin() {
+    return (dailyGameItems || []).find(win => {
+      if (!isDailyHeartWin(win) || win.result !== "won" || win.author !== user.uid) return false;
+      if (win.gameDay) return win.gameDay === dailyDayKey;
+      const createdAt = win.createdAt?.toDate?.() || (win.createdAt ? new Date(win.createdAt) : null);
+      return createdAt && todayKey(createdAt) === dailyDayKey;
+    });
+  }
 
   function buildDailyBoard() {
     const board = $("#game-board", el);
     if (!board) return;
     board.replaceChildren();
+    const alreadyWon = Boolean(ownDailyWin());
+    finished = alreadyWon;
     for (let index = 0; index < 9; index++) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "game-square";
-      button.textContent = "♡";
-      button.setAttribute("aria-label", `Heart tile ${index + 1}`);
+      const found = alreadyWon && index === dailyTarget;
+      button.textContent = found ? "♥" : "♡";
+      if (found) button.classList.add("found");
+      button.disabled = alreadyWon;
+      button.setAttribute("aria-label", `Heart tile ${index + 1}${found ? ", found" : ""}`);
       button.onclick = async () => {
-        if (finished) return;
+        if (todayKey() !== dailyDayKey) {
+          refreshDailyTarget();
+          return;
+        }
+        if (finished || savingDailyWin) return;
         if (index === dailyTarget) {
-          finished = true;
-          button.textContent = "♥";
-          button.classList.add("found");
-          const resultText = $("#game-result", el);
-          if (resultText) resultText.textContent = "🎉 You found today's hidden heart! ♡";
-          toast("Congratulations! Daily heart found! ♡");
+          const winningDayKey = dailyDayKey;
+          savingDailyWin = true;
+          button.disabled = true;
           try {
-            const recorded = await recordDailyGameWin(user.uid, todayKey());
-            if (!recorded && $("#game-result", el)) $("#game-result", el).textContent = "You already found today's hidden heart ♡";
+            const recorded = await recordDailyGameWin(user.uid, winningDayKey);
+            if (dailyDayKey === winningDayKey) {
+              finished = true;
+              button.textContent = "♥";
+              button.classList.add("found");
+              button.setAttribute("aria-label", `Heart tile ${index + 1}, found`);
+              $("#game-board", el)?.querySelectorAll("button").forEach(tile => { tile.disabled = true; });
+              const resultText = $("#game-result", el);
+              if (resultText) resultText.textContent = recorded
+                ? "🎉 You found today's hidden heart! ♡"
+                : "You already found today's hidden heart ♡";
+              if (recorded) toast("Congratulations! Daily heart found! ♡");
+            }
           } catch (error) {
             console.error("Failed to save score:", error);
             toast("Could not save score history.");
+            if (dailyDayKey === winningDayKey) button.disabled = false;
+          } finally {
+            if (dailyDayKey === winningDayKey) savingDailyWin = false;
           }
         } else {
           button.disabled = true;
@@ -250,11 +462,245 @@ export function renderGames(el, user, profile) {
       };
       board.append(button);
     }
+    const resultText = $("#game-result", el);
+    if (resultText && alreadyWon) resultText.textContent = "You already found today's hidden heart ♡";
+  }
+
+  function refreshDailyTarget() {
+    const currentDayKey = todayKey();
+    if (currentDayKey === dailyDayKey) return;
+    dailyDayKey = currentDayKey;
+    dailyTarget = getDailySeed();
+    finished = false;
+    savingDailyWin = false;
+    buildDailyBoard();
+  }
+
+  function scheduleDailyRollover() {
+    if (dailyRolloverTimer) clearTimeout(dailyRolloverTimer);
+    dailyRolloverTimer = scheduleDubaiDayRollover(() => {
+      refreshDailyTarget();
+      scheduleDailyRollover();
+    });
+  }
+
+  function matchLeaderboard(game) {
+    const wins = uniqueMatchResults((dailyGameItems || []).filter(item =>
+      item.result === "won" &&
+      (item.game === gameTitles[game] || game === "daily-hidden-heart" && isDailyHeartWin(item)) &&
+      (item.winnerUid || item.author)
+    ));
+    const totals = new Map();
+    for (const win of wins) {
+      const winnerUid = win.winnerUid || win.author;
+      totals.set(winnerUid, (totals.get(winnerUid) || 0) + 1);
+    }
+    const ranked = [...totals].sort((first, second) => second[1] - first[1]);
+    return `<section class="score-history game-leaderboard"><h3>${esc(gameTitles[game])} Leaderboard 🏆</h3>${ranked.length
+      ? ranked.map(([uid, count]) => `<div class="score-item"><span>${esc(uid === user.uid ? "You" : getDisplayName(uid, "Your partner"))}</span><strong>${count} ${count === 1 ? "win" : "wins"}</strong></div>`).join("")
+      : `<p class="muted">No wins yet.</p>`}</section>`;
+  }
+
+  function renderGameRoom() {
+    const statusEl = $("#games-room-status", el);
+    const content = $("#games-active-content", el);
+    if (!statusEl || !content) return;
+    if (!rtdb) {
+      statusEl.innerHTML = `<p class="error">Two-player games need Firebase Realtime Database.</p>`;
+      content.replaceChildren();
+      return;
+    }
+
+    const room = gameRoomState;
+    if (room && !isValidGameRoom(room, activeGame)) {
+      statusEl.innerHTML = `<p class="error">This match has invalid saved data. Please cancel it or contact your partner before starting another.</p>`;
+      content.replaceChildren();
+      return;
+    }
+    const players = room?.players || {};
+    const playerUids = room?.playerUids || [];
+    const opponentUid = playerUids.find(uid => uid !== user.uid);
+    const opponentName = getDisplayName(opponentUid, players[opponentUid]?.name || "Your partner");
+    let message = "";
+    if (!room || room.status === "finished" || room.status === "cancelled") {
+      const finalScores = room?.status === "finished"
+        ? `<p class="muted">${esc(getDisplayName(room.playerUids[0], players[room.playerUids[0]]?.name || "Player 1"))}: ${esc(formatGameScore(activeGame, players[room.playerUids[0]]?.score))} · ${esc(getDisplayName(room.playerUids[1], players[room.playerUids[1]]?.name || "Player 2"))}: ${esc(formatGameScore(activeGame, players[room.playerUids[1]]?.score))}</p>`
+        : "";
+      const result = room?.status === "cancelled"
+        ? "This match was cancelled."
+        : room?.status === "finished"
+        ? room.winnerUid === user.uid
+          ? "You won this match! 🎉"
+          : room.winnerUid
+            ? `${getDisplayName(room.winnerUid, players[room.winnerUid]?.name || "Your partner")} won this match.`
+            : "This match was a draw."
+        : "Start a match, then your partner joins from their device.";
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${esc(result)}</p>${finalScores}<button type="button" class="primary" data-room-start>${room ? "Play another match" : "Start a match"}</button></div>${matchLeaderboard(activeGame)}`;
+      content.replaceChildren();
+      return;
+    }
+
+    if (room.status === "waiting") {
+      const isCreator = room.playerUids[0] === user.uid;
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${isCreator ? "Waiting for your partner to join from their device…" : `${esc(opponentName)} is waiting. Join the match to play!`}</p>${isCreator ? `<button type="button" class="secondary" data-room-cancel>Cancel match</button>` : `<button type="button" class="primary" data-room-start>Join match</button>`}</div>${matchLeaderboard(activeGame)}`;
+      content.replaceChildren();
+      return;
+    }
+
+    const isTurn = room.turnUid === user.uid;
+    if (!room.playerUids.includes(user.uid)) {
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">This match is already in progress with your partner.</p></div>${matchLeaderboard(activeGame)}`;
+      content.replaceChildren();
+      return;
+    }
+    const opponentState = players[opponentUid]?.state;
+    const progress = opponentState
+      ? activeGame === "emoji-quiz" || activeGame === "couple-trivia"
+        ? `Question ${Math.min(opponentState.question + 1, opponentState.questions.length)} of ${opponentState.questions.length}`
+        : activeGame === "memory-match"
+          ? `${opponentState.matched.length / 2} of ${symbols.length} pairs`
+          : activeGame === "spin-wheel"
+            ? `${opponentState.completedChallenges}/3 challenges`
+            : "playing now"
+      : "their round hasn't started yet";
+    if (activeGame === "word-guess") {
+      message = room.wordPhase === "setter"
+        ? isTurn
+          ? "Your turn: choose a secret word. Your partner will guess it."
+          : `${opponentName} is choosing a secret word for you to guess.`
+        : isTurn
+          ? `${opponentName} chose a word — it's your turn to guess!`
+          : `Your partner is guessing the word you chose.`
+    } else if (activeGame === "couple-trivia") {
+      message = room.triviaStage === "first"
+        ? isTurn ? "Your turn to answer. Your partner will guess next." : `${opponentName} is answering; then it's your turn to guess.`
+        : room.triviaStage === "guess"
+          ? isTurn ? `${opponentName} answered — your turn to guess!` : "You answered. Waiting for your partner to guess…"
+          : isTurn ? "Your partner guessed. Review the answer and continue." : `${opponentName} is reviewing the answer.`
+    } else message = isTurn
+      ? players[opponentUid]?.completed
+        ? "Your partner has finished their turn — now it's your turn!"
+        : "Your turn! Your partner will play after you finish."
+      : `${opponentName} is taking their turn (${progress}). Your turn starts next.`;
+    const scoreRule = {
+      "memory-match": "Fewest moves wins.",
+      "word-guess": "Guess correctly to earn points; efficient guesses earn more.",
+      "emoji-quiz": "Most correct answers wins.",
+      "spin-wheel": "Fastest to complete three challenges wins.",
+      "couple-trivia": "Each correct partner guess earns a point."
+    }[activeGame];
+    const scoreValue = uid => activeGame === "memory-match" || activeGame === "spin-wheel"
+      ? players[uid]?.completed ? formatGameScore(activeGame, players[uid].score) : "—"
+      : formatGameScore(activeGame, players[uid]?.score);
+    statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${esc(message)}</p><p class="muted">${esc(getDisplayName(room.playerUids[0], players[room.playerUids[0]]?.name || "Player 1"))}: ${esc(scoreValue(room.playerUids[0]))} · ${esc(getDisplayName(room.playerUids[1], players[room.playerUids[1]]?.name || "Player 2"))}: ${esc(scoreValue(room.playerUids[1]))}</p>${scoreRule ? `<p class="muted">${esc(scoreRule)}</p>` : ""}<button type="button" class="secondary" data-room-end>End this match</button></div>${matchLeaderboard(activeGame)}`;
+    if (!isTurn) {
+      content.innerHTML = `<div class="game-panel"><p class="games-instructions">Your partner's turn is in progress. You can leave this page; your turn will be ready when they finish.</p></div>`;
+      return;
+    }
+    const playerState = activeGame === "word-guess" && room.wordPhase === "guessing"
+      ? room.wordRound
+      : activeGame === "couple-trivia"
+        ? {
+            questions: room.questions,
+            question: room.triviaQuestionIndex,
+            stage: room.triviaStage,
+            answer: room.triviaAnswer,
+            guess: room.triviaGuess,
+            answerer: getDisplayName(room.triviaAnswererUid, players[room.triviaAnswererUid]?.name || "Your partner"),
+            score: players[user.uid]?.score || 0,
+            canAdvance: isTurn
+          }
+        : players[user.uid]?.state;
+    if (playerState) {
+      activeState = activeGame === "memory-match" && playerState.locked
+        ? { ...playerState, flipped: [], locked: false }
+        : playerState;
+      renderActiveGame(el, activeGame, user, profile, activeState, true);
+      if (activeState !== playerState) saveRoomPlayerState();
+    } else {
+      content.innerHTML = `<div class="game-panel"><p class="games-instructions">Preparing your saved turn…</p></div>`;
+      initializeRoomTurn(room);
+    }
+    if (activeGame !== "couple-trivia" && gameIsComplete(activeGame, activeState)) {
+      statusEl.querySelector(".game-room-panel")?.insertAdjacentHTML("beforeend", `<button type="button" class="primary" data-room-finish>Finish my turn</button>`);
+    }
+  }
+
+  async function initializeRoomTurn(room) {
+    const token = `${room.matchId}:${user.uid}`;
+    if (roomStateInitializing === token) return;
+    roomStateInitializing = token;
+    const initialState = resetActiveGame(activeGame);
+    activeState = initialState;
+    try {
+      await runTransaction(gameMatchRef(activeGame), current => {
+        if (!current || current.matchId !== room.matchId || current.status !== "playing" || current.turnUid !== user.uid) return;
+        const player = current.players?.[user.uid];
+        if (!player || player.state) return;
+        return {
+          ...current,
+          players: { ...current.players, [user.uid]: { ...player, state: initialState } },
+          updatedAt: Date.now()
+        };
+      });
+    } catch (error) {
+      roomStateInitializing = "";
+      console.error("Could not prepare game turn:", error);
+      toast("Your turn could not be loaded. Please try again.");
+    }
+  }
+
+  function saveRoomPlayerState() {
+    const room = gameRoomState;
+    if (!room || room.status !== "playing" || room.turnUid !== user.uid || !activeState) return;
+    const matchId = room.matchId;
+    const state = activeState;
+    runTransaction(gameMatchRef(activeGame), current => {
+      if (!current || current.matchId !== matchId || current.status !== "playing" || current.turnUid !== user.uid) return;
+      if (activeGame === "word-guess" && current.wordPhase === "guessing") {
+        return { ...current, wordRound: state, updatedAt: Date.now() };
+      }
+      const player = current.players?.[user.uid];
+      if (!player) return;
+      return {
+        ...current,
+        players: { ...current.players, [user.uid]: { ...player, state } },
+        updatedAt: Date.now()
+      };
+    }).catch(error => {
+      console.error("Could not save game turn:", error);
+      toast("Your game progress could not be saved.");
+    });
+  }
+
+  function renderAndSavePlayerProgress() {
+    renderCurrentGame();
+    saveRoomPlayerState();
+  }
+
+  function recordFinishedMatch(room) {
+    if (!room?.matchId || savedMatchResults.has(room.matchId) || !firebaseReady) return;
+    savedMatchResults.add(room.matchId);
+    const scores = Object.fromEntries(room.playerUids.map(uid => [uid, room.players[uid]?.score]));
+    recordGameMatchResult({
+      uid: user.uid,
+      authorId: profile?.id || user.uid,
+      matchId: room.matchId,
+      game: gameTitles[activeGame],
+      winnerUid: room.winnerUid,
+      players: room.playerUids,
+      scores
+    }).catch(error => {
+      savedMatchResults.delete(room.matchId);
+      console.error("Could not save game result:", error);
+      toast("The match ended, but its result could not be saved.");
+    });
   }
 
   function renderCurrentGame() {
     if (!activeGame) {
       el.innerHTML = gamesHome();
+      renderedShellGame = "";
       buildDailyBoard();
       if (dailyGameItems) renderDailyWins(dailyGameItems);
       listenForDailyWins();
@@ -268,74 +714,152 @@ export function renderGames(el, user, profile) {
       "spin-wheel": ["Spin Wheel", "Spin for a sweet little challenge.", "🎡"],
       "couple-trivia": ["Couple Trivia", "Answer, pass the device, and see if your partner knows.", "💞"]
     }[activeGame];
-    el.innerHTML = activeShell(activeGame, ...gameInfo);
+    if (renderedShellGame !== activeGame) {
+      el.innerHTML = activeShell(activeGame, ...gameInfo);
+      renderedShellGame = activeGame;
+    }
+    if (activeGame === "tic-tac-toe" && !rtdb) {
+      $("#games-active-content", el).innerHTML = `<div class="game-panel"><p class="error">Live Tic Tac Toe is unavailable because Firebase Realtime Database is not configured.</p></div>`;
+      return;
+    }
+    if (activeGame !== "tic-tac-toe") {
+      renderGameRoom();
+      return;
+    }
     renderActiveGame(el, activeGame, user, profile, activeGame === "tic-tac-toe" ? ticTacToeState : activeState);
   }
 
   function listenForDailyWins() {
     if (stopGames) return;
-    stopGames = watchItems("game", items => {
-      dailyGameItems = items || [];
-      renderDailyWins(dailyGameItems);
-    }, error => {
+    if (!firebaseReady) {
+      const listEl = $("#game-scores-list", el);
+      if (listEl) listEl.innerHTML = `<p class="muted">Connect Firebase to load game wins.</p>`;
+      return;
+    }
+    try {
+      stopGames = watchItems("game", items => {
+        dailyGameItems = items || [];
+        if (activeGame) renderCurrentGame();
+        else renderDailyWins(dailyGameItems);
+      }, error => {
+        console.error("Game scores could not be loaded:", error);
+        const listEl = $("#game-scores-list", el);
+        if (listEl) listEl.innerHTML = `<p class="muted">Game wins could not be loaded.</p>`;
+      });
+    } catch (error) {
       console.error("Game scores could not be loaded:", error);
       const listEl = $("#game-scores-list", el);
       if (listEl) listEl.innerHTML = `<p class="muted">Game wins could not be loaded.</p>`;
-    });
+    }
   }
 
   function renderDailyWins(items) {
     const listEl = $("#game-scores-list", el);
     if (!listEl) return;
+    const leaderboards = $("#games-leaderboards", el);
+    if (leaderboards) leaderboards.innerHTML = Object.keys(gameTitles)
+      .map(game => matchLeaderboard(game))
+      .join("");
+    refreshDailyTarget();
     if (items.length === 0) {
       listEl.innerHTML = `<p class="muted">No wins recorded yet.</p>`;
       return;
     }
 
-    const wins = items.filter(item => item.result === "won");
-    const alreadyWonToday = wins.some(win => {
-      if (win.author !== user.uid) return false;
-      if (win.gameDay) return win.gameDay === todayKey();
-      const createdAt = win.createdAt?.toDate?.() || (win.createdAt ? new Date(win.createdAt) : null);
-      return createdAt && todayKey(createdAt) === todayKey();
-    });
+    const wins = uniqueMatchResults(items.filter(item => item.result === "won"));
+    const alreadyWonToday = Boolean(ownDailyWin());
+    if (alreadyWonToday && !finished) buildDailyBoard();
     if (alreadyWonToday) {
-      finished = true;
       const resultText = $("#game-result", el);
       if (resultText) resultText.textContent = "You already found today's hidden heart ♡";
-      $("#game-board", el)?.querySelectorAll("button").forEach(button => { button.disabled = true; });
     }
 
-    const recentWins = wins.slice(0, 5);
+    const timestamp = item => {
+      const value = item.createdAt?.toDate?.() || (item.createdAt ? new Date(item.createdAt) : null);
+      return value && Number.isFinite(value.getTime()) ? value.getTime() : 0;
+    };
+    const recentWins = [...wins].sort((first, second) => timestamp(second) - timestamp(first)).slice(0, 5);
     if (recentWins.length === 0) {
       listEl.innerHTML = `<p class="muted">No wins recorded yet.</p>`;
       return;
     }
     listEl.innerHTML = recentWins.map(win => {
-      const date = win.createdAt
-        ? (win.createdAt?.toDate?.() || new Date(win.createdAt)).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+      const createdAt = win.createdAt?.toDate?.() || (win.createdAt ? new Date(win.createdAt) : null);
+      const date = createdAt && Number.isFinite(createdAt.getTime())
+        ? createdAt.toLocaleDateString("en-GB", { day: "numeric", month: "short" })
         : "Today";
-      return `<div class="score-item"><span>🎯 Found Daily Heart</span><span>${esc(date)}</span></div>`;
+      const winnerUid = win.winnerUid || win.author;
+      const name = winnerUid === user.uid ? "You" : getDisplayName(winnerUid, "Your partner");
+      const label = isDailyHeartWin(win) ? "found the hidden heart" : `won ${win.game || "a game"}`;
+      return `<div class="score-item"><span>🎯 ${esc(name)} ${esc(label)}</span><span>${esc(date)}</span></div>`;
     }).join("");
   }
 
   buildDailyBoard();
+  scheduleDailyRollover();
   listenForDailyWins();
 
   el.onclick = async event => {
     const target = event.target.closest("button");
     if (!target || !el.contains(target)) return;
+    const turnOnlyActions = [
+      "data-memory-card", "data-word-letter", "data-emoji-answer", "data-next-emoji",
+      "data-spin-wheel", "data-complete-challenge", "data-trivia-answer", "data-trivia-guess", "data-next-trivia"
+    ];
+    if (activeGame && activeGame !== "tic-tac-toe" &&
+        turnOnlyActions.some(attribute => target.hasAttribute(attribute)) &&
+        (gameRoomState?.status !== "playing" || gameRoomState.turnUid !== user.uid)) {
+      toast("Please wait for your turn.");
+      renderCurrentGame();
+      return;
+    }
 
     if (target.hasAttribute("data-start-game")) {
       if (memoryTimer) clearTimeout(memoryTimer);
       memoryTimer = null;
+      stopTicTacToe?.();
+      stopTicTacToe = null;
+      stopGameMatch?.();
+      stopGameMatch = null;
       activeGame = target.dataset.startGame;
       activeState = resetActiveGame(activeGame);
+      ticTacToeState = null;
+      gameRoomState = null;
       if (activeGame === "tic-tac-toe") {
         if (rtdb) {
           stopTicTacToe = onValue(ticTacToeRef(), snapshot => {
+            const previousState = ticTacToeState;
             ticTacToeState = snapshot.val();
-            if (activeGame === "tic-tac-toe") renderCurrentGame();
+            const content = $("#games-active-content", el);
+            if (activeGame === "tic-tac-toe" && content) renderTicTacToe(content, user, ticTacToeState);
+            if (isValidTicTacToeState(ticTacToeState) &&
+                ticTacToeState.status === "finished" &&
+                previousState?.status === "playing" &&
+                previousState.matchId === ticTacToeState.matchId &&
+                !ticTacToeState.endedByUid &&
+                ticTacToeState.xUid &&
+                ticTacToeState.oUid) {
+              const matchId = ticTacToeState.matchId || `${ticTacToeState.updatedAt}-${ticTacToeState.xUid}`;
+              if (!savedMatchResults.has(matchId) && firebaseReady) {
+                savedMatchResults.add(matchId);
+                recordGameMatchResult({
+                  uid: user.uid,
+                  authorId: profile?.id || user.uid,
+                  matchId,
+                  game: gameTitles["tic-tac-toe"],
+                  winnerUid: ticTacToeState.winnerUid,
+                  players: [ticTacToeState.xUid, ticTacToeState.oUid],
+                  scores: {
+                    [ticTacToeState.xUid]: ticTacToeState.winnerUid === ticTacToeState.xUid ? 1 : 0,
+                    [ticTacToeState.oUid]: ticTacToeState.winnerUid === ticTacToeState.oUid ? 1 : 0
+                  }
+                }).catch(error => {
+                  savedMatchResults.delete(matchId);
+                  console.error("Could not save Tic Tac Toe result:", error);
+                  toast("The match ended, but its result could not be saved.");
+                });
+              }
+            }
           }, error => {
             console.error("Tic Tac Toe could not be loaded:", error);
             const content = $("#games-active-content", el);
@@ -344,8 +868,164 @@ export function renderGames(el, user, profile) {
         } else {
           ticTacToeState = null;
         }
+      } else if (rtdb) {
+        stopGameMatch = onValue(gameMatchRef(activeGame), snapshot => {
+          gameRoomState = snapshot.val();
+          if (gameRoomState?.status === "finished") recordFinishedMatch(gameRoomState);
+          if (gameRoomState?.matchId !== roomStateInitializing?.split(":")[0]) roomStateInitializing = "";
+          renderCurrentGame();
+        }, error => {
+          console.error("Game match could not be loaded:", error);
+          const status = $("#games-room-status", el);
+          if (status) status.innerHTML = `<p class="error">This game match could not be loaded. Please try again.</p>`;
+        });
       }
       renderCurrentGame();
+      return;
+    }
+
+    if (target.hasAttribute("data-room-start")) {
+      if (!rtdb) {
+        toast("Two-player games need Firebase Realtime Database.");
+        return;
+      }
+      try {
+        const transaction = await runTransaction(gameMatchRef(activeGame), current => {
+          if (!current || current.status === "finished" || current.status === "cancelled") {
+                const matchId = `${Date.now()}-${user.uid}`;
+            return {
+              matchId,
+              game: activeGame,
+              status: "waiting",
+              playerUids: [user.uid],
+              turnUid: "",
+              winnerUid: "",
+              wordPhase: activeGame === "word-guess" ? "setter" : "",
+              wordRoundNumber: 0,
+              wordSetterUid: activeGame === "word-guess" ? user.uid : "",
+              wordRound: null,
+              questions: activeGame === "couple-trivia" ? makeTriviaQuestions() : [],
+              triviaQuestionIndex: 0,
+              triviaStage: "first",
+              triviaAnswererUid: user.uid,
+              triviaAnswer: -1,
+              triviaGuess: -1,
+              players: {
+                [user.uid]: { name: getDisplayName(user.uid, profile?.name), score: 0, completed: false, state: null }
+              },
+              createdAt: Date.now(),
+              updatedAt: Date.now()
+            };
+          }
+          if (current.status === "waiting" && !current.playerUids.includes(user.uid)) {
+            return {
+              ...current,
+              playerUids: [...current.playerUids, user.uid],
+              players: {
+                ...current.players,
+                [user.uid]: { name: getDisplayName(user.uid, profile?.name), score: 0, completed: false, state: null }
+              },
+              status: "playing",
+              turnUid: current.game === "couple-trivia" ? current.triviaAnswererUid : current.playerUids[0],
+              updatedAt: Date.now()
+            };
+          }
+          return;
+        });
+        if (!transaction.committed) toast("This match is already in progress or waiting for your partner.");
+      } catch (error) {
+        console.error("Could not start game match:", error);
+        toast("Could not start or join this match. Please try again.");
+      }
+      return;
+    }
+
+    if (target.hasAttribute("data-room-cancel")) {
+      try {
+        const transaction = await runTransaction(gameMatchRef(activeGame), current => {
+          if (!current || current.status !== "waiting" || current.playerUids[0] !== user.uid) return;
+          return { ...current, status: "cancelled", updatedAt: Date.now() };
+        });
+        if (!transaction.committed) toast("This match can no longer be cancelled.");
+      } catch (error) {
+        console.error("Could not cancel game match:", error);
+        toast("The waiting match could not be cancelled.");
+      }
+      return;
+    }
+
+    if (target.hasAttribute("data-room-end")) {
+      try {
+        const transaction = await runTransaction(gameMatchRef(activeGame), current => {
+          if (!current || current.status !== "playing" || !current.playerUids.includes(user.uid)) return;
+          return { ...current, status: "cancelled", turnUid: "", updatedAt: Date.now() };
+        });
+        if (!transaction.committed) toast("This match is no longer active.");
+      } catch (error) {
+        console.error("Could not end game match:", error);
+        toast("The match could not be ended. Please try again.");
+      }
+      return;
+    }
+
+    if (target.hasAttribute("data-room-finish")) {
+      const room = gameRoomState;
+      const opponentUid = room?.playerUids?.find(uid => uid !== user.uid);
+      if (!room || !opponentUid || !gameIsComplete(activeGame, activeState)) return;
+      try {
+        const transaction = await runTransaction(gameMatchRef(activeGame), current => {
+          if (!current || current.matchId !== room.matchId || current.status !== "playing" ||
+                current.turnUid !== user.uid) return;
+            if (activeGame === "word-guess") {
+              if (current.wordPhase !== "guessing" || !gameIsComplete(activeGame, current.wordRound)) return;
+              const setterUid = current.wordSetterUid;
+              const guesserScore = (current.players[user.uid].score || 0) +
+                (gameScore(activeGame, current.wordRound) ? 1 : 0);
+              const setterScore = (current.players[setterUid].score || 0) +
+                (gameScore(activeGame, current.wordRound) ? 0 : 1);
+              const players = {
+                ...current.players,
+                [user.uid]: { ...current.players[user.uid], score: guesserScore, completed: false, state: null },
+                [setterUid]: { ...current.players[setterUid], score: setterScore, completed: false, state: null }
+              };
+              if (current.wordRoundNumber === 1) {
+                players[user.uid].completed = true;
+                players[setterUid].completed = true;
+                const winnerUid = gameWinner(activeGame, current.playerUids, players);
+                return { ...current, players, status: "finished", winnerUid, turnUid: "", wordPhase: "result", updatedAt: Date.now() };
+              }
+              return {
+                ...current,
+                players,
+                wordRound: null,
+                wordRoundNumber: 1,
+                wordPhase: "setter",
+                wordSetterUid: user.uid,
+                turnUid: user.uid,
+                updatedAt: Date.now()
+              };
+            }
+            if (!gameIsComplete(activeGame, current.players?.[user.uid]?.state)) return;
+          const players = {
+            ...current.players,
+            [user.uid]: {
+              ...current.players[user.uid],
+              score: gameScore(activeGame, current.players[user.uid].state),
+              completed: true,
+              state: null
+            }
+          };
+          if (players[opponentUid]?.completed) {
+            const winnerUid = gameWinner(activeGame, current.playerUids, players);
+            return { ...current, players, status: "finished", winnerUid, turnUid: "", updatedAt: Date.now() };
+          }
+          return { ...current, players, turnUid: opponentUid, updatedAt: Date.now() };
+        });
+        if (!transaction.committed) toast("Your turn has changed. Refresh the match status.");
+      } catch (error) {
+        console.error("Could not finish game turn:", error);
+        toast("Your turn could not be saved. Please try again.");
+      }
       return;
     }
 
@@ -354,15 +1034,19 @@ export function renderGames(el, user, profile) {
       memoryTimer = null;
       stopTicTacToe?.();
       stopTicTacToe = null;
+      stopGameMatch?.();
+      stopGameMatch = null;
       activeGame = "";
       activeState = null;
+      ticTacToeState = null;
+      gameRoomState = null;
       renderCurrentGame();
       return;
     }
 
     if (target.hasAttribute("data-reset-game")) {
-      activeState = resetActiveGame(activeGame, activeState);
-      renderCurrentGame();
+      activeState = resetActiveGame(activeGame);
+      renderAndSavePlayerProgress();
       return;
     }
 
@@ -378,18 +1062,18 @@ export function renderGames(el, user, profile) {
           activeState.flipped = [];
         } else {
           activeState.locked = true;
-          renderCurrentGame();
+          renderAndSavePlayerProgress();
           memoryTimer = setTimeout(() => {
             if (activeGame !== "memory-match") return;
             activeState.flipped = [];
             activeState.locked = false;
             memoryTimer = null;
-            renderCurrentGame();
+            renderAndSavePlayerProgress();
           }, 800);
           return;
         }
       }
-      renderCurrentGame();
+      renderAndSavePlayerProgress();
       return;
     }
 
@@ -398,17 +1082,17 @@ export function renderGames(el, user, profile) {
       if (activeState.guessed.includes(letter)) return;
       activeState.guessed.push(letter);
       if (!activeState.word.toLocaleLowerCase().includes(letter)) activeState.guessesLeft--;
-      renderCurrentGame();
+      renderAndSavePlayerProgress();
       return;
     }
 
     if (target.hasAttribute("data-emoji-answer")) {
-      const question = emojiQuestions[activeState.question % emojiQuestions.length];
+      const question = activeState.questions[activeState.question];
       const answer = Number(target.dataset.emojiAnswer);
       activeState.answered = true;
       activeState.selected = answer;
       if (answer === question.answer) activeState.score++;
-      renderCurrentGame();
+      renderAndSavePlayerProgress();
       return;
     }
 
@@ -416,56 +1100,153 @@ export function renderGames(el, user, profile) {
       activeState.question++;
       activeState.answered = false;
       activeState.selected = -1;
-      renderCurrentGame();
+      renderAndSavePlayerProgress();
       return;
     }
 
     if (target.hasAttribute("data-spin-wheel")) {
       const available = challenges.filter(challenge => challenge !== activeState.challenge);
       activeState.challenge = available[Math.floor(Math.random() * available.length)];
-      renderCurrentGame();
+      renderAndSavePlayerProgress();
+      return;
+    }
+
+    if (target.hasAttribute("data-complete-challenge")) {
+      activeState.completedChallenges++;
+      activeState.challenge = "";
+      renderAndSavePlayerProgress();
       return;
     }
 
     if (target.hasAttribute("data-trivia-answer")) {
+      if (activeGame === "couple-trivia" && gameRoomState?.status === "playing") {
+        const opponentUid = gameRoomState.playerUids.find(uid => uid !== user.uid);
+        try {
+          const transaction = await runTransaction(gameMatchRef(activeGame), current => {
+            if (!current || current.status !== "playing" || current.triviaStage !== "first" ||
+                current.turnUid !== user.uid || current.triviaAnswererUid !== user.uid) return;
+            return {
+              ...current,
+              triviaAnswer: Number(target.dataset.triviaAnswer),
+              triviaStage: "guess",
+              triviaGuess: -1,
+              turnUid: opponentUid,
+              updatedAt: Date.now()
+            };
+          });
+          if (!transaction.committed) toast("It is not your turn to answer this question.");
+        } catch (error) {
+          console.error("Could not save trivia answer:", error);
+          toast("Your answer could not be saved.");
+        }
+        return;
+      }
       activeState.answer = Number(target.dataset.triviaAnswer);
       activeState.answerer = getDisplayName(user.uid, profile?.name);
       activeState.stage = "guess";
-      renderCurrentGame();
+      renderAndSavePlayerProgress();
       return;
     }
 
     if (target.hasAttribute("data-trivia-guess")) {
+      if (activeGame === "couple-trivia" && gameRoomState?.status === "playing") {
+        const guess = Number(target.dataset.triviaGuess);
+        const answererUid = gameRoomState.triviaAnswererUid;
+        try {
+          const transaction = await runTransaction(gameMatchRef(activeGame), current => {
+            if (!current || current.status !== "playing" || current.triviaStage !== "guess" ||
+                current.turnUid !== user.uid || current.triviaAnswererUid === user.uid) return;
+            const player = current.players[user.uid];
+            return {
+              ...current,
+              triviaGuess: guess,
+              triviaStage: "result",
+              turnUid: answererUid,
+              players: {
+                ...current.players,
+                [user.uid]: {
+                  ...player,
+                  score: player.score + (guess === current.triviaAnswer ? 1 : 0)
+                }
+              },
+              updatedAt: Date.now()
+            };
+          });
+          if (!transaction.committed) toast("It is not your turn to guess this answer.");
+        } catch (error) {
+          console.error("Could not save trivia guess:", error);
+          toast("Your guess could not be saved.");
+        }
+        return;
+      }
       activeState.guess = Number(target.dataset.triviaGuess);
       activeState.stage = "result";
       if (activeState.guess === activeState.answer) activeState.score++;
-      renderCurrentGame();
+      renderAndSavePlayerProgress();
       return;
     }
 
     if (target.hasAttribute("data-next-trivia")) {
+      if (activeGame === "couple-trivia" && gameRoomState?.status === "playing") {
+        try {
+          const transaction = await runTransaction(gameMatchRef(activeGame), current => {
+            if (!current || current.status !== "playing" || current.triviaStage !== "result" ||
+                current.turnUid !== user.uid || current.triviaAnswererUid !== user.uid) return;
+            if (current.triviaQuestionIndex >= current.questions.length - 1) {
+              const winnerUid = gameWinner(activeGame, current.playerUids, current.players);
+              return {
+                ...current,
+                status: "finished",
+                turnUid: "",
+                winnerUid,
+                triviaStage: "finished",
+                updatedAt: Date.now()
+              };
+            }
+            const nextAnswererUid = current.playerUids.find(uid => uid !== current.triviaAnswererUid);
+            return {
+              ...current,
+              triviaQuestionIndex: current.triviaQuestionIndex + 1,
+              triviaAnswererUid: nextAnswererUid,
+              triviaAnswer: -1,
+              triviaGuess: -1,
+              triviaStage: "first",
+              turnUid: nextAnswererUid,
+              updatedAt: Date.now()
+            };
+          });
+          if (!transaction.committed) toast("This question has already changed.");
+        } catch (error) {
+          console.error("Could not continue Couple Trivia:", error);
+          toast("The next question could not be loaded.");
+        }
+        return;
+      }
       activeState.question++;
       activeState.stage = "first";
       activeState.answer = -1;
       activeState.guess = -1;
       activeState.answerer = "";
-      renderCurrentGame();
+      renderAndSavePlayerProgress();
       return;
     }
 
     if (target.hasAttribute("data-ttt-start")) {
+      if (!rtdb) {
+        toast("Live Tic Tac Toe is unavailable because Firebase Realtime Database is not configured.");
+        return;
+      }
       try {
         const transaction = await runTransaction(ticTacToeRef(), current => {
-          if (!current || current.status === "finished" || (current.status === "waiting" && current.xUid === user.uid)) {
-            return { status: "waiting", xUid: user.uid, oUid: "", board: Array(9).fill(""), turnUid: user.uid, winnerUid: "", updatedAt: Date.now() };
+          if (!isValidTicTacToeState(current) || current.status === "finished" || (current.status === "waiting" && current.xUid === user.uid)) {
+            return { status: "waiting", matchId: `${Date.now()}-${user.uid}`, xUid: user.uid, oUid: "", board: Array(9).fill(""), turnUid: user.uid, winnerUid: "", endedByUid: "", updatedAt: Date.now() };
           }
           if (current.status === "waiting" && current.xUid !== user.uid && !current.oUid) {
             return { ...current, oUid: user.uid, status: "playing", turnUid: current.xUid, updatedAt: Date.now() };
           }
-          return current;
+          return;
         });
-        ticTacToeState = transaction.snapshot.val();
-        renderCurrentGame();
+        if (!transaction.committed) toast("That match changed before your action. Please try again.");
       } catch (error) {
         console.error("Could not start Tic Tac Toe:", error);
         toast("Could not start the live game. Please try again.");
@@ -473,11 +1254,45 @@ export function renderGames(el, user, profile) {
       return;
     }
 
-    if (target.hasAttribute("data-ttt-cell")) {
-      const index = Number(target.dataset.tttCell);
+    if (target.hasAttribute("data-ttt-reset")) {
+      if (!rtdb) {
+        toast("Live Tic Tac Toe is unavailable because Firebase Realtime Database is not configured.");
+        return;
+      }
       try {
         const transaction = await runTransaction(ticTacToeRef(), current => {
-          if (!current || current.status !== "playing" || current.turnUid !== user.uid || current.board?.[index]) return;
+          if (!isValidTicTacToeState(current)) return;
+          const isWaitingOwner = current.status === "waiting" && current.xUid === user.uid;
+          const isActivePlayer = current.status === "playing" && (current.xUid === user.uid || current.oUid === user.uid);
+          if (!isWaitingOwner && !isActivePlayer) return;
+          return {
+            ...current,
+            status: "finished",
+            turnUid: "",
+            winnerUid: "",
+            endedByUid: user.uid,
+            cancelled: isWaitingOwner,
+            updatedAt: Date.now()
+          };
+        });
+        if (!transaction.committed) toast("This match can no longer be ended.");
+      } catch (error) {
+        console.error("Could not end Tic Tac Toe:", error);
+        toast("The match could not be ended. Please try again.");
+      }
+      return;
+    }
+
+    if (target.hasAttribute("data-ttt-cell")) {
+      const index = Number(target.dataset.tttCell);
+      if (!rtdb) {
+        toast("Live Tic Tac Toe is unavailable because Firebase Realtime Database is not configured.");
+        return;
+      }
+      try {
+        const transaction = await runTransaction(ticTacToeRef(), current => {
+          if (!isValidTicTacToeState(current) || !Number.isInteger(index) || index < 0 || index >= 9 ||
+              current.status !== "playing" || current.turnUid !== user.uid || current.board[index] !== "") return;
           const mark = current.xUid === user.uid ? "X" : current.oUid === user.uid ? "O" : "";
           if (!mark) return;
           const nextBoard = [...current.board];
@@ -493,8 +1308,7 @@ export function renderGames(el, user, profile) {
             updatedAt: Date.now()
           };
         });
-        ticTacToeState = transaction.snapshot.val();
-        renderCurrentGame();
+        if (!transaction.committed) toast("That move was not accepted. The board may have changed.");
       } catch (error) {
         console.error("Could not make Tic Tac Toe move:", error);
         toast("Your move could not be saved. Please try again.");
@@ -502,18 +1316,45 @@ export function renderGames(el, user, profile) {
     }
   };
 
-  el.onsubmit = event => {
+  el.onsubmit = async event => {
     if (event.target.id !== "word-guess-setup") return;
     event.preventDefault();
     const input = $("#word-guess-word", el);
     const word = input.value.trim().replace(/\s+/g, " ");
     const error = $(".game-form-error", event.target);
-    if (!/^[a-zA-Z ]{3,32}$/.test(word)) {
+    const letterCount = (word.match(/[a-z]/gi) || []).length;
+    if (!/^[a-zA-Z ]{3,32}$/.test(word) || letterCount < 3) {
       error.textContent = "Please choose a word with 3–32 letters.";
       return;
     }
     activeState = { word, guessed: [], guessesLeft: 7 };
-    renderCurrentGame();
+    if (activeGame === "word-guess" && gameRoomState?.status === "playing") {
+      const opponentUid = gameRoomState.playerUids.find(uid => uid !== user.uid);
+      try {
+        const transaction = await runTransaction(gameMatchRef(activeGame), current => {
+          if (!current || current.status !== "playing" || current.wordPhase !== "setter" ||
+              current.turnUid !== user.uid || current.wordRoundNumber > 1) return;
+          return {
+            ...current,
+            wordRound: activeState,
+            wordPhase: "guessing",
+            wordSetterUid: user.uid,
+            turnUid: opponentUid,
+            players: {
+              ...current.players,
+              [user.uid]: { ...current.players[user.uid], state: null }
+            },
+            updatedAt: Date.now()
+          };
+        });
+        if (!transaction.committed) toast("It is not your turn to set a word.");
+      } catch (saveError) {
+        console.error("Could not save secret word:", saveError);
+        toast("Your secret word could not be saved.");
+      }
+      return;
+    }
+    renderAndSavePlayerProgress();
   };
 
 }
@@ -523,6 +1364,10 @@ export function disposeGames() {
   stopGames = null;
   stopTicTacToe?.();
   stopTicTacToe = null;
+  stopGameMatch?.();
+  stopGameMatch = null;
   if (memoryTimer) clearTimeout(memoryTimer);
   memoryTimer = null;
+  if (dailyRolloverTimer) clearTimeout(dailyRolloverTimer);
+  dailyRolloverTimer = null;
 }

@@ -10,6 +10,7 @@ import { APP_CONFIG } from "../config/app-config.js";
 import { renderBucket, disposeBucket } from "./bucket-list.js";
 import { renderActivities } from "./activities.js";
 import { renderMore } from "./more.js";
+import { renderProfile } from "./profile.js";
 import { disposeSpecialDays } from "./special-days.js";
 import { disposeNotificationCenter, initNotificationCenter } from "./notification-center.js";
 import { renderDrawing, disposeDrawing } from "./drawing.js";
@@ -39,7 +40,7 @@ window.addEventListener("couple-profiles-updated", () => {
   if (!currentUser) return;
   currentProfile = Object.values(APP_CONFIG.profiles).find(person => person.email === currentUser.email) || currentProfile;
   if (currentProfile) updateProfileAvatar(currentProfile);
-  if (currentRoute === "more") $("#more-detail")?.dispatchEvent(new Event("couple-profile-settings-changed"));
+  if (currentRoute === "profile") $("#main-content")?.dispatchEvent(new Event("couple-profile-settings-changed"));
 });
 
 // Post / Twitter Feed Logic
@@ -524,6 +525,7 @@ const titles = {
   letters: "Letters",
   questions: "Today's Question",
   bucket: "Our Bucket List",
+  profile: "Profile",
   activities: "Activities",
   more: "More",
   drawing: "Our Drawing Canvas",
@@ -538,6 +540,7 @@ const routes = {
   letters: renderLetters,
   questions: renderQuestions,
   bucket: renderBucket,
+  profile: renderProfile,
   activities: renderActivities,
   more: renderMore,
   drawing: renderDrawing,
@@ -616,7 +619,7 @@ initAuth(
       if (applyCoupleProfiles(data)) {
         currentProfile = Object.values(APP_CONFIG.profiles).find(person => person.email === user.email) || currentProfile;
         updateProfileAvatar(currentProfile);
-        if (currentRoute === "more") $("#more-detail")?.dispatchEvent(new Event("couple-profile-settings-changed"));
+        if (currentRoute === "profile") $("#main-content")?.dispatchEvent(new Event("couple-profile-settings-changed"));
       }
     }, error => {
       console.error("Shared profile updates failed:", error);
@@ -698,7 +701,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const profileBtn = $("#profile-btn");
   if (profileBtn) {
-    profileBtn.addEventListener("click", () => navigate("more"));
+    profileBtn.addEventListener("click", () => navigate("profile"));
   }
 
   const musicToggle = $("#music-toggle");

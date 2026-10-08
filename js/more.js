@@ -1,61 +1,42 @@
-import { $, esc } from "./utils.js";
+import { $, toast } from "./utils.js";
 import { logout } from "./auth.js";
-import { renderProfile } from "./profile.js";
-import { renderBucket } from "./bucket-list.js";
 import { disposeSpecialDays, renderSpecialDays } from "./special-days.js";
 
-export function renderMore(el, user, profile) {
+export function renderMore(el, user) {
   disposeSpecialDays();
   el.innerHTML = `
-    <div class="grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px;">
-      <button class="card" id="bucket-card" style="cursor: pointer; text-align: left; padding: 16px;">
-        <h3 style="margin: 0 0 6px 0; color: #e11d48; display: flex; align-items: center; gap: 6px;">
-          <span>🎯</span> Our Bucket List
-        </h3>
-        <p class="muted" style="margin: 0; font-size: 13px;">Our future dreams together.</p>
-      </button>
-
-      <button class="card" id="profile-card" style="cursor: pointer; text-align: left; padding: 16px;">
-        <h3 style="margin: 0 0 6px 0;">👤 Profile</h3>
-        <p class="muted" style="margin: 0; font-size: 13px;">Your private profile.</p>
-      </button>
-
-      <button class="card" id="special-days-card" style="cursor: pointer; text-align: left; padding: 16px;">
-        <h3 style="margin: 0 0 6px 0; color: #e11d48;">♡ Special Days</h3>
-        <p class="muted" style="margin: 0; font-size: 13px;">Remember birthdays, anniversaries and celebrations.</p>
-      </button>
-
-      <button class="card" id="logout-card" style="cursor: pointer; text-align: left; padding: 16px;">
-        <h3 style="margin: 0 0 6px 0; color: #dc2626;">🚪 Log out</h3>
-        <p class="muted" style="margin: 0; font-size: 13px;">Leave our little world.</p>
-      </button>
-    </div>
-
-    <!-- Container where Bucket List or Profile details render -->
-    <div id="more-detail"></div>
+    <section class="more-page">
+      <header class="more-page-heading">
+        <div>
+          <p class="eyebrow">OUR LITTLE WORLD</p>
+          <h1>More</h1>
+        </div>
+        <button type="button" class="more-logout" aria-label="Log out" title="Log out">↪</button>
+      </header>
+      <div class="more-page-actions">
+        <button type="button" class="more-action card" data-more-route="bucket">
+          <span class="more-action-icon" aria-hidden="true">🎯</span>
+          <span><strong>Our Bucket List</strong><small>Our future dreams together</small></span>
+          <span class="more-action-arrow" aria-hidden="true">›</span>
+        </button>
+        <button type="button" class="more-action card" id="special-days-card">
+          <span class="more-action-icon" aria-hidden="true">♡</span>
+          <span><strong>Special Days</strong><small>Birthdays, anniversaries and celebrations</small></span>
+          <span class="more-action-arrow" aria-hidden="true">›</span>
+        </button>
+      </div>
+      <div id="more-detail"></div>
+    </section>
   `;
 
-  const detailEl = $("#more-detail", el);
-
-  // Bucket List Button Click
-  $("#bucket-card", el).onclick = () => {
-    disposeSpecialDays();
-    detailEl.innerHTML = "";
-    renderBucket(detailEl, user, profile);
+  $("[data-more-route='bucket']", el).onclick = () => window.App?.navigate("bucket");
+  $("#special-days-card", el).onclick = () => renderSpecialDays($("#more-detail", el), user);
+  $(".more-logout", el).onclick = async () => {
+    try {
+      await logout();
+    } catch (error) {
+      console.error("Could not log out:", error);
+      toast(error.message || "Could not log out.");
+    }
   };
-
-  // Profile Button Click
-  $("#profile-card", el).onclick = () => {
-    disposeSpecialDays();
-    detailEl.innerHTML = "";
-    renderProfile(detailEl, user, profile);
-  };
-
-  $("#special-days-card", el).onclick = () => {
-    detailEl.innerHTML = "";
-    renderSpecialDays(detailEl, user);
-  };
-
-  // Logout Button Click
-  $("#logout-card", el).onclick = () => logout();
 }
