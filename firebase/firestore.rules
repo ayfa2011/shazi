@@ -267,19 +267,28 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
-      match /answers/{profileKey} {
-        allow read: if isQuestionCoupleMember(coupleId)
-          && (profileKey == ownQuestionProfileKey() || bothQuestionPartnersAnswered(coupleId, questionRecordId));
-        allow create: if isQuestionCoupleMember(coupleId)
-          && profileKey == ownQuestionProfileKey()
-          && request.resource.data.keys().hasOnly(['profileKey', 'answer', 'answeredAt'])
-          && request.resource.data.profileKey == profileKey
-          && request.resource.data.answer is string
-          && request.resource.data.answer.size() > 0
-          && request.resource.data.answer.size() <= 1200
-          && request.resource.data.answeredAt is timestamp;
-        allow update, delete: if false;
-      }
+    match /coupleCustomQuestions/{coupleId}/questions/{questionId} {
+      allow read: if isQuestionCoupleMember(coupleId);
+      allow create: if isQuestionCoupleMember(coupleId)
+        && request.resource.data.keys().hasAll(['text', 'askedBy', 'askedTo', 'status', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['text', 'askedBy', 'askedTo', 'status', 'createdAt', 'askedByName'])
+        && request.resource.data.askedBy == ownQuestionProfileKey()
+        && request.resource.data.askedTo != ownQuestionProfileKey()
+        && request.resource.data.status == 'pending'
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 300;
+      allow update: if isQuestionCoupleMember(coupleId)
+        && resource.data.status == 'pending'
+        && request.resource.data.askedTo == ownQuestionProfileKey()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['answer', 'answeredAt', 'status'])
+        && request.resource.data.status == 'answered'
+        && request.resource.data.answer is string
+        && request.resource.data.answer.size() > 0
+        && request.resource.data.answer.size() <= 1200
+        && request.resource.data.answeredAt is timestamp;
+      allow delete: if isQuestionCoupleMember(coupleId)
+        && resource.data.status == 'pending'
+        && resource.data.askedBy == ownQuestionProfileKey();
     }
-  }
-}
+

@@ -1,5 +1,5 @@
 import { db, firebaseReady } from "./firebase.js";
-import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, where, writeBatch } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, where, writeBatch, limit, startAfter } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { QUESTION_BANK_VERSION, QUESTION_CATEGORIES } from "./question-bank.js";
 import { todayKey } from "./utils.js";
@@ -53,10 +53,8 @@ function hashQuestion(question) {
   return (hash >>> 0).toString(36);
 }
 
-export async function ensureQuestionBank() {
-  requireFirebase();
-  if ((await getDoc(bankMetaRef())).exists()) return;
-
+let bankReady = null;
+async function seedBank() {
   const batch = writeBatch(db);
   let count = 0;
   for (const category of QUESTION_CATEGORIES) {
@@ -76,6 +74,17 @@ export async function ensureQuestionBank() {
     seededAt: serverTimestamp()
   });
   await batch.commit();
+}
+
+export async function ensureQuestionBank() {
+  requireFirebase();
+  if (bankReady === null) {
+      bankReady = (async () => {
+          if ((await getDoc(bankMetaRef())).exists()) return;
+          await seedBank();
+      })();
+  }
+  await bankReady;
 }
 
 export async function ensureDailyQuestion(dayKey = todayKey()) {
@@ -115,11 +124,13 @@ export async function getQuestionAnswer(dayKey, profileKey) {
 
 export async function submitQuestionAnswer(dayKey, profileKey, answer) {
   requireFirebase();
-  const batch = writeBatch(db);
   const answerDocument = answerRef(dayKey, profileKey);
-  batch.set(answerDocument, { profileKey, answer, answeredAt: serverTimestamp() });
-  batch.set(participantRef(dayKey, profileKey), { profileKey, answeredAt: serverTimestamp() });
-  await batch.commit();
+  await runTransaction(db, async transaction => {
+    const existing = await transaction.get(answerDocument);
+    if (existing.exists()) throw new Error("You have already answered this question.");
+    transaction.set(answerDocument, { profileKey, answer, answeredAt: serverTimestamp() });
+    transaction.set(participantRef(dayKey, profileKey), { profileKey, answeredAt: serverTimestamp() });
+  });
   const name = APP_CONFIG.profiles[profileKey]?.name || "Your partner";
   void notifyPartnerSafely(profileKey, "question", `${name} answered today's question.`, dayKey, "questions");
 }
@@ -140,52 +151,120 @@ export async function migrateLegacyQuestionAnswers(user, profileKey) {
     if (!uniqueAnswers.has(key)) uniqueAnswers.set(key, item);
   }
 
+  const results = { success: 0, failed: 0 };
   for (const item of uniqueAnswers.values()) {
-    const dayKey = item.questionDate;
-    const questionText = typeof item.question === "string" ? item.question.trim() : "";
-    if (!questionText) continue;
-    const legacyQuestionId = `legacy-${hashQuestion(questionText)}`;
-    const dayDocumentId = `legacy-${dayKey}-${hashQuestion(questionText)}`;
-    await setDoc(doc(bankRef(), legacyQuestionId), {
-      categoryId: "legacy",
-      category: "Legacy question",
-      question: questionText,
-      position: 0
-    }, { merge: true });
-    const existingAnswer = await getDoc(answerRef(dayDocumentId, profileKey));
-    if (existingAnswer.exists()) continue;
-    const legacyDailyRef = dailyRef(dayDocumentId);
-    await runTransaction(db, async transaction => {
-      const existing = await transaction.get(legacyDailyRef);
-      if (!existing.exists()) {
-        transaction.set(legacyDailyRef, {
-          id: legacyQuestionId,
-          categoryId: "about-us",
-          category: "💗 About Us",
-          question: questionText,
-          dayKey,
-          createdAt: serverTimestamp()
-        });
-      } else if (existing.data().question !== questionText) {
-        throw new Error("A historical question ID matched different question text.");
-      }
-    });
-
-    const batch = writeBatch(db);
-    const answeredAt = item.createdAt?.toDate ? item.createdAt : serverTimestamp();
-    batch.set(answerRef(dayDocumentId, profileKey), { profileKey, answer: item.answer.trim(), answeredAt });
-    batch.set(participantRef(dayDocumentId, profileKey), { profileKey, answeredAt });
     try {
+      const dayKey = item.questionDate;
+      const questionText = typeof item.question === "string" ? item.question.trim() : "";
+      if (!questionText) continue;
+      const legacyQuestionId = `legacy-${hashQuestion(questionText)}`;
+      const dayDocumentId = `legacy-${dayKey}-${hashQuestion(questionText)}`;
+      await setDoc(doc(bankRef(), legacyQuestionId), {
+        categoryId: "legacy",
+        category: "Legacy question",
+        question: questionText,
+        position: 0
+      }, { merge: true });
+
+      const existingAnswer = await getDoc(answerRef(dayDocumentId, profileKey));
+      if (existingAnswer.exists()) {
+        results.success++;
+        continue;
+      }
+
+      const legacyDailyRef = dailyRef(dayDocumentId);
+      await runTransaction(db, async transaction => {
+        const existing = await transaction.get(legacyDailyRef);
+        if (!existing.exists()) {
+          transaction.set(legacyDailyRef, {
+            id: legacyQuestionId,
+            categoryId: "about-us",
+            category: "💗 About Us",
+            question: questionText,
+            dayKey,
+            createdAt: serverTimestamp()
+          });
+        } else if (existing.data().question !== questionText) {
+          throw new Error("A historical question ID matched different question text.");
+        }
+      });
+
+      const batch = writeBatch(db);
+      const answeredAt = item.createdAt?.toDate ? item.createdAt : serverTimestamp();
+      batch.set(answerRef(dayDocumentId, profileKey), { profileKey, answer: item.answer.trim(), answeredAt });
+      batch.set(participantRef(dayDocumentId, profileKey), { profileKey, answeredAt });
       await batch.commit();
+      results.success++;
     } catch (error) {
-      const answerAfterRace = await getDoc(answerRef(dayDocumentId, profileKey));
-      if (!answerAfterRace.exists()) throw error;
+      console.error("Could not migrate legacy answer:", error);
+      results.failed++;
     }
   }
+  return results;
 }
 
-export async function getQuestionHistory() {
+// Custom Question Service Functions
+
+const customQuestionsRef = () => collection(db, "coupleCustomQuestions", coupleId, "questions");
+
+export async function askCustomQuestion(ownKey, partnerKey, text) {
   requireFirebase();
-  const snapshot = await getDocs(query(dailyCollection(), orderBy("dayKey", "desc")));
-  return snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+  if (!text || text.trim().length === 0 || text.trim().length > 300) throw new Error("Invalid question text.");
+  if (!ownKey || !partnerKey || ownKey === partnerKey) throw new Error("Invalid partners.");
+
+  const ref = doc(customQuestionsRef());
+  await setDoc(ref, {
+    text: text.trim(),
+    askedBy: ownKey,
+    askedTo: partnerKey,
+    status: "pending",
+    createdAt: serverTimestamp(),
+    askedByName: APP_CONFIG.profiles[ownKey].name
+  });
+
+  const name = APP_CONFIG.profiles[ownKey]?.name || "Partner";
+  void notifyPartnerSafely(ownKey, "customQuestion", `${name} asked you a question 💌`, ref.id, "questions");
+  return ref.id;
+}
+
+export function watchCustomQuestions(callback, onError) {
+  requireFirebase();
+  return onSnapshot(
+    query(customQuestionsRef(), orderBy("createdAt", "desc"), limit(30)),
+    snapshot => callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() }))),
+    onError
+  );
+}
+
+export async function answerCustomQuestion(questionId, ownKey, answer) {
+  requireFirebase();
+  if (!answer || answer.trim().length === 0 || answer.trim().length > 1200) throw new Error("Invalid answer text.");
+
+  const ref = doc(customQuestionsRef(), questionId);
+  return runTransaction(db, async transaction => {
+    const docSnap = await transaction.get(ref);
+    if (!docSnap.exists()) throw new Error("Question not found.");
+    const data = docSnap.data();
+    if (data.status !== "pending") throw new Error("Question already answered.");
+    if (data.askedTo !== ownKey) throw new Error("Not authorized to answer this question.");
+
+    transaction.update(ref, {
+      answer: answer.trim(),
+      answeredAt: serverTimestamp(),
+      status: "answered"
+    });
+  });
+}
+
+export async function deleteCustomQuestion(questionId, ownKey) {
+  requireFirebase();
+  const ref = doc(customQuestionsRef(), questionId);
+  return runTransaction(db, async transaction => {
+    const docSnap = await transaction.get(ref);
+    if (!docSnap.exists()) throw new Error("Question not found.");
+    const data = docSnap.data();
+    if (data.status !== "pending") throw new Error("Cannot delete answered question.");
+    if (data.askedBy !== ownKey) throw new Error("Not authorized to delete this question.");
+    transaction.delete(ref);
+  });
 }

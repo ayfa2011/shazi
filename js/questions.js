@@ -32,7 +32,8 @@ function migrateLegacyAnswersOnce(user, profileKey, isCurrent) {
   if (legacyMigrationPromises.has(user.uid)) return legacyMigrationPromises.get(user.uid);
 
   const migration = migrateLegacyQuestionAnswers(user, profileKey)
-    .then(() => {
+    .then(results => {
+      if (results.failed > 0) console.warn(`Legacy migration completed with ${results.failed} errors.`);
       localStorage.setItem(marker, "true");
       return true;
     })
