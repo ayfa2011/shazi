@@ -53,14 +53,14 @@ export function renderHome(el, user, profile) {
       .home-post-panel .home-feed { gap: 9px; }
       .home-view-more { width: 100%; margin-top: 9px; padding: 8px 10px; border: 1px solid #f4d6e2; border-radius: 999px; background: #fff4f8; color: var(--deep); font-size: 11px; font-weight: 600; cursor: pointer; }
       .home-view-more span { margin-left: 5px; color: var(--pink); }
-      .home-post-panel .home-post-card { padding: 11px; border: 1px solid var(--line); border-radius: 16px; box-shadow: none; }
+      .home-post-panel .home-post-card { padding: 11px; border: 1px solid var(--line); border-radius: 16px; box-shadow: none; min-height: 180px; display: flex; flex-direction: column; justify-content: space-between; }
       .home-post-panel .home-post-header { margin-bottom: 6px; }
       .home-post-panel .home-post-author { gap: 7px; }
       .home-post-panel .home-post-author strong { font-size: 13px; }
       .home-post-panel .home-post-author small { font-size: 10px; }
-      .home-post-panel .home-post-text { margin: 6px 0; font-size: 13px; }
-      .home-post-panel .home-post-photo { max-height: 230px; margin-top: 6px; border-radius: 11px; }
-      .home-post-panel .home-post-actions { margin-top: 7px; padding-top: 6px; }
+      .home-post-panel .home-post-text { margin: 6px 0; font-size: 13px; flex-grow: 1; }
+      .home-post-panel .home-post-photo { max-height: 140px; margin-top: 6px; border-radius: 11px; object-fit: cover; }
+      .home-post-panel .home-post-actions { margin-top: 7px; padding-top: 6px; border-top: 1px solid #f3f4f6; }
       .home-post-panel .home-comment-form { margin-top: 6px; }
       .home-post-panel .home-comment-form input { min-width: 0; padding: 8px 10px; font-size: 12px; }
       .home-post-panel .home-comment-form .home-post-btn { flex: none; padding: 7px 10px !important; }
@@ -433,17 +433,16 @@ export function renderHome(el, user, profile) {
       return;
     }
 
-    feed.innerHTML = posts.map((post) => {
+    feed.innerHTML = posts.slice(0, 2).map((post) => {
       const author = findProfileForAuthor(post.authorId, post.authorName || "");
       const authorName = getDisplayName(post.authorId, post.authorName || "Us");
       const isLiked = (post.likedBy || []).includes(user.uid);
       const likeCount = (post.likedBy || []).length;
       const createdAt = post.createdAt?.toDate ? post.createdAt.toDate() : post.createdAt ? new Date(post.createdAt) : null;
       const timeStr = createdAt && !Number.isNaN(createdAt.getTime())
-        ? createdAt.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
+        ? createdAt.toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
         : "Just now";
 
-      // Reads unified photoUrl (Base64 or Direct Link)
       const photoHtml = post.photoUrl ? `<img src="${esc(post.photoUrl)}" class="home-post-photo" alt="Shared photo">` : '';
 
       return `
@@ -458,24 +457,14 @@ export function renderHome(el, user, profile) {
             </div>
           </div>
 
-          ${post.text ? `<p class="home-post-text">${esc(post.text).replace(/\n/g, '<br>')}</p>` : ''}
+          ${post.text ? `<p class="home-post-text">${esc(post.text).replace(/\n/g, '<br>').slice(0, 100) + (post.text.length > 100 ? '...' : '')}</p>` : ''}
           ${photoHtml}
 
           <div class="home-post-actions">
-            <button class="home-action-btn home-reply-focus-btn" data-id="${post.id}" aria-label="Comment on post">♡</button>
             <button class="home-action-btn ${isLiked ? 'liked' : ''} home-like-btn" data-id="${post.id}">
               ${isLiked ? '❤️' : '♡'} ${likeCount}
             </button>
           </div>
-
-          <div class="home-comments-list" id="home-comments-${post.id}"></div>
-
-          <form class="home-comment-form" data-post-id="${post.id}">
-            <div class="home-replying-to" hidden><span></span><button type="button" aria-label="Cancel reply">×</button></div>
-            <input type="hidden" name="parentId">
-            <input name="comment" placeholder="Write a comment..." required>
-            <button type="submit" class="home-post-btn">Reply</button>
-          </form>
         </div>
       `;
     }).join("");
@@ -491,51 +480,6 @@ export function renderHome(el, user, profile) {
           } catch (err) {
             console.error("Could not update post like:", err);
             toast("Could not update the like.");
-          }
-        };
-      }
-      feed.querySelector(`.home-reply-focus-btn[data-id="${post.id}"]`)?.addEventListener("click", () => {
-        feed.querySelector(`.home-comment-form[data-post-id="${post.id}"] input[name="comment"]`)?.focus();
-      });
-
-      // Comments Watcher
-      if (!postCommentStops.has(post.id)) {
-        const stop = watchDiaryComments(post.id, (comments) => {
-          if (!isCurrent()) return;
-          commentsByPost.set(post.id, comments);
-          renderComments(post.id, comments);
-        });
-        postCommentStops.set(post.id, stop);
-      }
-      renderComments(post.id, commentsByPost.get(post.id) || []);
-
-      // Submit Comment
-      const commentForm = feed.querySelector(`.home-comment-form[data-post-id="${post.id}"]`);
-      if (commentForm) {
-        const replyIndicator = commentForm.querySelector(".home-replying-to");
-        replyIndicator.querySelector("button").onclick = () => {
-          commentForm.elements.parentId.value = "";
-          commentForm.elements.comment.placeholder = "Write a comment...";
-          replyIndicator.hidden = true;
-        };
-        commentForm.onsubmit = async (e) => {
-          e.preventDefault();
-          const text = commentForm.elements.comment.value.trim();
-          if (!text) return;
-          try {
-            await addDiaryComment(post.id, {
-              authorId: user.uid,
-              authorName: profile.name,
-              text,
-              ...(commentForm.elements.parentId.value ? { parentId: commentForm.elements.parentId.value } : {})
-            });
-            commentForm.reset();
-            replyIndicator.hidden = true;
-            commentForm.elements.comment.placeholder = "Write a comment...";
-            toast("Reply sent!");
-          } catch (err) {
-            console.error("Could not send comment:", err);
-            toast("Could not send reply.");
           }
         };
       }

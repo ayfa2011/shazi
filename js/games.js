@@ -245,10 +245,15 @@ function gamesHome() {
       ${gameCard("couple-trivia", "💞", "Couple Trivia", "Answer, then let your partner guess", "2P")}
     </div>
     <section class="games-daily">
-      <div class="games-daily-heading"><span aria-hidden="true">♡</span><div><p class="eyebrow">DAILY MINI GAME</p><h2>Today's Hidden Heart</h2></div></div>
-      <p class="muted">Find today's hidden heart. Its location changes every day.</p>
-      <div id="game-board" class="game-board" aria-label="Find the hidden heart"></div>
-      <p id="game-result" class="game-result" aria-live="polite"></p>
+      <button type="button" class="games-hub-card" data-start-game="daily-hidden-heart">
+        <span class="games-card-emoji" aria-hidden="true">♡</span>
+        <span class="games-card-copy"><strong>Today's Hidden Heart</strong><span>Find today's hidden heart. Its location changes every day.</span></span>
+        <span class="games-card-arrow" aria-hidden="true">›</span>
+      </button>
+      <div id="hidden-heart-game" class="hidden">
+        <div id="game-board" class="game-board" aria-label="Find the hidden heart"></div>
+        <p id="game-result" class="game-result" aria-live="polite"></p>
+      </div>
       <div class="score-history"><h3>Recent Game Wins 🏆</h3><div id="game-scores-list"><p class="muted">Loading wins…</p></div></div>
       <div id="games-leaderboards"></div>
     </section>
@@ -1049,6 +1054,11 @@ export function renderGames(el, user, profile) {
     }
 
     if (target.hasAttribute("data-start-game")) {
+      if (target.dataset.startGame === "daily-hidden-heart") {
+        const board = $("#hidden-heart-game", el);
+        board.classList.toggle("hidden");
+        return;
+      }
       if (memoryTimer) clearTimeout(memoryTimer);
       memoryTimer = null;
       clearSosSession();
