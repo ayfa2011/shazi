@@ -24,6 +24,14 @@ function friendlyDate(dayKey) {
   });
 }
 
+function triggerCompletionSplash() {
+  const splash = document.createElement("div");
+  splash.className = "completion-splash";
+  splash.innerHTML = `<div class="splash-heart">❤️</div>`;
+  document.body.appendChild(splash);
+  setTimeout(() => splash.remove(), 1000);
+}
+
 function statusLabel(status) {
   return ({
     upcoming: "⏳ Upcoming",
@@ -136,21 +144,44 @@ export function renderChallenges(el, user, profile) {
   const giveModalRoot = $("#give-challenge-modal-root", el);
   const customBannerRoot = $("#custom-challenge-banner-root", el);
 
+  function triggerCompletionSplash() {
+    const splash = document.createElement("div");
+    splash.className = "completion-splash";
+    splash.innerHTML = `<div class="splash-heart">❤️</div>`;
+    document.body.appendChild(splash);
+    setTimeout(() => splash.remove(), 1000);
+  }
+
   function renderCustomBanner() {
     if (customChallenges.length === 0) {
         customBannerRoot.innerHTML = "";
         return;
     }
     const latest = customChallenges[0];
+    const isPartner = latest.author !== user.uid;
+    const isInProgress = latest.status === "in-progress";
+
     customBannerRoot.innerHTML = `
         <div class="custom-challenge-banner">
             <div class="custom-challenge-icon">🎁</div>
             <div class="custom-challenge-info">
-                <strong>Partner sent you a Challenge!</strong>
+                <strong>${isPartner ? "Partner sent you a Challenge!" : "Your custom challenge"}</strong>
                 <p>${esc(latest.title)}</p>
             </div>
+            ${isPartner && !isInProgress ? `<button class="challenge-main" id="accept-custom-btn">Accept</button>` : ""}
+            ${isPartner && isInProgress ? `<button class="challenge-main" id="submit-custom-btn">Submit</button>` : ""}
         </div>
     `;
+
+    if (isPartner && !isInProgress) {
+        $("#accept-custom-btn", el).onclick = async () => {
+            await setItem(latest.id, { ...latest, status: "in-progress" }, "customChallenge");
+            toast("Challenge accepted!");
+        };
+    }
+    if (isPartner && isInProgress) {
+        $("#submit-custom-btn", el).onclick = () => openCompletionModal(latest.id, latest, "custom");
+    }
   }
 
   el.querySelectorAll("[data-tab]").forEach(button => {
@@ -402,12 +433,19 @@ export function renderChallenges(el, user, profile) {
       try {
         const photoUrl = selectedPhoto ? await compressImage(selectedPhoto) : "";
         if (selectedPhoto && !photoUrl) throw new Error("Could not read that photo. Choose another image.");
-        await completeChallengeAssignment(assignmentId, {
-          uid: user.uid,
-          profileKey: ownKey,
-          name: profile.name
-        }, form.elements.note.value.trim(), photoUrl);
-        void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed a challenge.`, assignmentId, "challenges");
+
+        if (challengeId === "custom") {
+            await setItem(assignmentId, { ...assignment, status: "completed", note: form.elements.note?.value, photoUrl }, "customChallenge");
+        } else {
+            await completeChallengeAssignment(assignmentId, {
+              uid: user.uid,
+              profileKey: ownKey,
+              name: profile.name
+            }, form.elements.note.value.trim(), photoUrl);
+            void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed a challenge.`, assignmentId, "challenges");
+        }
+
+        if (isDrinkWater || challengeId === "custom") triggerCompletionSplash();
         modalRoot.innerHTML = "";
         toast("Challenge completed ♡");
       } catch (error) {
