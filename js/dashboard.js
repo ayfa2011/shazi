@@ -243,7 +243,6 @@ export function renderHome(el, user, profile) {
             <div class="today-card-copy">
               <strong>Today's Question</strong>
               <span class="today-question-category" id="home-question-category"></span>
-              <p><em id="home-question-text">Loading today's question…</em></p>
               <button type="button" class="today-link" id="home-question-link">Answer Now →</button>
             </div>
           </article>
@@ -429,7 +428,12 @@ export function renderHome(el, user, profile) {
     }
 
     if (posts.length === 0) {
-      feed.innerHTML = `<p style="text-align:center; color:#9ca3af; padding:16px 8px; font-size:12px;">Your partner's posts will appear here ♡</p>`;
+      feed.innerHTML = `<div class="home-empty-posts">
+        <span class="home-empty-posts-heart" aria-hidden="true">♡</span>
+        <strong>Your little moments go here</strong>
+        <p>Share a photo, a thought, or a tiny piece of your day.</p>
+        <span class="home-empty-posts-note">A little space, just for us ✨</span>
+      </div>`;
       return;
     }
 
