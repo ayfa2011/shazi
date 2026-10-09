@@ -269,7 +269,39 @@ function activeShell(id, title, description, emoji) {
   </section>`;
 }
 
+function miniScoreboardMarkup(game, state, user, liveMatch) {
+  if (!state || typeof state !== "object") return "";
+  let label = "Score", value = "—", detail = "";
+  if (game === "memory-match") {
+    label = "Moves"; value = Number.isInteger(state.moves) ? state.moves : 0;
+    detail = `${(state.matched?.length || 0) / 2}/${symbols.length} pairs`;
+  } else if (game === "word-guess") {
+    label = "Guesses left"; value = Number.isInteger(state.guessesLeft) ? state.guessesLeft : 7;
+    detail = state.word ? "Guess the hidden word" : "Choose a word to start";
+  } else if (game === "emoji-quiz" || game === "couple-trivia") {
+    label = "Points"; value = Number.isFinite(state.score) ? state.score : 0;
+    detail = `${Math.min(state.question || 0, state.questions?.length || 0)}/${state.questions?.length || 0} questions`;
+  } else if (game === "spin-wheel") {
+    label = "Challenges"; value = `${Math.min(state.completedChallenges || 0, 3)}/3`;
+    detail = "Complete three challenges";
+  } else if (game === "tic-tac-toe") {
+    label = "Match";
+    value = state.status === "finished" ? (state.winnerUid ? (state.winnerUid === user?.uid ? "You won" : "Partner won") : "Draw") : state.status === "playing" ? "In progress" : "Waiting";
+    detail = "First to three in a row";
+  } else return "";
+  return `<aside class="game-mini-scoreboard" aria-label="Current game score" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 10px;padding:9px 12px;border:1px solid #f3d5e2;border-radius:12px;background:#fff8fb;font-size:12px"><span style="font-weight:700;color:#75435a">${esc(label)}</span><strong style="font-size:15px;color:#b64f7b">${esc(String(value))}</strong><span style="margin-left:auto;color:#8c7480;text-align:right">${esc(detail)}</span></aside>`;
+}
+
 function renderActiveGame(el, game, user, profile, state, liveMatch = false) {
+  renderActiveGameBody(el, game, user, profile, state, liveMatch);
+  const content = $("#games-active-content", el);
+  if (!content || !state) return;
+  content.querySelector(".game-mini-scoreboard")?.remove();
+  const markup = miniScoreboardMarkup(game, state, user, liveMatch);
+  if (markup) content.insertAdjacentHTML("afterbegin", markup);
+}
+
+function renderActiveGameBody(el, game, user, profile, state, liveMatch = false) {
   const content = $("#games-active-content", el);
   if (!content) return;
   if (game !== "tic-tac-toe" && !isValidActiveGameState(game, state)) {

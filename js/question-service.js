@@ -116,6 +116,15 @@ export async function getQuestionParticipants(dayKey) {
   return Object.fromEntries(snapshot.docs.map(item => [item.id, item.data()]));
 }
 
+export async function getQuestionHistory() {
+  requireFirebase();
+  const snapshot = await getDocs(query(dailyCollection(), orderBy("dayKey", "desc"), limit(90)));
+  return snapshot.docs
+    .map(item => ({ ...item.data(), id: item.id }))
+    .filter(item => typeof item.dayKey === "string" && typeof item.question === "string")
+    .sort((a, b) => b.dayKey.localeCompare(a.dayKey));
+}
+
 export async function getQuestionAnswer(dayKey, profileKey) {
   requireFirebase();
   const snapshot = await getDoc(answerRef(dayKey, profileKey));

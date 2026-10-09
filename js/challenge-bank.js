@@ -85,8 +85,12 @@ export function challengeForDay(dayKey) {
   const dayNumber = Math.floor(Date.parse(`${dayKey}T00:00:00Z`) / 86400000);
   const cutoffDate = Math.floor(Date.parse("2026-10-09T00:00:00Z") / 86400000);
 
-  const length = dayNumber < cutoffDate ? 14 : CHALLENGES.length;
-  const index = ((dayNumber % length) + length) % length;
+  const legacyLength = 14;
+  // Keep historical dates on the original 14-challenge rotation. After the
+  // cutoff, continue from the same sequence position while using the expanded bank.
+  const index = dayNumber < cutoffDate
+    ? ((dayNumber % legacyLength) + legacyLength) % legacyLength
+    : (dayNumber - cutoffDate + (cutoffDate % legacyLength)) % CHALLENGES.length;
   return CHALLENGES[index];
 }
 

@@ -15,7 +15,7 @@ import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { challengeDays } from "./challenge-bank.js";
 
 let stopChallenges = null, stopLegacyChallenges = null, stopCustomChallenges = null, dayRolloverTimer = null, challengeRenderToken = 0;
-let customChallenges = [];
+let customChallenges = [], customCompletedChallenges = [];
 
 function friendlyDate(dayKey) {
   return new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-GB", {
@@ -167,9 +167,17 @@ export function renderChallenges(el, user, profile) {
     `;
 
     if (isPartner && !isInProgress) {
-        $("#accept-custom-btn", el).onclick = async () => {
-            await setItem(latest.id, { ...latest, status: "in-progress" }, "customChallenge");
-            toast("Challenge accepted!");
+        $("#accept-custom-btn", el).onclick = async event => {
+            const button = event.currentTarget;
+            button.disabled = true;
+            try {
+                await setItem(latest.id, { ...latest, status: "in-progress" }, "customChallenge");
+                toast("Challenge accepted!");
+            } catch (error) {
+                console.error("Could not accept custom challenge:", error);
+                toast(error.message || "Could not accept this challenge.");
+                button.disabled = false;
+            }
         };
     }
     if (isPartner && isInProgress) {
@@ -334,8 +342,17 @@ export function renderChallenges(el, user, profile) {
         <p class="challenge-completed-by">Completed by ${esc(getDisplayName(item.author, item.authorName || "Us"))}</p>
       </article>
       `);
-      list.innerHTML = completed.length || legacyCards.length
-      ? `${completed.map(item => challengeCard({ ...item, id: item.id, dayKey: item.challengeDate }, true)).join("")}${legacyCards.join("")}`
+      const customCompletedCards = customCompletedChallenges.map(item => `
+      <article class="challenge-card">
+        <div class="challenge-card-head"><div><h2>${esc(item.title || "Custom Challenge")}</h2></div><span class="challenge-status completed">✅ Completed</span></div>
+        ${item.description ? `<p>${esc(item.description)}</p>` : ""}
+        ${item.photoUrl ? `<img class="challenge-completion-photo" src="${esc(item.photoUrl)}" alt="Custom challenge completion">` : ""}
+        ${item.note ? `<p class="challenge-completed-note">${esc(item.note)}</p>` : ""}
+        <p class="challenge-completed-by">Created by ${esc(getDisplayName(item.author, item.authorName || "Us"))}</p>
+      </article>
+      `);
+      list.innerHTML = completed.length || legacyCards.length || customCompletedCards.length
+      ? `${completed.map(item => challengeCard({ ...item, id: item.id, dayKey: item.challengeDate }, true)).join("")}${legacyCards.join("")}${customCompletedCards.join("")}`
       : `<p class="challenge-empty">Completed challenges will be saved here ♡</p>`;
     }
 
@@ -346,8 +363,11 @@ export function renderChallenges(el, user, profile) {
     list.querySelectorAll("[data-action]").forEach(button => {
       button.onclick = async () => {
         const assignmentId = button.dataset.id;
-        const assignment = assignments.find(item => item.id === assignmentId) || assignmentFor(week.find(challenge => challenge.id === assignmentId));
-        if (!assignment || !ownKey) return toast("Could not identify this challenge.");
+        const assignment = assignments.find(item => item.id === assignmentId);
+        const challenge = week.find(item => item.id === assignmentId);
+        if (!assignment && !challenge) return toast("Could not identify this challenge.");
+        const resolvedAssignment = assignment || assignmentFor(challenge);
+        if (!resolvedAssignment || !ownKey) return toast("Could not identify this challenge.");
         button.disabled = true;
         try {
           if (button.dataset.action === "accept") {
@@ -357,8 +377,8 @@ export function renderChallenges(el, user, profile) {
             await skipChallengeAssignment(assignmentId, user.uid, ownKey, profile.name);
             toast("Challenge moved to Skipped.");
           } else {
-            const challengeId = assignment.challengeId || assignment.id.slice(11);
-            openCompletionModal(assignmentId, assignment, challengeId);
+            const challengeId = resolvedAssignment.challengeId || resolvedAssignment.id.slice(11);
+            openCompletionModal(assignmentId, resolvedAssignment, challengeId);
           }
         } catch (error) {
           console.error("Could not update challenge:", error);
@@ -500,6 +520,7 @@ export function renderChallenges(el, user, profile) {
   stopCustomChallenges = watchItems("customChallenge", items => {
     if (!isCurrent()) return;
     customChallenges = items.filter(item => item.status === "upcoming" || item.status === "in-progress");
+    customCompletedChallenges = items.filter(item => item.status === "completed");
     render();
   }, error => {
     console.error("Custom challenges could not be loaded:", error);

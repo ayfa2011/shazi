@@ -33,7 +33,10 @@ function migrateLegacyAnswersOnce(user, profileKey, isCurrent) {
 
   const migration = migrateLegacyQuestionAnswers(user, profileKey)
     .then(results => {
-      if (results.failed > 0) console.warn(`Legacy migration completed with ${results.failed} errors.`);
+      if (results.failed > 0) {
+        console.warn(`Legacy migration completed with ${results.failed} errors.`);
+        return false;
+      }
       localStorage.setItem(marker, "true");
       return true;
     })
