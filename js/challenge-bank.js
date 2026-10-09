@@ -83,7 +83,10 @@ export const CHALLENGES = [
 
 export function challengeForDay(dayKey) {
   const dayNumber = Math.floor(Date.parse(`${dayKey}T00:00:00Z`) / 86400000);
-  const index = ((dayNumber % CHALLENGES.length) + CHALLENGES.length) % CHALLENGES.length;
+  const cutoffDate = Math.floor(Date.parse("2026-10-09T00:00:00Z") / 86400000);
+
+  const length = dayNumber < cutoffDate ? 14 : CHALLENGES.length;
+  const index = ((dayNumber % length) + length) % length;
   return CHALLENGES[index];
 }
 
@@ -91,6 +94,7 @@ export function challengeDays(startDayKey, count = 7) {
   const firstDay = Date.parse(`${startDayKey}T00:00:00Z`);
   return Array.from({ length: count }, (_, index) => {
     const dayKey = new Date(firstDay + index * 86400000).toISOString().slice(0, 10);
-    return { ...challengeForDay(dayKey), dayKey, id: `${dayKey}-${challengeForDay(dayKey).id}` };
+    const challenge = challengeForDay(dayKey);
+    return { ...challenge, dayKey, challengeId: challenge.id, id: `${dayKey}-${challenge.id}` };
   });
 }

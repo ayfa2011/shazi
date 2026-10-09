@@ -180,23 +180,14 @@ service cloud.firestore {
         && (resource.data.get('authorId', '') == request.auth.uid || diaryPostIsDeleting(postId));
     }
 
-    match /couples/{coupleId}/scheduledLetterContents/{letterId} {
-      allow read: if isCoupleMember()
+    match /couples/{coupleId}/challengeAssignments/{assignmentId} {
+      allow read: if isCoupleMember() && coupleId == 'our-little-world';
+      allow create, update: if isCoupleMember()
         && coupleId == 'our-little-world'
-        && (resource.data.author == request.auth.uid
-          || (resource.data.deliverDate <= request.time
-            && isOwnLetterRecipient(resource.data.recipient)));
-      allow create: if isCoupleMember()
-        && coupleId == 'our-little-world'
-        && (request.resource.data.author == request.auth.uid
-          || isOwnLetterRecipient(request.resource.data.recipient))
-        && request.resource.data.recipient in ['kebyy', 'shazy']
-        && request.resource.data.deliverDate is timestamp
-        && request.resource.data.body is string
-        && request.resource.data.keys().hasOnly(['author', 'recipient', 'deliverDate', 'body']);
-      allow update, delete: if isCoupleMember()
-        && coupleId == 'our-little-world'
-        && resource.data.author == request.auth.uid;
+        && request.resource.data.keys().hasAll(['title', 'description', 'challengeDate', 'status', 'acceptedBy', 'skippedBy', 'completedBy'])
+        && request.resource.data.keys().hasOnly(['title', 'description', 'challengeDate', 'status', 'acceptedBy', 'skippedBy', 'completedBy', 'updatedAt', 'completedAt', 'challengeId', 'note', 'photoUrl'])
+        && request.resource.data.status in ['upcoming', 'in-progress', 'skipped', 'completed'];
+      allow delete: if false;
     }
 
     match /couples/{coupleId}/settings/profiles {

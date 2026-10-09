@@ -7,7 +7,8 @@ import {
   completeChallengeAssignment,
   skipChallengeAssignment,
   notifyPartnerSafely,
-  addItem
+  addItem,
+  setItem
 } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
@@ -22,14 +23,6 @@ function friendlyDate(dayKey) {
     day: "numeric",
     month: "short"
   });
-}
-
-function triggerCompletionSplash() {
-  const splash = document.createElement("div");
-  splash.className = "completion-splash";
-  splash.innerHTML = `<div class="splash-heart">❤️</div>`;
-  document.body.appendChild(splash);
-  setTimeout(() => splash.remove(), 1000);
 }
 
 function statusLabel(status) {
@@ -83,7 +76,7 @@ export function renderChallenges(el, user, profile) {
       .challenge-completed-by { margin-top:8px!important; color:var(--muted)!important; font-size:11px!important; }
       .challenge-section-label { margin:17px 0 8px; color:#8c737d; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
       .challenge-empty { padding:24px 12px; border:1px dashed #efc8d8; border-radius:16px; color:var(--muted); text-align:center; font-size:13px; }
-      .challenge-skipped-toggle { width:100%; margin-top:16px; padding:10px; border:1px solid #f0dfe6; border-radius:12px; background:#fff; color:#806d76; text-align:left; font-size:12px; font-weight:700; border: none; cursor: pointer; }
+      .challenge-skipped-toggle { width:100%; margin-top:16px; padding:10px; border: none; border-radius:12px; background:#fff; color:#806d76; text-align:left; font-size:12px; font-weight:700; cursor: pointer; }
       .challenge-modal { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:16px; background:#32162580; }
       .challenge-modal-card { width:min(460px,100%); padding:18px; border:1px solid #f1dbe5; border-radius:20px; background:#fffafd; box-shadow:0 20px 60px #54213b30; }
       .challenge-modal-head { display:flex; justify-content:space-between; align-items:center; gap:10px; }
@@ -291,7 +284,7 @@ export function renderChallenges(el, user, profile) {
   function renderToday() {
     const todayChallenge = week[0];
     const current = assignmentFor(todayChallenge);
-    const skipped = assignments.filter(item => item.status === "skipped");
+    const skipped = assignments.filter(item => assignmentFor(item).status === "skipped");
     let html = current.status === "skipped"
       ? `<p class="challenge-empty">Today's challenge was skipped. You can find it below.</p>`
       : challengeCard(todayChallenge);
@@ -332,7 +325,7 @@ export function renderChallenges(el, user, profile) {
         : `<p class="challenge-empty">No upcoming challenges this week.</p>`;
     } else {
       const completed = assignments
-        .filter(item => item.status === "completed")
+        .filter(item => assignmentFor(item).status === "completed")
         .sort((a, b) => (b.completedAt?.toMillis?.() || new Date(b.completedAt || 0).getTime()) - (a.completedAt?.toMillis?.() || new Date(a.completedAt || 0).getTime()));
       const legacyCards = legacyCompletions.map(item => `
       <article class="challenge-card">
@@ -364,7 +357,7 @@ export function renderChallenges(el, user, profile) {
             await skipChallengeAssignment(assignmentId, user.uid, ownKey, profile.name);
             toast("Challenge moved to Skipped.");
           } else {
-            const challengeId = assignment.id.includes('-') ? assignment.id.split('-').slice(1).join('-') : assignment.id;
+            const challengeId = assignment.challengeId || assignment.id.slice(11);
             openCompletionModal(assignmentId, assignment, challengeId);
           }
         } catch (error) {
@@ -386,7 +379,7 @@ export function renderChallenges(el, user, profile) {
           <header class="challenge-modal-head"><h2 id="challenge-completion-title">${isSnap ? "Snap a photo!" : isDrinkWater ? "Hydrate together!" : "Complete challenge"}</h2><button type="button" class="challenge-modal-close" data-close-modal aria-label="Close">×</button></header>
           <p class="muted">${esc(assignment.title)}</p>
           <form class="challenge-complete-form" id="challenge-complete-form">
-            ${isSnap ? `<label>Snap a photo<input type="file" name="photo" accept="image/*" capture="environment" required></label>
+            ${isSnap ? `<label>Snap a photo<input type="file" name="photo" accept="image/*" capture="user" required></label>
             <label>Filter<select name="filter">
                 <option value="none">None</option>
                 <option value="grayscale(100%)">B&W</option>
@@ -411,7 +404,7 @@ export function renderChallenges(el, user, profile) {
     dialog.onclick = event => {
       if (event.target === dialog) modalRoot.innerHTML = "";
     };
-    form.elements.photo.onchange = () => {
+    form.elements.photo?.addEventListener('change', () => {
       selectedPhoto = form.elements.photo.files[0] || null;
       if (!selectedPhoto) {
         image.classList.add("hidden");
@@ -424,24 +417,32 @@ export function renderChallenges(el, user, profile) {
         image.classList.remove("hidden");
       };
       reader.readAsDataURL(selectedPhoto);
-    };
+    });
+
+    if (form.elements.filter) {
+        form.elements.filter.onchange = () => {
+            image.style.filter = form.elements.filter.value;
+        };
+    }
+
     form.onsubmit = async event => {
       event.preventDefault();
       const submit = form.querySelector('[type="submit"]');
       submit.disabled = true;
       submit.textContent = "Saving…";
       try {
-        const photoUrl = selectedPhoto ? await compressImage(selectedPhoto) : "";
+        const filter = isSnap ? form.elements.filter?.value : "none";
+        const photoUrl = selectedPhoto ? await compressImageWithFilter(selectedPhoto, filter) : "";
         if (selectedPhoto && !photoUrl) throw new Error("Could not read that photo. Choose another image.");
 
         if (challengeId === "custom") {
-            await setItem(assignmentId, { ...assignment, status: "completed", note: form.elements.note?.value, photoUrl }, "customChallenge");
+            await setItem(assignmentId, { ...assignment, status: "completed", note: form.elements.note?.value || "", photoUrl }, "customChallenge");
         } else {
             await completeChallengeAssignment(assignmentId, {
               uid: user.uid,
               profileKey: ownKey,
               name: profile.name
-            }, form.elements.note.value.trim(), photoUrl);
+            }, form.elements.note?.value?.trim() || "", photoUrl);
             void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed a challenge.`, assignmentId, "challenges");
         }
 
@@ -500,7 +501,6 @@ export function renderChallenges(el, user, profile) {
     if (!isCurrent()) return;
     customChallenges = items.filter(item => item.status === "upcoming" || item.status === "in-progress");
     render();
-    renderCustomBanner();
   }, error => {
     console.error("Custom challenges could not be loaded:", error);
     if (!isCurrent()) return;

@@ -319,6 +319,7 @@ export async function ensureChallengeAssignment(challenge) {
     title: challenge.title,
     description: challenge.description,
     challengeDate: challenge.dayKey,
+    challengeId: challenge.challengeId,
     status: "upcoming",
     acceptedBy: [],
     skippedBy: [],
