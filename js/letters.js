@@ -526,7 +526,7 @@ export function renderLetters(el, user, profile) {
               <div class="letter-avatar">💌</div>
               <div class="letter-info">
                 <h4>${esc(heading)}</h4>
-                <p>${isLocked ? '🔒 <i>Scheduled Surprise (Hidden)</i>' : esc(item.body || '')}</p>
+                <p>${isLocked ? '🔒 <i>Scheduled Surprise (Hidden)</i>' : ''}</p>
               </div>
             </div>
             <div class="letter-date">${isLocked ? '⏳ ' : ''}${dateStr}</div>
