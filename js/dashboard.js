@@ -1,5 +1,5 @@
 import { $, esc, toast, todayKey, scheduleDubaiDayRollover } from "./utils.js";
-import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, watchItems } from "./firestore.js";
+import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, toggleDiaryCommentLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, watchItems } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 import { formatSpecialDayDate, specialDayCountdown } from "./special-day-utils.js";
@@ -549,10 +549,17 @@ export function renderHome(el, user, profile) {
     target.innerHTML = roots.map(comment => {
       const replies = comments.filter(reply => reply.parentId === comment.id);
       const isAuthor = comment.authorId === user.uid;
-      const commentActions = isAuthor ? `
-        <button class="home-comment-edit-btn" type="button" data-comment-id="${comment.id}">Edit</button>
-        <button class="home-comment-del-btn" type="button" data-comment-id="${comment.id}" style="color:red;">Delete</button>
-      ` : "";
+      const isLiked = (comment.likedBy || []).includes(user.uid);
+      const likeCount = (comment.likedBy || []).length;
+      const commentActions = `
+        <button class="home-comment-like-btn" type="button" data-comment-id="${comment.id}" data-liked="${isLiked}">
+          ${isLiked ? '❤️' : '♡'} ${likeCount}
+        </button>
+        ${isAuthor ? `
+          <button class="home-comment-edit-btn" type="button" data-comment-id="${comment.id}">Edit</button>
+          <button class="home-comment-del-btn" type="button" data-comment-id="${comment.id}" style="color:red;">Delete</button>
+        ` : ""}
+      `;
       return `
         <div class="home-comment-thread">
           <div class="home-comment-item">
@@ -563,10 +570,15 @@ export function renderHome(el, user, profile) {
           </div>
           ${replies.length ? `<div class="home-comment-replies">${replies.map(reply => {
             const isReplyAuthor = reply.authorId === user.uid;
+            const isReplyLiked = (reply.likedBy || []).includes(user.uid);
+            const replyLikeCount = (reply.likedBy || []).length;
             return `
               <div class="home-comment-item">
                 <strong>${esc(getDisplayName(reply.authorId, reply.authorName || "Us"))}</strong>
                 <p id="comment-text-${reply.id}">${esc(reply.text || "")}</p>
+                <button class="home-comment-like-btn" type="button" data-comment-id="${reply.id}" data-liked="${isReplyLiked}">
+                  ${isReplyLiked ? '❤️' : '♡'} ${replyLikeCount}
+                </button>
                 ${isReplyAuthor ? `
                   <button class="home-comment-edit-btn" type="button" data-comment-id="${reply.id}">Edit</button>
                   <button class="home-comment-del-btn" type="button" data-comment-id="${reply.id}" style="color:red;">Delete</button>
@@ -587,6 +599,19 @@ export function renderHome(el, user, profile) {
         replyIndicator.hidden = false;
         form.elements.comment.placeholder = `Reply to ${button.dataset.author}...`;
         form.elements.comment.focus();
+      };
+    });
+
+    target.querySelectorAll(".home-comment-like-btn").forEach(button => {
+      button.onclick = async () => {
+        const commentId = button.dataset.commentId;
+        const liked = button.dataset.liked === "true";
+        try {
+          await toggleDiaryCommentLike(postId, commentId, user.uid, liked);
+        } catch (err) {
+          console.error("Could not update comment like:", err);
+          toast("Could not update the like.");
+        }
       };
     });
 

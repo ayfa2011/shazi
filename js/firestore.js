@@ -232,7 +232,7 @@ export async function toggleDiaryLike(postId, uid, liked) {
 const commentsCollection = postId => collection(diaryCollection(), postId, "comments");
 
 export async function addDiaryComment(postId, data) {
-  return addDoc(commentsCollection(postId), { ...data, createdAt: serverTimestamp() });
+  return addDoc(commentsCollection(postId), { ...data, createdAt: serverTimestamp(), likedBy: [] });
 }
 
 export async function updateDiaryComment(postId, commentId, data) {
@@ -241,6 +241,11 @@ export async function updateDiaryComment(postId, commentId, data) {
 
 export async function deleteDiaryComment(postId, commentId) {
   return deleteDoc(doc(commentsCollection(postId), commentId));
+}
+
+export async function toggleDiaryCommentLike(postId, commentId, uid, liked) {
+  const ref = doc(commentsCollection(postId), commentId);
+  await updateDoc(ref, { likedBy: liked ? arrayRemove(uid) : arrayUnion(uid) });
 }
 
 export function watchDiaryComments(postId, cb) {
