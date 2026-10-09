@@ -42,7 +42,7 @@ export function renderMemories(el, user, profile) {
       .memories-shelf-label { display: flex; align-items: center; gap: 7px; color: #785364; font-size: 11px; font-weight: 700; }
       .memories-shelf-label span { font-size: 14px; }
       .memories-count { color: #aa8f9c; font-size: 10px; }
-      .memories-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(8px, 1.8vw, 18px); align-items: start; }
+      .memories-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(8px, 1.8vw, 18px); align-items: start; }
       .memories-grid > * { min-width: 0; }
       .memory-item { min-width: 0; display: flex; flex-direction: column; align-items: stretch; padding: 0; border: 0; background: transparent; color: inherit; font-family: inherit; text-align: left; cursor: pointer; appearance: none; }
       .memory-item:focus-visible { outline: 2px solid #cc7093; outline-offset: 3px; border-radius: 17px; }
