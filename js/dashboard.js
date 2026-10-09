@@ -1,5 +1,5 @@
 import { $, esc, toast, todayKey, scheduleDubaiDayRollover } from "./utils.js";
-import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, watchDiaryComments, addDiaryComment, watchItems } from "./firestore.js";
+import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, watchItems } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 import { formatSpecialDayDate, specialDayCountdown } from "./special-day-utils.js";
@@ -547,16 +547,32 @@ export function renderHome(el, user, profile) {
     const roots = comments.filter(comment => !comment.parentId);
     target.innerHTML = roots.map(comment => {
       const replies = comments.filter(reply => reply.parentId === comment.id);
+      const isAuthor = comment.authorId === user.uid;
+      const commentActions = isAuthor ? `
+        <button class="home-comment-edit-btn" type="button" data-comment-id="${comment.id}">Edit</button>
+        <button class="home-comment-del-btn" type="button" data-comment-id="${comment.id}" style="color:red;">Delete</button>
+      ` : "";
       return `
         <div class="home-comment-thread">
           <div class="home-comment-item">
             <strong>${esc(getDisplayName(comment.authorId, comment.authorName || "Us"))}</strong>
-            <p>${esc(comment.text || "")}</p>
+            <p id="comment-text-${comment.id}">${esc(comment.text || "")}</p>
             <button class="home-comment-reply-btn" type="button" data-comment-id="${comment.id}" data-author="${esc(getDisplayName(comment.authorId, comment.authorName || "Us"))}">Reply</button>
+            ${commentActions}
           </div>
-          ${replies.length ? `<div class="home-comment-replies">${replies.map(reply => `
-            <div class="home-comment-item"><strong>${esc(getDisplayName(reply.authorId, reply.authorName || "Us"))}</strong><p>${esc(reply.text || "")}</p></div>
-          `).join("")}</div>` : ""}
+          ${replies.length ? `<div class="home-comment-replies">${replies.map(reply => {
+            const isReplyAuthor = reply.authorId === user.uid;
+            return `
+              <div class="home-comment-item">
+                <strong>${esc(getDisplayName(reply.authorId, reply.authorName || "Us"))}</strong>
+                <p id="comment-text-${reply.id}">${esc(reply.text || "")}</p>
+                ${isReplyAuthor ? `
+                  <button class="home-comment-edit-btn" type="button" data-comment-id="${reply.id}">Edit</button>
+                  <button class="home-comment-del-btn" type="button" data-comment-id="${reply.id}" style="color:red;">Delete</button>
+                ` : ""}
+              </div>
+            `;
+          }).join("")}</div>` : ""}
         </div>
       `;
     }).join("");
@@ -570,6 +586,33 @@ export function renderHome(el, user, profile) {
         replyIndicator.hidden = false;
         form.elements.comment.placeholder = `Reply to ${button.dataset.author}...`;
         form.elements.comment.focus();
+      };
+    });
+
+    target.querySelectorAll(".home-comment-del-btn").forEach(button => {
+      button.onclick = async () => {
+        if (confirm("Delete this comment?")) {
+          try {
+            await deleteDiaryComment(postId, button.dataset.commentId);
+            toast("Comment deleted!");
+          } catch (err) {
+            console.error("Could not delete comment:", err);
+            toast("Could not delete comment.");
+          }
+        }
+      };
+    });
+
+    target.querySelectorAll(".home-comment-edit-btn").forEach(button => {
+      button.onclick = () => {
+        const commentId = button.dataset.commentId;
+        const textEl = target.querySelector(`#comment-text-${commentId}`);
+        const newText = prompt("Edit comment:", textEl.textContent);
+        if (newText !== null && newText.trim() !== "") {
+          updateDiaryComment(postId, commentId, { text: newText.trim() })
+            .then(() => toast("Comment updated!"))
+            .catch(err => { console.error(err); toast("Could not update comment."); });
+        }
       };
     });
   }

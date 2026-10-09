@@ -235,6 +235,14 @@ export async function addDiaryComment(postId, data) {
   return addDoc(commentsCollection(postId), { ...data, createdAt: serverTimestamp() });
 }
 
+export async function updateDiaryComment(postId, commentId, data) {
+  return updateDoc(doc(commentsCollection(postId), commentId), { ...data, updatedAt: serverTimestamp() });
+}
+
+export async function deleteDiaryComment(postId, commentId) {
+  return deleteDoc(doc(commentsCollection(postId), commentId));
+}
+
 export function watchDiaryComments(postId, cb) {
   return onSnapshot(query(commentsCollection(postId), orderBy("createdAt", "asc")), s => cb(s.docs.map(d => ({ id: d.id, ...d.data() }))));
 }

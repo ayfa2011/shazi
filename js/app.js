@@ -5,7 +5,7 @@ import { renderMemories, disposeMemories } from "./memories.js";
 import { renderGames, disposeGames } from "./games.js";
 import { renderLetters, disposeLetters } from "./letters.js";
 import { renderQuestions, disposeQuestions } from "./questions.js";
-import { watchItems, watchDiaryPosts, toggleDiaryLike, watchDiaryComments, addDiaryComment, addDiaryPost, updateDiaryPost, deleteDiaryPost } from "./firestore.js";
+import { watchItems, watchDiaryPosts, toggleDiaryLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, addDiaryPost, updateDiaryPost, deleteDiaryPost } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { renderBucket, disposeBucket } from "./bucket-list.js";
 import { renderActivities } from "./activities.js";
@@ -335,11 +335,57 @@ function renderPostFeed(el, user, profile) {
   function renderComments(postId, comments) {
     const target = feed.querySelector(`#comments-${postId}`);
     if (!target) return;
-    target.innerHTML = comments.map(c => `
-      <div class="tw-comment-item">
-        <strong>${esc(getDisplayName(c.authorId, c.authorName || "Us"))}:</strong> ${esc(c.text || '')}
-      </div>
-    `).join("");
+    target.innerHTML = comments.map(c => {
+      const isAuthor = c.authorId === user.uid;
+      return `
+        <div class="tw-comment-item" id="tw-comment-${c.id}">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+              <strong>${esc(getDisplayName(c.authorId, c.authorName || "Us"))}:</strong>
+              <span id="tw-comment-text-${c.id}">${esc(c.text || '')}</span>
+            </div>
+            ${isAuthor ? `
+              <div style="display:flex; gap:8px; margin-left:8px; flex-shrink:0;">
+                <button class="tw-comment-edit-btn" data-id="${c.id}" style="border:0; background:none; padding:0; cursor:pointer; font-size:12px;">✏️</button>
+                <button class="tw-comment-del-btn" data-id="${c.id}" style="border:0; background:none; padding:0; cursor:pointer; font-size:12px;">🗑️</button>
+              </div>
+            ` : ""}
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    target.querySelectorAll(".tw-comment-del-btn").forEach(btn => {
+      btn.onclick = async () => {
+        if (confirm("Delete this comment?")) {
+          try {
+            await deleteDiaryComment(postId, btn.dataset.id);
+            toast("Comment deleted!");
+          } catch (err) {
+            console.error(err);
+            toast("Could not delete comment.");
+          }
+        }
+      };
+    });
+
+    target.querySelectorAll(".tw-comment-edit-btn").forEach(btn => {
+      btn.onclick = async () => {
+        const commentId = btn.dataset.id;
+        const textEl = target.querySelector(`#tw-comment-text-${commentId}`);
+        const oldText = textEl.textContent;
+        const newText = prompt("Edit comment:", oldText);
+        if (newText !== null && newText.trim() !== "" && newText.trim() !== oldText) {
+          try {
+            await updateDiaryComment(postId, commentId, { text: newText.trim() });
+            toast("Comment updated!");
+          } catch (err) {
+            console.error(err);
+            toast("Could not update comment.");
+          }
+        }
+      };
+    });
   }
 
   function render() {
