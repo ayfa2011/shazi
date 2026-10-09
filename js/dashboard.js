@@ -1,5 +1,5 @@
 import { $, esc, toast, todayKey, scheduleDubaiDayRollover } from "./utils.js";
-import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, watchItems } from "./firestore.js";
+import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, watchItems, addItem, notifyPartnerSafely } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 import { formatSpecialDayDate, specialDayCountdown } from "./special-day-utils.js";
@@ -187,9 +187,37 @@ export function renderHome(el, user, profile) {
         font-size: 13px;
         outline: none;
       }
+      .floating-give-challenge {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 100;
+        background: #e11d48;
+        color: white;
+        border: none;
+        padding: 12px 20px;
+        border-radius: 30px;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+      }
+      /* Modal Styles */
+      .challenge-modal { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:16px; background:#32162580; }
+      .challenge-modal-card { width:min(460px,100%); padding:18px; border:1px solid #f1dbe5; border-radius:20px; background:#fffafd; box-shadow:0 20px 60px #54213b30; }
+      .challenge-modal-head { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+      .challenge-modal-head h2 { margin:0; color:var(--deep); font-size:20px; }
+      .challenge-modal-close { width:34px; height:34px; border-radius:50%; background:#ffe7f0; color:var(--deep); font-size:20px; border:none; cursor:pointer;}
+      .challenge-complete-form { display:grid; gap:12px; margin:13px 0 0; }
+      .challenge-complete-form textarea { min-height:82px; resize:vertical; padding: 8px;}
+      .challenge-complete-form input[type=text] { padding: 8px;}
+      .challenge-modal-actions { display:flex; justify-content:flex-end; gap:8px; }
+      .challenge-modal-actions button { padding:9px 14px; border-radius:999px; border:none; cursor:pointer;}
+      .challenge-secondary { background:#fff0f6; color:var(--deep); }
+      .challenge-main { background:#e65391; color:#fff; }
     </style>
 
     <div class="home-container">
+      <button type="button" class="floating-give-challenge" id="give-challenge-btn">+ Give Challenge</button>
       <div class="couple-brand">
         <div class="brand-hearts" aria-hidden="true">♡♡</div>
         <h1>Keby &amp; Shazy</h1>
@@ -197,6 +225,7 @@ export function renderHome(el, user, profile) {
       </div>
 
       <aside class="home-special-day-reminders" id="home-special-day-reminders" aria-live="polite" hidden></aside>
+      <div id="give-challenge-modal-root"></div>
 
       <section class="together-counter" aria-label="Relationship counter">
         <div class="counter-script" aria-hidden="true">Together<br>Since ↗<br>♡</div>
@@ -403,6 +432,47 @@ export function renderHome(el, user, profile) {
     event.stopPropagation();
     openChallenges();
   };
+
+  $("#give-challenge-btn", el).onclick = () => {
+    const modalRoot = $("#give-challenge-modal-root", el);
+    modalRoot.innerHTML = `
+      <div class="challenge-modal" id="give-challenge-modal" role="dialog" aria-modal="true">
+        <section class="challenge-modal-card">
+          <header class="challenge-modal-head"><h2>Give a Challenge</h2><button type="button" class="challenge-modal-close" id="give-challenge-close">×</button></header>
+          <form class="challenge-complete-form" id="give-challenge-form">
+            <label>Title<input type="text" name="title" required></label>
+            <label>Description<textarea name="description" required></textarea></label>
+            <div class="challenge-modal-actions"><button type="button" class="challenge-secondary" id="give-challenge-close-btn">Cancel</button><button type="submit" class="challenge-main">Send Challenge</button></div>
+          </form>
+        </section>
+      </div>
+    `;
+    const close = () => modalRoot.innerHTML = "";
+    $("#give-challenge-close", el).onclick = close;
+    $("#give-challenge-close-btn", el).onclick = close;
+
+    $("#give-challenge-form", el).onsubmit = async (e) => {
+        e.preventDefault();
+        const title = e.target.elements.title.value;
+        const description = e.target.elements.description.value;
+        try {
+            await addItem("customChallenge", {
+                title,
+                description,
+                status: "upcoming",
+                author: user.uid,
+                authorName: profile.name
+            });
+            await notifyPartnerSafely(getProfileKey(profile), "challenge", `${profile.name} sent you a challenge: ${title}`, "custom", "challenges");
+            toast("Challenge sent!");
+            close();
+        } catch (err) {
+            console.error(err);
+            toast("Could not send challenge.");
+        }
+    }
+  };
+
   el.querySelectorAll("[data-route]").forEach(button => {
     button.onclick = () => window.App.navigate(button.dataset.route);
   });

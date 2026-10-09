@@ -68,6 +68,16 @@ export const CHALLENGES = [
     id: "cozy-break",
     title: "Plan a cozy break",
     description: "Make a warm drink, get comfortable, and take a peaceful break together."
+  },
+  {
+    id: "send-snap",
+    title: "Send a Snap",
+    description: "Take a photo, apply a filter, and share it!"
+  },
+  {
+    id: "drink-water",
+    title: "Drink Water Together",
+    description: "Take a hydration break together."
   }
 ];
 

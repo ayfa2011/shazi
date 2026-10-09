@@ -34,9 +34,9 @@ export function modal(title, body, actions = "") {
 
 /**
  * Image compression function: Accepts a File object and compresses it
- * to max 600px width/height and JPEG 0.6 quality (well below 100KB).
+ * to max 1200px width/height and JPEG 0.8 quality (well below 1MB, Firestore limit).
  */
-export async function compressImage(file, maxWidth = 600, maxHeight = 600, quality = 0.6) {
+export async function compressImage(file, maxWidth = 1200, maxHeight = 1200, quality = 0.8) {
   if (!file || !file.type.startsWith("image/")) return "";
   return new Promise((resolve) => {
     const reader = new FileReader();

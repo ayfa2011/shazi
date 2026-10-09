@@ -254,7 +254,8 @@ export function renderChallenges(el, user, profile) {
             await skipChallengeAssignment(assignmentId, user.uid, ownKey, profile.name);
             toast("Challenge moved to Skipped.");
           } else {
-            openCompletionModal(assignmentId, assignment);
+            const challengeId = assignment.id.includes('-') ? assignment.id.split('-').slice(1).join('-') : assignment.id;
+            openCompletionModal(assignmentId, assignment, challengeId);
           }
         } catch (error) {
           console.error("Could not update challenge:", error);
@@ -265,15 +266,20 @@ export function renderChallenges(el, user, profile) {
     });
   }
 
-  function openCompletionModal(assignmentId, assignment) {
+  function openCompletionModal(assignmentId, assignment, challengeId) {
+    const isSnap = challengeId === "send-snap";
+    const isDrinkWater = challengeId === "drink-water";
+
     modalRoot.innerHTML = `
       <div class="challenge-modal" id="challenge-completion-modal" role="dialog" aria-modal="true" aria-labelledby="challenge-completion-title">
         <section class="challenge-modal-card">
-          <header class="challenge-modal-head"><h2 id="challenge-completion-title">Complete challenge</h2><button type="button" class="challenge-modal-close" data-close-modal aria-label="Close">×</button></header>
+          <header class="challenge-modal-head"><h2 id="challenge-completion-title">${isSnap ? "Snap a photo!" : isDrinkWater ? "Hydrate together!" : "Complete challenge"}</h2><button type="button" class="challenge-modal-close" data-close-modal aria-label="Close">×</button></header>
           <p class="muted">${esc(assignment.title)}</p>
           <form class="challenge-complete-form" id="challenge-complete-form">
-            <label>Note (optional)<textarea name="note" maxlength="500" placeholder="Add a little note about it…"></textarea></label>
-            <label>Photo (optional)<input type="file" name="photo" accept="image/*"></label>
+            ${isSnap ? `<label>Snap a photo<input type="file" name="photo" accept="image/*" capture="environment" required></label>` :
+              isDrinkWater ? `<p>Did you both drink a glass of water?</p>` :
+              `<label>Note (optional)<textarea name="note" maxlength="500" placeholder="Add a little note about it…"></textarea></label>
+            <label>Photo (optional)<input type="file" name="photo" accept="image/*"></label>`}
             <img class="challenge-photo-preview hidden" id="challenge-photo-preview" alt="Selected completion photo">
             <div class="challenge-modal-actions"><button type="button" class="challenge-secondary" data-close-modal>Cancel</button><button type="submit" class="challenge-main">Save completion ♡</button></div>
           </form>
