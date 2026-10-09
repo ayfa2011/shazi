@@ -1,4 +1,4 @@
-import { $, esc, toast, todayKey, compressImage, scheduleDubaiDayRollover } from "./utils.js";
+import { $, esc, toast, todayKey, compressImage, compressImageWithFilter, scheduleDubaiDayRollover } from "./utils.js";
 import {
   ensureChallengeAssignment,
   watchChallengeAssignments,
@@ -6,13 +6,15 @@ import {
   acceptChallengeAssignment,
   completeChallengeAssignment,
   skipChallengeAssignment,
-  notifyPartnerSafely
+  notifyPartnerSafely,
+  addItem
 } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { challengeDays } from "./challenge-bank.js";
 
-let stopChallenges = null, stopLegacyChallenges = null, dayRolloverTimer = null, challengeRenderToken = 0;
+let stopChallenges = null, stopLegacyChallenges = null, stopCustomChallenges = null, dayRolloverTimer = null, challengeRenderToken = 0;
+let customChallenges = [];
 
 function friendlyDate(dayKey) {
   return new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-GB", {
@@ -56,7 +58,7 @@ export function renderChallenges(el, user, profile) {
       .challenge-tab { padding:9px 5px; border-radius:11px; background:transparent; color:#916b7d; font-size:13px; font-weight:600; }
       .challenge-tab.selected { background:#fff; color:#c83272; box-shadow:0 2px 8px #8f315d12; }
       .challenge-list { display:grid; gap:10px; }
-      .challenge-card { padding:15px; border:1px solid #f2dce5; border-radius:17px; background:#fff; box-shadow:0 4px 16px #8f315d08; }
+      .challenge-card { padding:15px; border:1px solid #f2dce5; border-radius:17px; background:#fff; box-shadow:0 4px 16px #8f315d08; position: relative; overflow: hidden; }
       .challenge-card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
       .challenge-card h2 { margin:8px 0 4px; color:#60283f; font:700 17px/1.3 system-ui,sans-serif; }
       .challenge-card p { margin:4px 0 10px; color:#795364; font-size:13px; line-height:1.45; }
@@ -65,7 +67,7 @@ export function renderChallenges(el, user, profile) {
       .challenge-status.completed { background:#eaf8f0; color:#24794a; }
       .challenge-status.skipped { background:#f5f1f3; color:#806d76; }
       .challenge-actions { display:flex; justify-content:flex-end; gap:7px; margin-top:11px; }
-      .challenge-actions button { padding:8px 13px; border-radius:999px; font-size:12px; font-weight:700; }
+      .challenge-actions button { padding:8px 13px; border-radius:999px; font-size:12px; font-weight:700; border: none; cursor: pointer; }
       .challenge-secondary { background:#fff0f6; color:var(--deep); }
       .challenge-main { background:#e65391; color:#fff; }
       .challenge-completion-photo { display:block; width:100%; max-height:280px; margin-top:9px; border-radius:13px; object-fit:cover; }
@@ -73,22 +75,51 @@ export function renderChallenges(el, user, profile) {
       .challenge-completed-by { margin-top:8px!important; color:var(--muted)!important; font-size:11px!important; }
       .challenge-section-label { margin:17px 0 8px; color:#8c737d; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
       .challenge-empty { padding:24px 12px; border:1px dashed #efc8d8; border-radius:16px; color:var(--muted); text-align:center; font-size:13px; }
-      .challenge-skipped-toggle { width:100%; margin-top:16px; padding:10px; border:1px solid #f0dfe6; border-radius:12px; background:#fff; color:#806d76; text-align:left; font-size:12px; font-weight:700; }
-      .challenge-modal { position:fixed; inset:0; z-index:70; display:grid; place-items:center; padding:16px; background:#32162580; }
+      .challenge-skipped-toggle { width:100%; margin-top:16px; padding:10px; border:1px solid #f0dfe6; border-radius:12px; background:#fff; color:#806d76; text-align:left; font-size:12px; font-weight:700; border: none; cursor: pointer; }
+      .challenge-modal { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:16px; background:#32162580; }
       .challenge-modal-card { width:min(460px,100%); padding:18px; border:1px solid #f1dbe5; border-radius:20px; background:#fffafd; box-shadow:0 20px 60px #54213b30; }
       .challenge-modal-head { display:flex; justify-content:space-between; align-items:center; gap:10px; }
       .challenge-modal-head h2 { margin:0; color:var(--deep); font-size:20px; }
-      .challenge-modal-close { width:34px; height:34px; border-radius:50%; background:#ffe7f0; color:var(--deep); font-size:20px; }
+      .challenge-modal-close { width:34px; height:34px; border-radius:50%; background:#ffe7f0; color:var(--deep); font-size:20px; border: none; cursor: pointer; }
       .challenge-complete-form { display:grid; gap:12px; margin:13px 0 0; }
-      .challenge-complete-form textarea { min-height:82px; resize:vertical; }
-      .challenge-complete-form input[type=file] { width:100%; padding:8px; font-size:12px; }
+      .challenge-complete-form label { display: grid; gap: 4px; font-size: 13px; color: #60283f; font-weight: 600; }
+      .challenge-complete-form textarea { min-height:82px; resize:vertical; padding: 8px; border-radius: 10px; border: 1px solid #f1dbe5; }
+      .challenge-complete-form input[type=file], .challenge-complete-form input[type=text] { width:100%; padding:8px; font-size:12px; border-radius: 10px; border: 1px solid #f1dbe5; }
       .challenge-photo-preview { max-width:100%; max-height:180px; border-radius:12px; object-fit:cover; }
       .challenge-modal-actions { display:flex; justify-content:flex-end; gap:8px; }
-      .challenge-modal-actions button { padding:9px 14px; border-radius:999px; }
+      .challenge-modal-actions button { padding:9px 14px; border-radius:999px; border: none; cursor: pointer; }
+
+      .snap-preview-container { position: relative; margin-top: 10px; border-radius: 13px; overflow: hidden; }
+      .snap-blur { filter: blur(25px); transition: filter 0.3s ease; cursor: pointer; }
+      .snap-blur.revealed { filter: blur(0); }
+      .snap-reveal-hint { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,0.1); color: white; font-weight: 700; pointer-events: none; }
+
+      .water-tracker { display: flex; gap: 8px; margin: 10px 0; justify-content: center; }
+      .water-glass { font-size: 32px; filter: grayscale(1); cursor: pointer; transition: transform 0.2s; }
+      .water-glass.filled { filter: grayscale(0); }
+      .water-glass:active { transform: scale(1.2); }
+
+      .custom-challenge-banner { background: linear-gradient(135deg, #fff0f6, #ffe4ef); border: 1px solid #f2dce5; border-radius: 17px; padding: 15px; margin-bottom: 15px; display: flex; align-items: center; gap: 12px; animation: slideIn 0.5s ease-out; }
+      @keyframes slideIn { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+      .custom-challenge-icon { font-size: 24px; }
+      .custom-challenge-info { flex: 1; }
+      .custom-challenge-info strong { display: block; font-size: 14px; color: var(--deep); }
+      .custom-challenge-info p { margin: 2px 0 0; font-size: 12px; color: #795364; }
+
+      .completion-splash { position: fixed; inset: 0; z-index: 2000; pointer-events: none; display: grid; place-items: center; }
+      .splash-heart { font-size: 60px; animation: popUp 1s forwards; }
+      @keyframes popUp { 0% { transform: scale(0); opacity: 0; } 50% { transform: scale(1.5); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
+
       @media(max-width:420px) { .challenge-page-head h1 { font-size:23px; } .challenge-card { padding:13px; } .challenge-tabs button { font-size:12px; } }
     </style>
     <section class="challenge-page">
-      <header class="challenge-page-head"><span class="challenge-sparkle" aria-hidden="true">✨</span><h1>Challenges</h1></header>
+      <header class="challenge-page-head">
+        <span class="challenge-sparkle" aria-hidden="true">✨</span>
+        <h1>Challenges</h1>
+        <button type="button" class="challenge-main" style="padding: 6px 12px; margin-left: auto;" id="give-challenge-btn">+ Give Challenge</button>
+      </header>
+      <div id="give-challenge-modal-root"></div>
+      <div id="custom-challenge-banner-root"></div>
       <nav class="challenge-tabs" aria-label="Challenge sections">
         <button type="button" class="challenge-tab selected" data-tab="today">Today</button>
         <button type="button" class="challenge-tab" data-tab="week">This Week</button>
@@ -97,10 +128,30 @@ export function renderChallenges(el, user, profile) {
       <div class="challenge-list" id="challenge-list"><p class="challenge-empty">Loading your challenges…</p></div>
       <div id="challenge-modal-root"></div>
     </section>
+
   `;
 
   const list = $("#challenge-list", el);
   const modalRoot = $("#challenge-modal-root", el);
+  const giveModalRoot = $("#give-challenge-modal-root", el);
+  const customBannerRoot = $("#custom-challenge-banner-root", el);
+
+  function renderCustomBanner() {
+    if (customChallenges.length === 0) {
+        customBannerRoot.innerHTML = "";
+        return;
+    }
+    const latest = customChallenges[0];
+    customBannerRoot.innerHTML = `
+        <div class="custom-challenge-banner">
+            <div class="custom-challenge-icon">🎁</div>
+            <div class="custom-challenge-info">
+                <strong>Partner sent you a Challenge!</strong>
+                <p>${esc(latest.title)}</p>
+            </div>
+        </div>
+    `;
+  }
 
   el.querySelectorAll("[data-tab]").forEach(button => {
     button.onclick = () => {
@@ -109,6 +160,33 @@ export function renderChallenges(el, user, profile) {
       render();
     };
   });
+
+  $("#give-challenge-btn", el).onclick = () => {
+    giveModalRoot.innerHTML = `
+      <div class="challenge-modal" id="give-challenge-modal" role="dialog" aria-modal="true">
+        <section class="challenge-modal-card">
+          <header class="challenge-modal-head"><h2>Give a Challenge</h2><button type="button" class="challenge-modal-close" data-close-give-modal>×</button></header>
+          <form class="challenge-complete-form" id="give-challenge-form">
+            <label>Title<input type="text" name="title" required></label>
+            <label>Description<textarea name="description" required></textarea></label>
+            <div class="challenge-modal-actions"><button type="button" class="challenge-secondary" data-close-give-modal>Cancel</button><button type="submit" class="challenge-main">Send Challenge</button></div>
+          </form>
+        </section>
+      </div>
+    `;
+    giveModalRoot.querySelectorAll("[data-close-give-modal]").forEach(b => b.onclick = () => giveModalRoot.innerHTML = "");
+    $("#give-challenge-form", giveModalRoot).onsubmit = async (e) => {
+        e.preventDefault();
+        const title = e.target.elements.title.value;
+        const description = e.target.elements.description.value;
+        try {
+            await addItem("customChallenge", { title, description, status: "upcoming", author: user.uid, authorName: profile.name });
+            await notifyPartnerSafely(ownKey, "challenge", `${profile.name} sent you a challenge: ${title}`, "custom", "challenges");
+            toast("Challenge sent!");
+            giveModalRoot.innerHTML = "";
+        } catch (err) { console.error(err); toast("Could not send challenge."); }
+    }
+  };
 
   function assignmentFor(challenge) {
     const storedAssignment = assignments.find(item => item.id === challenge.id);
@@ -202,6 +280,7 @@ export function renderChallenges(el, user, profile) {
 
   function render() {
     if (!isCurrent()) return;
+    renderCustomBanner();
     if (assignmentsError) {
       list.innerHTML = `<p class="challenge-empty">Challenges could not be loaded. Please check your connection and try again.</p>`;
       return;
@@ -276,11 +355,18 @@ export function renderChallenges(el, user, profile) {
           <header class="challenge-modal-head"><h2 id="challenge-completion-title">${isSnap ? "Snap a photo!" : isDrinkWater ? "Hydrate together!" : "Complete challenge"}</h2><button type="button" class="challenge-modal-close" data-close-modal aria-label="Close">×</button></header>
           <p class="muted">${esc(assignment.title)}</p>
           <form class="challenge-complete-form" id="challenge-complete-form">
-            ${isSnap ? `<label>Snap a photo<input type="file" name="photo" accept="image/*" capture="environment" required></label>` :
+            ${isSnap ? `<label>Snap a photo<input type="file" name="photo" accept="image/*" capture="environment" required></label>
+            <label>Filter<select name="filter">
+                <option value="none">None</option>
+                <option value="grayscale(100%)">B&W</option>
+                <option value="sepia(100%)">Sepia</option>
+                <option value="brightness(150%)">Bright</option>
+                <option value="contrast(150%)">Contrast</option>
+            </select></label>` :
               isDrinkWater ? `<p>Did you both drink a glass of water?</p>` :
               `<label>Note (optional)<textarea name="note" maxlength="500" placeholder="Add a little note about it…"></textarea></label>
             <label>Photo (optional)<input type="file" name="photo" accept="image/*"></label>`}
-            <img class="challenge-photo-preview hidden" id="challenge-photo-preview" alt="Selected completion photo">
+            <img class="challenge-photo-preview hidden" id="challenge-photo-preview" alt="Selected completion photo" style="filter:none;">
             <div class="challenge-modal-actions"><button type="button" class="challenge-secondary" data-close-modal>Cancel</button><button type="submit" class="challenge-main">Save completion ♡</button></div>
           </form>
         </section>
@@ -372,6 +458,16 @@ export function renderChallenges(el, user, profile) {
     if (!isCurrent()) return;
     toast("Older challenges could not be loaded.");
   });
+  stopCustomChallenges = watchItems("customChallenge", items => {
+    if (!isCurrent()) return;
+    customChallenges = items.filter(item => item.status === "upcoming" || item.status === "in-progress");
+    render();
+    renderCustomBanner();
+  }, error => {
+    console.error("Custom challenges could not be loaded:", error);
+    if (!isCurrent()) return;
+    toast("Custom challenges could not be loaded.");
+  });
   prepareWeek();
 }
 
@@ -383,4 +479,6 @@ export function disposeChallenges() {
   stopChallenges = null;
   stopLegacyChallenges?.();
   stopLegacyChallenges = null;
+  stopCustomChallenges?.();
+  stopCustomChallenges = null;
 }
