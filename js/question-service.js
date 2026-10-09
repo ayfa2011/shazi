@@ -61,11 +61,10 @@ export async function ensureQuestionBank() {
   let count = 0;
   for (const category of QUESTION_CATEGORIES) {
     category.questions.forEach((question, index) => {
-      const id = `${category.id}-${String(index + 1).padStart(2, "0")}`;
-      batch.set(doc(bankRef(), id), {
+      batch.set(doc(bankRef(), question.id), {
         categoryId: category.id,
         category: `${category.emoji} ${category.label}`,
-        question,
+        question: question.text,
         position: index + 1
       });
       count++;
