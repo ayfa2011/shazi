@@ -1,20 +1,30 @@
 {
-  "name": "Shazi & Kabeer",
+  "name": "Keby & Shazy — Our Little World",
   "short_name": "Our World",
-  "start_url": "/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#fff0f5",
-  "theme_color": "#ff69b4",
+  "orientation": "any",
+  "background_color": "#fff7fb",
+  "theme_color": "#f06a9b",
   "icons": [
     {
       "src": "icons/app-icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "icons/app-icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/app-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

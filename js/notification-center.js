@@ -6,9 +6,18 @@ const notificationIcons = {
   question: "♡",
   challenge: "✨",
   letter: "💌",
-  memory: "📸"
+  memory: "📸",
+  drawing: "🎨",
+  post: "📝",
+  comment: "💬",
+  like: "❤️",
+  bucket: "🎯",
+  customQuestion: "💌",
+  specialDay: "🎉",
+  game: "🎮",
+  music: "♫"
 };
-const notificationRoutes = new Set(["home", "questions", "challenges", "letters", "memories"]);
+const notificationRoutes = new Set(["home", "questions", "challenges", "letters", "memories", "drawing", "gallery", "bucket", "more", "games"]);
 
 let stopNotifications = null;
 let stopLetters = null;

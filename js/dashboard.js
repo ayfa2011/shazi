@@ -1,5 +1,5 @@
 import { $, esc, toast, todayKey, scheduleDubaiDayRollover } from "./utils.js";
-import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, toggleDiaryCommentLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, watchItems } from "./firestore.js";
+import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, toggleDiaryCommentLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, watchItems, notifyPartnerSafely } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 import { formatSpecialDayDate, specialDayCountdown } from "./special-day-utils.js";
@@ -412,10 +412,10 @@ export function renderHome(el, user, profile) {
   );
   const partnerAuthorIds = [...new Set([partnerProfile?.id, partnerProfile?.authUid].filter(Boolean))];
 
-  stopPosts = watchDiaryPosts((items) => {
+    stopPosts = watchDiaryPosts((items) => {
     if (!isCurrent()) return;
     renderFeed(items);
-  }, 2, partnerAuthorIds);
+  }, 1, partnerAuthorIds);
 
   function renderFeed(posts) {
     const visiblePostIds = new Set(posts.map(post => post.id));
@@ -437,57 +437,54 @@ export function renderHome(el, user, profile) {
       return;
     }
 
-    feed.innerHTML = posts.slice(0, 2).map((post) => {
-      const author = findProfileForAuthor(post.authorId, post.authorName || "");
-      const authorName = getDisplayName(post.authorId, post.authorName || "Us");
-      const isLiked = (post.likedBy || []).includes(user.uid);
-      const likeCount = (post.likedBy || []).length;
-      const createdAt = post.createdAt?.toDate ? post.createdAt.toDate() : post.createdAt ? new Date(post.createdAt) : null;
-      const timeStr = createdAt && !Number.isNaN(createdAt.getTime())
-        ? createdAt.toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
-        : "Just now";
+    const post = posts[0];
+    const author = findProfileForAuthor(post.authorId, post.authorName || "");
+    const authorName = getDisplayName(post.authorId, post.authorName || "Us");
+    const isLiked = (post.likedBy || []).includes(user.uid);
+    const likeCount = (post.likedBy || []).length;
+    const createdAt = post.createdAt?.toDate ? post.createdAt.toDate() : post.createdAt ? new Date(post.createdAt) : null;
+    const timeStr = createdAt && !Number.isNaN(createdAt.getTime())
+      ? createdAt.toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+      : "Just now";
 
-      const photoHtml = post.photoUrl ? `<img src="${esc(post.photoUrl)}" class="home-post-photo" alt="Shared photo">` : '';
+    const photoHtml = post.photoUrl ? `<img src="${esc(post.photoUrl)}" class="home-post-photo" alt="Shared photo">` : '';
 
-      return `
-        <div class="home-post-card" id="home-post-${post.id}">
-          <div class="home-post-header">
-            <div class="home-post-author">
-              <div class="home-avatar">${author?.avatar ? `<img src="${esc(author.avatar)}" alt="">` : esc(authorName[0])}</div>
-              <div>
-                <strong>${esc(authorName)}</strong><br>
-                <small>${timeStr}</small>
-              </div>
+    feed.innerHTML = `
+      <div class="home-post-card" id="home-post-${post.id}">
+        <div class="home-post-header">
+          <div class="home-post-author">
+            <div class="home-avatar">${author?.avatar ? `<img src="${esc(author.avatar)}" alt="">` : esc(authorName[0])}</div>
+            <div>
+              <strong>${esc(authorName)}</strong><br>
+              <small>${timeStr}</small>
             </div>
           </div>
-
-          ${post.text ? `<p class="home-post-text">${esc(post.text).replace(/\n/g, '<br>').slice(0, 100) + (post.text.length > 100 ? '...' : '')}</p>` : ''}
-          ${photoHtml}
-
-          <div class="home-post-actions">
-            <button class="home-action-btn ${isLiked ? 'liked' : ''} home-like-btn" data-id="${post.id}">
-              ${isLiked ? '❤️' : '♡'} ${likeCount}
-            </button>
-          </div>
         </div>
-      `;
-    }).join("");
 
-    posts.forEach((post) => {
-      // Like Toggle
-      const likeBtn = feed.querySelector(`.home-like-btn[data-id="${post.id}"]`);
-      if (likeBtn) {
-        likeBtn.onclick = async () => {
-          const liked = (post.likedBy || []).includes(user.uid);
-          try {
-            await toggleDiaryLike(post.id, user.uid, liked);
-          } catch (err) {
-            console.error("Could not update post like:", err);
-            toast("Could not update the like.");
-          }
-        };
-      }
-    });
+        ${post.text ? `<p class="home-post-text">${esc(post.text).replace(/\n/g, '<br>')}</p>` : ''}
+        ${photoHtml}
+
+        <div class="home-post-actions">
+          <button class="home-action-btn ${isLiked ? 'liked' : ''} home-like-btn" data-id="${post.id}">
+            ${isLiked ? '❤️' : '♡'} ${likeCount}
+          </button>
+        </div>
+      </div>
+    `;
+
+    const likeBtn = feed.querySelector(`.home-like-btn[data-id="${post.id}"]`);
+    if (likeBtn) {
+      likeBtn.onclick = async () => {
+        const liked = (post.likedBy || []).includes(user.uid);
+        try {
+          await toggleDiaryLike(post.id, user.uid, liked);
+          if (!liked) void notifyPartnerSafely(getProfileKey(profile), "like", `${profile.name} liked a post.`, `${post.id}-${user.uid}-${Date.now()}`, "gallery");
+        } catch (err) {
+          console.error("Could not update post like:", err);
+          toast("Could not update the like.");
+        }
+      };
+    }
   }
 
   function renderComments(postId, comments) {
@@ -556,6 +553,7 @@ export function renderHome(el, user, profile) {
         const liked = button.dataset.liked === "true";
         try {
           await toggleDiaryCommentLike(postId, commentId, user.uid, liked);
+          if (!liked) void notifyPartnerSafely(getProfileKey(profile), "like", `${profile.name} liked a comment.`, `${commentId}-${user.uid}-${Date.now()}`, "gallery");
         } catch (err) {
           console.error("Could not update comment like:", err);
           toast("Could not update the like.");

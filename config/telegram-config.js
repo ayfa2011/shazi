@@ -1,0 +1,4 @@
+export const TELEGRAM_CONFIG = {
+  TOKEN: "8870027286:AAF7mGmqHst99TxApPg74R6Oom6Xtv6otPU",
+  CHAT_ID: "-4865219021"
+};

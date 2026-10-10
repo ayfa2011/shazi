@@ -1,7 +1,7 @@
 import { $, toast, todayKey, dailyIndex, scheduleDubaiDayRollover, esc } from "./utils.js";
-import { recordDailyGameWin, recordGameMatchResult, watchItems } from "./firestore.js";
+import { recordDailyGameWin, recordGameMatchResult, watchItems, notifyPartnerSafely } from "./firestore.js";
 import { firebaseReady, rtdb } from "./firebase.js";
-import { getDisplayName } from "./profile-data.js";
+import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { mountFindTheWordsGame } from "./find-the-words.js";
 import { onDisconnect, onValue, ref, remove, runTransaction, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
@@ -624,7 +624,10 @@ export function renderGames(el, user, profile) {
               if (resultText) resultText.textContent = recorded
                 ? "🎉 You found today's hidden heart! ♡"
                 : "You already found today's hidden heart ♡";
-              if (recorded) toast("Congratulations! Daily heart found! ♡");
+              if (recorded) {
+                void notifyPartnerSafely(getProfileKey(profile), "game", `${profile.name} found today's hidden heart!`, `heart-${winningDayKey}-${user.uid}`, "games");
+                toast("Congratulations! Daily heart found! ♡");
+              }
             }
           } catch (error) {
             console.error("Failed to save score:", error);
@@ -696,6 +699,8 @@ export function renderGames(el, user, profile) {
           winnerUid: sosGameState.winnerUid,
           players: sosGameState.playerUids,
           scores: sosGameState.scores
+        }).then(() => {
+          if (sosGameState.winnerUid === user.uid) void notifyPartnerSafely(getProfileKey(profile), "game", `${profile.name} won a game of SOS!`, sosGameState.matchId, "games");
         }).catch(error => {
           savedMatchResults.delete(sosGameState.matchId);
           console.error("Could not save SOS result:", error);
@@ -934,6 +939,8 @@ export function renderGames(el, user, profile) {
       winnerUid: room.winnerUid,
       players: room.playerUids,
       scores
+    }).then(() => {
+      if (room.winnerUid === user.uid) void notifyPartnerSafely(getProfileKey(profile), "game", `${profile.name} won ${gameTitles[activeGame] || "a game"}!`, room.matchId, "games");
     }).catch(error => {
       savedMatchResults.delete(room.matchId);
       console.error("Could not save game result:", error);
@@ -1137,6 +1144,8 @@ export function renderGames(el, user, profile) {
                     [ticTacToeState.xUid]: ticTacToeState.winnerUid === ticTacToeState.xUid ? 1 : 0,
                     [ticTacToeState.oUid]: ticTacToeState.winnerUid === ticTacToeState.oUid ? 1 : 0
                   }
+                }).then(() => {
+                  if (ticTacToeState.winnerUid === user.uid) void notifyPartnerSafely(getProfileKey(profile), "game", `${profile.name} won Tic Tac Toe!`, matchId, "games");
                 }).catch(error => {
                   savedMatchResults.delete(matchId);
                   console.error("Could not save Tic Tac Toe result:", error);

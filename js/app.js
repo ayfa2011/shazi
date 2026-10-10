@@ -1,11 +1,12 @@
 import { initAuth, logout } from "./auth.js";
 import { $,$$, esc, toast, compressImage } from "./utils.js";
+import { initPresence, watchAllPresence } from "./presence.js";
 import { renderHome, disposeHome } from "./dashboard.js";
 import { renderMemories, disposeMemories } from "./memories.js";
 import { renderGames, disposeGames } from "./games.js";
 import { renderLetters, disposeLetters } from "./letters.js";
 import { renderQuestions, disposeQuestions } from "./questions.js";
-import { watchItems, watchDiaryPosts, toggleDiaryLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, addDiaryPost, updateDiaryPost, deleteDiaryPost } from "./firestore.js";
+import { watchItems, watchDiaryPosts, toggleDiaryLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, addDiaryPost, updateDiaryPost, deleteDiaryPost, notifyPartnerSafely } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { renderBucket, disposeBucket } from "./bucket-list.js";
 import { renderActivities } from "./activities.js";
@@ -20,7 +21,7 @@ import { firebaseReady } from "./firebase.js";
 import { getCoupleProfiles, saveCoupleProfile, watchCoupleProfiles } from "./firestore.js";
 import { applyCoupleProfiles, findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 
-let currentUser = null, currentProfile = null, disposeMusic = null;
+let currentUser = null, currentProfile = null, disposeMusic = null, stopPresence = null;
 let currentRoute = "home", stopCoupleProfiles = null;
 
 function updateProfileAvatar(profile) {
@@ -306,7 +307,7 @@ function renderPostFeed(el, user, profile) {
       const photoUrl = file ? await compressImage(file) : "";
       if (file && !photoUrl) return toast("Could not read that photo. Please choose another image.");
 
-      await addDiaryPost({
+      const postRef = await addDiaryPost({
         authorId: user.uid,
         authorName: profile.name,
         wallId: APP_CONFIG.coupleId,
@@ -314,6 +315,7 @@ function renderPostFeed(el, user, profile) {
         photoUrl,
         createdAt: new Date().toISOString()
       });
+      await notifyPartnerSafely(getProfileKey(profile), "post", `${profile.name} shared a new post.`, postRef.id, "gallery");
 
       composer.reset();
       composer.querySelector(".tw-photo-name").textContent = "";
@@ -478,6 +480,9 @@ function renderPostFeed(el, user, profile) {
           const liked = (post.likedBy || []).includes(user.uid);
           try {
             await toggleDiaryLike(post.id, user.uid, liked);
+            if (!liked) {
+              void notifyPartnerSafely(getProfileKey(profile), "like", `${profile.name} liked a post.`, `${post.id}-${user.uid}-${Date.now()}`, "gallery");
+            }
           } catch (err) {
             console.error("Could not update post like:", err);
             toast("Could not update the like.");
@@ -537,11 +542,12 @@ function renderPostFeed(el, user, profile) {
           const text = commentForm.elements.reply.value.trim();
           if (!text) return;
           try {
-            await addDiaryComment(post.id, {
+            const comment = await addDiaryComment(post.id, {
               authorId: user.uid,
               authorName: profile.name,
               text
             });
+            void notifyPartnerSafely(getProfileKey(profile), "comment", `${profile.name} commented on a post.`, comment.id, "gallery");
             commentForm.reset();
             toast("Reply sent!");
           } catch (err) {
@@ -618,7 +624,10 @@ export function navigate(route = "home") {
 
   // Update bottom navigation bar button states
   document.querySelectorAll(".bottom-nav button").forEach((b) => {
-    b.classList.toggle("active", b.dataset.route === route);
+    const isCurrent = b.dataset.route === route;
+    b.classList.toggle("active", isCurrent);
+    if (isCurrent) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
   });
 
   // Update Page Title
@@ -681,6 +690,27 @@ initAuth(
     // Update Avatar
     updateProfileAvatar(currentProfile);
 
+    function renderPresence(presence) {
+        const presenceEl = $("#partner-presence");
+        if (!presenceEl) return;
+        const partnerProfile = Object.values(APP_CONFIG.profiles).find(p => p.email !== currentUser.email);
+        const partnerPresence = Object.values(presence).find(p => p.name === partnerProfile.name);
+        if (partnerPresence && partnerPresence.online) {
+            presenceEl.innerHTML = `
+                <div class="avatar" style="position:relative; width:38px; height:38px;">
+                    <img src="${esc(partnerProfile.avatar)}" alt="${esc(partnerProfile.name)}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">
+                    <span style="position:absolute; bottom:0; right:0; width:12px; height:12px; border-radius:50%; background:#22c55e; border:3px solid white"></span>
+                </div>
+            `;
+        } else {
+            presenceEl.innerHTML = "";
+        }
+    }
+
+    initPresence(user.uid, currentProfile.name);
+    stopPresence = watchAllPresence(renderPresence);
+
+
     const requestedRoute = new URLSearchParams(window.location.search).get("open");
     const notificationRoutes = ["home", "questions", "challenges", "letters", "memories"];
     const initialRoute = notificationRoutes.includes(requestedRoute) ? requestedRoute : "home";
@@ -707,6 +737,8 @@ initAuth(
     disposeMusic = null;
     stopCoupleProfiles?.();
     stopCoupleProfiles = null;
+    stopPresence?.();
+    stopPresence = null;
     // Clean up all active Firestore subscriptions on logout
     disposeHome();
     disposeDrawing();

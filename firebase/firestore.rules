@@ -24,7 +24,7 @@ service cloud.firestore {
         && data.actorKey == ownNotificationProfileKey()
         && data.recipientKey in ['kebyy', 'shazy']
         && data.recipientKey != data.actorKey
-        && data.type in ['question', 'challenge', 'letter', 'memory']
+        && data.type in ['question', 'challenge', 'letter', 'memory', 'drawing', 'post', 'comment', 'like', 'bucket', 'customQuestion', 'specialDay', 'game', 'music']
         && data.title is string
         && data.title.size() > 0
         && data.title.size() <= 80
@@ -34,12 +34,21 @@ service cloud.firestore {
         && ((data.type == 'question' && data.route == 'questions')
           || (data.type == 'challenge' && data.route == 'challenges')
           || (data.type == 'letter' && data.route == 'letters')
-          || (data.type == 'memory' && data.route == 'memories'))
+          || (data.type == 'memory' && data.route == 'memories')
+          || (data.type == 'drawing' && data.route == 'drawing')
+          || (data.type == 'post' && data.route == 'gallery')
+          || (data.type == 'comment' && data.route == 'gallery')
+          || (data.type == 'like' && data.route == 'gallery')
+          || (data.type == 'bucket' && data.route == 'bucket')
+          || (data.type == 'customQuestion' && data.route == 'questions')
+          || (data.type == 'specialDay' && data.route == 'more')
+          || (data.type == 'game' && data.route == 'games')
+          || (data.type == 'music' && data.route == 'home'))
         && data.sourceId is string
         && data.sourceId.size() > 0
         && data.sourceId.size() <= 100
         && data.sourceId.matches('^[A-Za-z0-9_-]+$')
-        && notificationId.matches('^(question|challenge|letter|memory)-[A-Za-z0-9_-]+-(kebyy|shazy)$')
+        && notificationId.matches('^(question|challenge|letter|memory|drawing|post|comment|like|bucket|customQuestion|specialDay|game|music)-[A-Za-z0-9_-]+-(kebyy|shazy)$')
         && data.createdAt == request.time
         && data.readAt == null;
     }
@@ -267,6 +276,22 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
+      match /answers/{profileKey} {
+        allow read: if isQuestionCoupleMember(coupleId)
+          && (profileKey == ownQuestionProfileKey()
+            || bothQuestionPartnersAnswered(coupleId, questionRecordId));
+        allow create: if isQuestionCoupleMember(coupleId)
+          && profileKey == ownQuestionProfileKey()
+          && request.resource.data.keys().hasOnly(['profileKey', 'answer', 'answeredAt'])
+          && request.resource.data.profileKey == profileKey
+          && request.resource.data.answer is string
+          && request.resource.data.answer.size() > 0
+          && request.resource.data.answer.size() <= 1200
+          && request.resource.data.answeredAt is timestamp;
+        allow update, delete: if false;
+      }
+    }
+
     match /coupleCustomQuestions/{coupleId}/questions/{questionId} {
       allow read: if isQuestionCoupleMember(coupleId);
       allow create: if isQuestionCoupleMember(coupleId)
@@ -291,4 +316,6 @@ service cloud.firestore {
         && resource.data.status == 'pending'
         && resource.data.askedBy == ownQuestionProfileKey();
     }
+  }
+}
 

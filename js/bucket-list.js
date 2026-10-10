@@ -1,9 +1,10 @@
 import { $, esc, toast } from "./utils.js";
-import { watchItems, addItem, setItem, removeItem } from "./firestore.js";
+import { watchItems, addItem, setItem, removeItem, notifyPartnerSafely } from "./firestore.js";
+import { getProfileKey } from "./profile-data.js";
 
 let stopBucketWatcher = null;
 
-export function renderBucket(el, user) {
+export function renderBucket(el, user, profile) {
   stopBucketWatcher?.();
   const currentYear = new Date().getFullYear();
   let currentFilter = "All";
@@ -145,10 +146,13 @@ export function renderBucket(el, user) {
       };
 
       if (id) {
+        const previous = allItems.find(item => item.id === id);
         await setItem(id, payload);
+        if (previous?.status !== status) void notifyPartnerSafely(getProfileKey(profile), "bucket", `${profile.name} ${status === "Completed" ? "completed" : "updated"} a bucket-list dream.`, `${id}-${status}-${Date.now()}`, "bucket");
         toast("Dream updated ♡");
       } else {
-        await addItem("bucket", { ...payload, author: user.uid });
+        const dream = await addItem("bucket", { ...payload, author: user.uid });
+        void notifyPartnerSafely(getProfileKey(profile), "bucket", `${profile.name} added a bucket-list dream.`, dream.id, "bucket");
         toast("New dream added ♡");
       }
 

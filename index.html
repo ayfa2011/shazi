@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#f06a9b">
   <title>Keby &amp; Shazy — Our Little World</title>
   <link rel="manifest" href="manifest.webmanifest">
@@ -11,16 +11,18 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Our Little World">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-touch-fullscreen" content="yes">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
   <div id="toast" class="toast"></div>
 
-  <section id="auth-view" class="auth-shell">
+  <section id="auth-view" class="auth-shell" aria-labelledby="login-title">
     <div class="auth-card glass">
       <div class="brand-mark">♡</div>
       <p class="eyebrow">PRIVATE • JUST FOR US</p>
-      <h1>Our Little World</h1>
+      <h1 id="login-title">Our Little World</h1>
       <p class="muted">Two hearts. One little space.</p>
       <form id="login-form">
         <label>Who is signing in?
@@ -33,7 +35,7 @@
         <label>Password<input id="login-password" type="password" required autocomplete="current-password"></label>
         <button class="primary full" type="submit">Enter our world ♡</button>
       </form>
-      <p id="auth-error" class="error"></p>
+      <p id="auth-error" class="error" role="alert" aria-live="polite"></p>
     </div>
   </section>
 
@@ -47,26 +49,27 @@
         </div>
       </div>
       <div class="top-actions">
+        <div id="partner-presence" class="avatar-container" title="Partner Status"></div>
         <div id="notification-center"></div>
-        <button id="music-toggle" class="icon-btn" title="Music">♫</button>
-        <button id="profile-btn" class="avatar" title="Profile"><span id="avatar-letter">♡</span></button>
+        <button id="music-toggle" class="icon-btn" type="button" title="Music" aria-label="Open our music">♫</button>
+        <button id="profile-btn" class="avatar" type="button" title="Profile" aria-label="Open profile"><span id="avatar-letter">♡</span></button>
       </div>
     </header>
 
-    <main id="main-content" class="content"></main>
+    <main id="main-content" class="content" tabindex="-1"></main>
 
-    <nav class="bottom-nav">
-      <button data-route="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span>Home</span></button>
-      <button data-route="memories">♡<span>Memories</span></button>
-      <button data-route="games">♧<span>Games</span></button>
-      <button data-route="gallery"><span class="nav-post-icon">▤</span><span>Post</span></button>
-      <button data-route="letters"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2"/><path d="m3 6 9 7 9-7"/></svg><span>Letters</span></button>
-      <button data-route="more"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2"/><circle cx="12" cy="5" r="2"/><circle cx="12" cy="19" r="2"/></svg><span>More</span></button>
+    <nav class="bottom-nav" aria-label="Main navigation">
+      <button type="button" data-route="home" aria-label="Home" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span>Home</span></button>
+      <button type="button" data-route="memories" aria-label="Memories"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg><span>Memories</span></button>
+      <button type="button" data-route="games" aria-label="Games"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 8h11a4 4 0 0 1 3.8 2.8l1.1 3.8a2.7 2.7 0 0 1-4.4 2.8l-2.5-2.1h-7l-2.5 2.1a2.7 2.7 0 0 1-4.4-2.8l1.1-3.8A4 4 0 0 1 6.5 8Z"/><path d="M7 10.5v4M5 12.5h4M16.5 11.5h.01M19 14h.01"/></svg><span>Games</span></button>
+      <button type="button" data-route="gallery" aria-label="Post"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="15" rx="2"/><path d="M7 3h10M5 5h14M7 17l3.5-4 2.5 2 2.5-3 3.5 5"/><circle cx="9" cy="10" r="1"/></svg><span>Post</span></button>
+      <button type="button" data-route="letters" aria-label="Letters"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2"/><path d="m3 6 9 7 9-7"/></svg><span>Letters</span></button>
+      <button type="button" data-route="more" aria-label="More"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2"/><circle cx="12" cy="5" r="2"/><circle cx="12" cy="19" r="2"/></svg><span>More</span></button>
     </nav>
   </section>
 
   <aside id="music-drawer" class="drawer music-drawer hidden">
-    <div class="drawer-head"><h3>Our Music ♫</h3><button id="music-close" class="icon-btn">×</button></div>
+    <div class="drawer-head"><h3>Our Music ♫</h3><button id="music-close" class="icon-btn" type="button" aria-label="Close music">×</button></div>
     <div class="music-main">
       <div class="music-player">
         <div class="album-art">♫</div>
@@ -98,7 +101,7 @@
       <div class="music-chat-heading"><strong>Live chat</strong><small class="muted">Clears when we're both off the website</small></div>
       <div id="music-chat-messages" class="music-chat-messages" aria-live="polite"></div>
       <form id="music-chat-form" class="music-chat-form">
-        <input id="music-chat-input" maxlength="500" placeholder="Say something…" autocomplete="off" aria-label="Chat message">
+        <input id="music-chat-input" type="text" maxlength="500" placeholder="Say something…" autocomplete="off" aria-label="Chat message">
         <button class="primary" type="submit">Send</button>
       </form>
     </div>

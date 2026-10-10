@@ -107,9 +107,9 @@ export async function notifyPartner(actorKey, type, message, sourceId, route) {
   const actor = APP_CONFIG.profiles[actorKey];
   const recipientKey = Object.keys(APP_CONFIG.profiles).find(key => key !== actorKey);
   if (!actor || !recipientKey) throw new Error("Could not identify both partners for this notification.");
-  if (!["question", "challenge", "letter", "memory"].includes(type)) throw new Error("Unsupported notification type.");
+  if (!["question", "challenge", "letter", "memory", "drawing", "post", "comment", "like", "bucket", "customQuestion", "specialDay", "game", "music"].includes(type)) throw new Error("Unsupported notification type.");
   if (typeof message !== "string" || !message.trim() || message.length > 240) throw new Error("Notification message is invalid.");
-  if (!["home", "questions", "challenges", "letters", "memories"].includes(route)) throw new Error("Notification route is invalid.");
+  if (!["home", "questions", "challenges", "letters", "memories", "drawing", "gallery", "bucket", "more", "games"].includes(route)) throw new Error("Notification route is invalid.");
   const safeSourceId = String(sourceId || "").replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 100);
   if (!safeSourceId) throw new Error("Notification source is missing.");
 
@@ -151,8 +151,7 @@ export function watchNotifications(recipientKey, callback, onError) {
       .sort((a, b) => {
         const timestamp = value => value?.toMillis?.() || Date.parse(value || "") || 0;
         return timestamp(b.createdAt) - timestamp(a.createdAt);
-      })
-      .slice(0, 50)),
+      })),
     onError
   );
 }
@@ -160,11 +159,11 @@ export function watchNotifications(recipientKey, callback, onError) {
 export async function markNotificationsRead(notificationIds) {
   if (!firebaseReady) throw new Error("Connect Firebase before updating notifications.");
   const ids = [...new Set(notificationIds)].filter(id => typeof id === "string" && id);
-  if (ids.length > 50) throw new Error("Too many notifications to update at once.");
-  if (!ids.length) return;
-  const batch = writeBatch(db);
-  ids.forEach(id => batch.update(doc(notificationsRef(), id), { readAt: serverTimestamp() }));
-  await batch.commit();
+  for (let offset = 0; offset < ids.length; offset += 450) {
+    const batch = writeBatch(db);
+    ids.slice(offset, offset + 450).forEach(id => batch.update(doc(notificationsRef(), id), { readAt: serverTimestamp() }));
+    await batch.commit();
+  }
 }
 
 const profilesRef = () => doc(db, ...couplePath(), "settings", "profiles");

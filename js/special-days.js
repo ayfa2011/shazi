@@ -1,6 +1,7 @@
 import { $, esc, toast, todayKey, scheduleDubaiDayRollover } from "./utils.js";
-import { addItem, removeItem, setItem, watchItems } from "./firestore.js";
+import { addItem, removeItem, setItem, watchItems, notifyPartnerSafely } from "./firestore.js";
 import { formatSpecialDayCountdown, formatSpecialDayDate, specialDayCountdown } from "./special-day-utils.js";
+import { APP_CONFIG } from "../config/app-config.js";
 
 let stopSpecialDays = null;
 let specialDaysRolloverTimer = null;
@@ -35,6 +36,8 @@ export function renderSpecialDays(el, user) {
   specialDaysRolloverTimer = null;
   let items = [];
   let editingId = "";
+  const ownKey = Object.keys(APP_CONFIG.profiles).find(key => APP_CONFIG.profiles[key].email === user.email);
+  const actorName = APP_CONFIG.profiles[ownKey]?.name || "Your partner";
 
   el.innerHTML = `<section class="special-days">
     <button class="special-days-back" type="button" data-special-days-back>← More</button>
@@ -144,9 +147,11 @@ export function renderSpecialDays(el, user) {
       const payload = { title, category, date, recurring };
       if (editingId) {
         await setItem(editingId, payload);
+        if (ownKey) void notifyPartnerSafely(ownKey, "specialDay", `${actorName} updated a special day.`, `${editingId}-updated-${Date.now()}`, "more");
         toast("Special day updated ♡");
       } else {
-        await addItem("specialDay", { ...payload, author: user.uid });
+        const day = await addItem("specialDay", { ...payload, author: user.uid });
+        if (ownKey) void notifyPartnerSafely(ownKey, "specialDay", `${actorName} added a special day.`, day.id, "more");
         toast("Special day saved for both of you ♡");
       }
       closeForm();

@@ -1,6 +1,7 @@
 import { APP_CONFIG } from "../config/app-config.js";
 import { storage, rtdb } from "./firebase.js";
 import { $, toast } from "./utils.js";
+import { notifyPartnerSafely } from "./firestore.js";
 import {
   deleteObject,
   getDownloadURL,
@@ -47,6 +48,8 @@ function appendChatMessage(message, profileName, ownMessage) {
 
 export function initMusic(user) {
   cleanupCurrent?.();
+  const ownKey = Object.keys(APP_CONFIG.profiles).find(key => APP_CONFIG.profiles[key].email === user.email);
+  const actorName = APP_CONFIG.profiles[ownKey]?.name || "Your partner";
 
   const player = $("#audio-player");
   const uploadInput = $("#music-upload");
@@ -292,6 +295,7 @@ export function initMusic(user) {
         await remove(libraryItemRef);
         throw error;
       }
+      if (ownKey) void notifyPartnerSafely(ownKey, "music", `${actorName} saved a song to your music.`, libraryItemRef.key, "home");
       toast("Saved to our music ♫");
     } catch (error) {
       reportError(error, "This song could not be saved to your music.");
@@ -386,6 +390,7 @@ export function initMusic(user) {
     try {
       const messageRef = push(chatRef);
       await set(messageRef, { uid, name, text: message.slice(0, MAX_CHAT_LENGTH), sentAt: serverTimestamp() });
+      if (ownKey) void notifyPartnerSafely(ownKey, "music", `${actorName} sent a music chat message.`, messageRef.key, "home");
       input.value = "";
     } catch (error) {
       reportError(error, "Your chat message could not be sent.");
