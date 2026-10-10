@@ -116,14 +116,13 @@ service cloud.firestore {
     }
 
     match /couples/{coupleId}/{collectionName}/{documentId} {
-      // Allow couple members to read the deterministic daily water-progress
-      // document even when it has not been created yet. Firestore evaluates
-      // resource.data as unavailable for a missing document, so the general
-      // rule below cannot authorize this transaction's initial batchGet.
-      allow read: if isCoupleMember()
+      // Allow a signed-in partner to read their own daily water tracker,
+      // including when the document does not exist yet (first glass of the day).
+      allow get: if isCoupleMember()
         && coupleId == 'our-little-world'
         && collectionName == 'items'
-        && documentId.matches('^water-[0-9]{4}-[0-9]{2}-[0-9]{2}-(kebyy|shazy)$');
+        && documentId.matches('^water-[0-9]{4}-[0-9]{2}-[0-9]{2}-(kebyy|shazy)$')
+        && documentId.matches('^water-[0-9]{4}-[0-9]{2}-[0-9]{2}-' + ownNotificationProfileKey() + '$');
 
       allow read: if isCoupleMember()
         && coupleId == 'our-little-world'
