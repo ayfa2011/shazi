@@ -86,3 +86,46 @@
       .splash-heart { font-size: 60px; animation: popUp 1s forwards; }
       @keyframes popUp { 0% { transform: scale(0); opacity: 0; } 50% { transform: scale(1.5); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
       @media(max-width:420px) { .challenge-page-head h1 { font-size:23px; } .challenge-card { padding:13px; } .challenge-tabs button { font-size:14px; } }
+
+
+/* Clean, compact challenge UI refresh */
+.challenge-page { width: min(760px, 100%); margin: 0 auto; padding: 4px 0 28px; }
+.challenge-page-head { margin: 8px 0 14px; }
+.challenge-page-head h1 { font-family: "DM Sans", sans-serif; font-size: clamp(24px, 5vw, 30px); font-weight: 700; letter-spacing: -.035em; color: #35242c; }
+.challenge-page-head .challenge-sparkle { width: 38px; height: 38px; background: #fff0f5; }
+.challenge-tabs { background: #f7edf1; border: 1px solid #f0e2e8; gap: 4px; }
+.challenge-tab { color: #77616b; font-weight: 600; transition: background .18s, color .18s, box-shadow .18s; }
+.challenge-tab.selected { color: #8f315d; box-shadow: 0 2px 8px rgba(40, 20, 30, .07); }
+.challenge-card { background: #fff; border: 1px solid #eee5e9; border-radius: 18px; padding: 18px; box-shadow: 0 5px 20px rgba(45, 25, 35, .045); margin-bottom: 12px; }
+.challenge-card-head { gap: 12px; align-items: flex-start; }
+.challenge-card-head h2 { font-family: "DM Sans", sans-serif; font-size: 17px; line-height: 1.35; font-weight: 700; color: #33242b; }
+.challenge-card > p { color: #82717a; font-size: 13px; line-height: 1.55; margin: 7px 0 12px; }
+.challenge-status { font-size: 11px; font-weight: 700; border-radius: 999px; padding: 6px 9px; white-space: nowrap; background: #f6f1f3; color: #77616b; }
+.challenge-status.completed { background: #eaf7ef; color: #247547; }
+.water-widget { border: 1px solid #e1edf8; background: linear-gradient(135deg, #f8fcff, #eef7ff); border-radius: 16px; padding: 14px; margin-top: 12px; }
+.water-bottle-row { align-items: center; gap: 14px; }
+.water-counts strong { display: block; color: #174d7a; font-size: 16px; }
+.water-counts small { display: block; color: #6c8498; margin-top: 3px; font-size: 12px; }
+.water-controls { display: flex; gap: 8px; margin-top: 12px; }
+.water-controls button { min-height: 42px; border-radius: 12px; font-weight: 700; transition: transform .12s, opacity .12s; }
+.water-controls button:active:not(:disabled) { transform: scale(.98); }
+.water-controls button:disabled { opacity: .42; cursor: not-allowed; }
+.water-remove { min-width: 44px; border: 1px solid #d5e4f2 !important; background: #fff !important; color: #275c86 !important; }
+.water-add { flex: 1; background: #1976bd !important; color: #fff !important; box-shadow: 0 5px 12px rgba(25,118,189,.18); }
+.daily-partner-status { font-size: 12px; color: #74636c; gap: 7px; }
+.daily-partner-status > span { background: #f7f4f5; border: 1px solid #eee6e9; border-radius: 999px; padding: 5px 9px; }
+.challenge-actions { display: flex; gap: 8px; margin-top: 14px; }
+.challenge-actions button, .challenge-main, .challenge-secondary { min-height: 42px; border-radius: 12px; padding: 10px 14px; font-weight: 700; }
+.challenge-main { background: #8f315d; color: #fff; }
+.challenge-secondary { background: #f7edf1; color: #7d2d51; }
+.challenge-empty { background: #fff; border: 1px dashed #e7d9df; color: #887680; border-radius: 16px; padding: 22px 16px; text-align: center; line-height: 1.5; }
+.summary-card { box-shadow: 0 4px 18px rgba(45,25,35,.045); }
+@media (max-width: 520px) {
+  .challenge-card { padding: 14px; border-radius: 16px; }
+  .challenge-card-head { flex-wrap: wrap; }
+  .challenge-card-head > div { flex: 1 1 100%; }
+  .challenge-status { align-self: flex-start; }
+  .water-bottle-row { gap: 10px; }
+  .water-controls button { min-height: 44px; }
+  .challenge-tabs { margin-bottom: 10px; }
+}

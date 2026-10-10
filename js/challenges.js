@@ -275,7 +275,7 @@ export function renderChallenges(el, user, profile) {
       ? `<button type="button" class="snap-mark" data-action="snap-complete" data-id="${esc(assignment.id)}" ${hasCompleted ? "disabled" : ""}>${hasCompleted ? "✓ Snap sent today" : "I sent today's Snap 📸"}</button>`
       : isWaterChallenge ? `<div class="water-widget">
           <div class="water-bottle-row"><div class="water-bottle" aria-label="Water bottle"><div class="water-fill" style="height:${ownCount / 8 * 100}%"></div></div>
-          <div class="water-counts"><strong>💧 ${ownCount}/8 glasses</strong><small>${waterTrackersReady ? "Your daily hydration goal" : "Syncing water progress…"}</small><div class="water-controls"><button type="button" class="water-remove" data-action="water-remove" data-id="${esc(assignment.id)}" aria-label="Remove one glass" ${!waterTrackersReady || ownCount <= 0 ? "disabled" : ""}>−</button><button type="button" class="water-add" data-action="water-add" data-id="${esc(assignment.id)}" aria-label="Add one glass" ${!waterTrackersReady || ownCount >= 8 ? "disabled" : ""}>+ Add a glass</button></div></div></div>
+          <div class="water-counts"><strong>💧 ${ownCount}/8 glasses</strong><small>${waterTrackersReady ? "Your daily hydration goal" : "Syncing water progress…"}</small><div class="water-controls"><button type="button" class="water-remove" data-action="water-remove" data-id="${esc(assignment.id)}" aria-label="Remove one glass" ${!waterTrackersReady || !assignmentsReady || ownCount <= 0 ? "disabled" : ""}>−</button><button type="button" class="water-add" data-action="water-add" data-id="${esc(assignment.id)}" aria-label="Add one glass" ${!waterTrackersReady || !assignmentsReady || ownCount >= 8 ? "disabled" : ""}>+ Add a glass</button></div></div></div>
           <div class="daily-partner-status">${Object.entries(partnerProfiles).map(([key, person]) => { const count = key === ownKey ? ownCount : partnerCount; return `<span>${esc(person.name)} · ${count}/8${count >= 8 ? "✓" : ""}</span>`; }).join("")}</div>
           ${(ownCount >= 8 && partnerCount >= 8) ? `<div class="water-celebrate">✅ Hydrated Together! 💧✨</div>` : ""}
         </div>` : loveWidget;
@@ -417,11 +417,30 @@ export function renderChallenges(el, user, profile) {
       try {
         if (button.dataset.action === "water-add") {
           const nextCount = await changeDailyWaterProgress(dayKey, { uid: user.uid, profileKey: ownKey, name: profile.name }, 1, waterCountFor(ownKey));
+          // Update the local view immediately; the Firestore listener will confirm the saved value.
+          const trackerId = `water-${dayKey}-${ownKey}`;
+          const localTracker = waterTrackers.find(item => item.id === trackerId);
+          if (localTracker) {
+            localTracker.count = nextCount;
+            localTracker.updatedAtMs = Date.now();
+          } else {
+            waterTrackers.push({ id: trackerId, type: "waterChallenge", dayKey, profileKey: ownKey, uid: user.uid, author: user.uid, name: profile.name, count: nextCount, updatedAtMs: Date.now() });
+          }
+          scheduleRender();
           if (nextCount === 8) void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed today's water goal.`, `water-${dayKey}-${ownKey}`, "challenges");
           toast(nextCount >= 8 ? "Daily water goal complete! 💧" : `Glass ${nextCount}/8 saved.`);
         } else if (button.dataset.action === "water-remove") {
           const nextCount = await changeDailyWaterProgress(dayKey, { uid: user.uid, profileKey: ownKey, name: profile.name }, -1, waterCountFor(ownKey));
-          toast(`Water progress updated: ${nextCount}/8. Undo complete.`);
+          const trackerId = `water-${dayKey}-${ownKey}`;
+          const localTracker = waterTrackers.find(item => item.id === trackerId);
+          if (localTracker) {
+            localTracker.count = nextCount;
+            localTracker.updatedAtMs = Date.now();
+          } else {
+            waterTrackers.push({ id: trackerId, type: "waterChallenge", dayKey, profileKey: ownKey, uid: user.uid, author: user.uid, name: profile.name, count: nextCount, updatedAtMs: Date.now() });
+          }
+          scheduleRender();
+          toast(`Water progress updated: ${nextCount}/8.`);
         } else if (button.dataset.action === "love-upload") {
           button.disabled = false;
           openLovePhotoModal();
