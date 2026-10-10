@@ -19,7 +19,7 @@ import { sendToTelegram, getTelegramLovePhoto } from "../src/services/telegramSe
 
 let stopChallenges = null, stopLoveChallenges = null, stopCustomChallenges = null, stopWaterChallenges = null, dayRolloverTimer = null, challengeRenderToken = 0;
 let customCompletedChallenges = [], customAllChallenges = [], waterTrackers = [], waterTrackersReady = false, loveUploads = [];
-let removeProfilesListener = null, removeEscapeListener = null, removeActionsListener = null, lovePhotoUrls = new Map();
+let removeProfilesListener = null, removeEscapeListener = null, removeActionsListener = null, lovePhotoUrls = new Map(), loveRetryCounts = new Map();
 let queuedChallengeRender = 0;
 
 function friendlyDate(dayKey) {
@@ -254,7 +254,10 @@ export function renderChallenges(el, user, profile) {
       }).catch(error => {
         lovePhotoUrls.delete(cacheKey);
         console.error("Love photo could not be revealed:", error);
-        setTimeout(() => { if (isCurrent()) scheduleRender(); }, 5000);
+        // Retry only while the partner has not finished (423), at most 6 times
+        const tries = (loveRetryCounts.get(cacheKey) || 0) + 1;
+        loveRetryCounts.set(cacheKey, tries);
+        if (error.status === 423 && tries <= 6) setTimeout(() => { if (isCurrent()) scheduleRender(); }, 5000);
       });
     });
     const loveWidget = isLoveChallenge ? `<div class="love-widget">
@@ -672,4 +675,5 @@ export function disposeChallenges() {
   removeEscapeListener = null;
   for (const url of lovePhotoUrls.values()) if (url !== "loading") URL.revokeObjectURL(url);
   lovePhotoUrls.clear();
+  loveRetryCounts.clear();
 }
