@@ -42,11 +42,7 @@ export function renderHome(el, user, profile) {
         background: #fff;
         box-shadow: 0 8px 30px #8f315d0a;
       }
-      .home-date-control { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-self: center; gap: 7px; width: fit-content; max-width: 100%; padding: 5px 11px; border: 1px solid #e89ab8; border-radius: 999px; background: #fff8fbdd; color: #741e4b; font-size: 12px; line-height: 1.2; font-weight: 600; }
-      .home-date-heart { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; background: #ffe4ef; color: #d74482; font-size: 14px; line-height: 1; }
       .home-date-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-      .home-counter-art { position: absolute; right: 15px; bottom: -26px; color: #fff9; font: 190px/1 "Playfair Display",serif; pointer-events: none; }
-      .home-counter-content { position: relative; z-index: 1; }
       .home-drawing-panel { margin-top: 0; border: 1px solid var(--line); }
       .home-post-panel { padding: 14px; }
       .home-post-panel .home-avatar { width: 32px; height: 32px; }
@@ -190,31 +186,21 @@ export function renderHome(el, user, profile) {
     </style>
 
     <div class="home-container">
-      <div class="couple-brand">
-        <div class="brand-hearts" aria-hidden="true">♡♡</div>
-        <h1>Keby &amp; Shazy</h1>
-        <p>TWO HEARTS <span>♥</span> ONE JOURNEY</p>
-      </div>
-
       <aside class="home-special-day-reminders" id="home-special-day-reminders" aria-live="polite" hidden></aside>
 
-      <section class="together-counter" aria-label="Relationship counter">
-        <div class="counter-script" aria-hidden="true">Together<br>Since ↗<br>♡</div>
-        <div class="counter-main home-counter-content">
-          <small>OUR RELATIONSHIP STARTED ON</small>
-          <button type="button" class="home-date-control" id="relationship-date">
-            <span class="home-date-heart" aria-hidden="true">♡</span>
-            <span id="relationship-date-label">Choose our date</span>
-          </button>
-          <input class="home-date-input" id="relationship-date-input" type="date" aria-label="Choose relationship start date">
-          <div class="counter-units" aria-live="off">
-            <span><b id="counter-days">0</b><small>Days</small></span><i aria-hidden="true"></i>
-            <span><b id="counter-hours">00</b><small>Hours</small></span><i aria-hidden="true"></i>
-            <span><b id="counter-minutes">00</b><small>Minutes</small></span><i aria-hidden="true"></i>
-            <span><b id="counter-seconds">00</b><small>Seconds</small></span>
-          </div>
+      <section class="home-header-composition" aria-label="Keby and Shazy, two hearts one journey">
+        <img class="home-header-image" src="./Asset/Header.png" alt="Keby and Shazy together in a romantic portrait" fetchpriority="high">
+        <div class="home-header-countdown" aria-label="Time together" aria-live="off">
+          <span><b id="counter-days">0</b></span>
+          <span><b id="counter-hours">00</b></span>
+          <span><b id="counter-minutes">00</b></span>
+          <span><b id="counter-seconds">00</b></span>
         </div>
-        <span class="home-counter-art" aria-hidden="true">♡</span>
+        <button type="button" class="home-header-date" id="relationship-date" aria-label="Edit relationship start date">
+          <span class="home-header-date-heart" aria-hidden="true">♡</span>
+          <span id="relationship-date-label">Choose our date</span>
+        </button>
+        <input class="home-date-input" id="relationship-date-input" type="date" aria-label="Choose relationship start date">
       </section>
 
       <section class="home-feature-grid">
@@ -302,7 +288,7 @@ export function renderHome(el, user, profile) {
     if (!isCurrent()) return;
     $("#relationship-date-label", el).textContent = startDate
       ? new Date(`${startDate}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
-      : "Choose our date";
+      : "Choose date";
     const timestamp = startDate ? new Date(`${startDate}T00:00:00`).getTime() : NaN;
     const elapsed = Number.isFinite(timestamp) ? Math.max(0, Date.now() - timestamp) : 0;
     $("#counter-days", el).textContent = String(Math.floor(elapsed / 86400000));

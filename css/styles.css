@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Nunito:wght@800;900;1000&family=Playfair+Display:wght@500;600&display=swap');
 
 :root{
   --pink:#ef6d9f; --pink2:#f8a7c5; --deep:#8f315d; --bg:#fff7fb;
@@ -455,6 +455,14 @@ body.word-search-fullscreen .content{width:100%;max-width:none;min-height:100dvh
 .home-dashboard .counter-units span small{margin-top:5px;color:#8f7280;font-size:11px}
 .home-dashboard .counter-units i{height:38px;background:#ed6598}
 .home-dashboard .home-counter-art{right:2%;bottom:-50px;color:#ffffff60;font-size:188px;line-height:1;transform:rotate(-8deg)}
+.home-dashboard .home-header-composition{position:relative;width:100%;margin:8px 0 20px;overflow:hidden;line-height:0;background:#fde8ef}
+.home-dashboard .home-header-image{display:block;width:100%;height:auto}
+.home-dashboard .home-header-countdown{position:absolute;left:3.8%;top:56.1%;width:52.2%;height:14%;display:grid;grid-template-columns:1.32fr .95fr .98fr 1.08fr;align-items:center;text-align:center;pointer-events:none}
+.home-dashboard .home-header-countdown span{min-width:0;display:grid;place-items:center}
+.home-dashboard .home-header-countdown b{display:block;color:#a5003e;font-family:'Nunito','Arial Rounded MT Bold',system-ui,sans-serif;font-size:clamp(20px,7vw,64px);font-weight:1000;letter-spacing:-.055em;line-height:1;text-shadow:0 1px 0 #fff1}
+.home-dashboard .home-header-date{position:absolute;left:21.7%;top:44.8%;width:15.2%;height:7.8%;display:flex;align-items:center;justify-content:center;gap:clamp(2px,.5vw,8px);min-height:0;padding:0;border:1px solid #f28aac;border-radius:999px;background:linear-gradient(145deg,#fffafd,#fff5f9);box-shadow:0 2px 6px #a6336512;color:#92274f;font-family:'Nunito',system-ui,sans-serif;font-size:clamp(8px,1.55vw,16px);font-weight:900;line-height:1.1;white-space:nowrap}
+.home-dashboard .home-header-date-heart{display:grid;flex:none;width:1.55em;height:1.55em;place-items:center;border-radius:50%;background:#ffe0eb;color:#e13f7e;font-size:1.25em;line-height:1}
+.home-dashboard .home-header-composition .home-date-input{position:absolute;left:0;top:0;width:1px;height:1px}
 .home-dashboard .home-feature-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:stretch;margin:18px 0 24px}
 .home-dashboard .home-post-panel,.home-dashboard .home-drawing-panel{min-width:0;min-height:255px;margin:0;padding:14px;border:1px solid #f3d5e1;border-radius:26px;background:#fffdfef0;box-shadow:0 12px 30px #a83e6d0a,inset 0 1px #fff}
 .home-dashboard .home-post-panel{display:flex;flex-direction:column;gap:12px}
@@ -499,6 +507,8 @@ body.word-search-fullscreen .content{width:100%;max-width:none;min-height:100dvh
 .home-dashboard .counter-units span small{font-size:10px}
 .home-dashboard .counter-units i{height:32px}
 .home-dashboard .home-counter-art{right:-5%;bottom:-40px;font-size:158px}
+.home-dashboard .home-header-composition{margin-top:12px}
+.home-dashboard .home-header-countdown b{font-size:clamp(19px,7vw,34px)}
 .home-dashboard .home-feature-grid{gap:10px;margin:14px 0 20px}
 .home-dashboard .home-post-panel,.home-dashboard .home-drawing-panel{min-height:245px;padding:10px;border-radius:23px}
 .home-dashboard .home-empty-posts-heart{width:44px;height:44px;border-radius:15px;font-size:29px}
