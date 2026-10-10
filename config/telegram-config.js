@@ -1,4 +1,4 @@
 export const TELEGRAM_CONFIG = {
-  TOKEN: "8870027286:AAF7mGmqHst99TxApPg74R6Oom6Xtv6otPU",
+  // Credentials belong in the server environment, never in a public browser bundle.
   CHAT_ID: "-4865219021"
 };

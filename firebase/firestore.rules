@@ -73,6 +73,14 @@ service cloud.firestore {
         && isOwnAuthorId(data.get('authorId', request.auth.uid));
     }
 
+    function isCustomChallengeCreate(data) {
+      return ownsAuthoredFields(data)
+        && data.get('authorKey', '') == ownNotificationProfileKey()
+        && data.get('recipientKey', '') in ['kebyy', 'shazy']
+        && data.get('recipientKey', '') != ownNotificationProfileKey()
+        && data.get('status', '') == 'upcoming';
+    }
+
     function ownsDiaryPost(collectionName, data) {
       return collectionName != 'diaryPosts'
         || (data.keys().hasAll(['authorId']) && isOwnAuthorId(data.authorId));
@@ -112,7 +120,8 @@ service cloud.firestore {
         && coupleId == 'our-little-world'
         && collectionName != 'notifications'
         && collectionName != 'scheduledLetterContents'
-        && (resource.data.get('type', '') != 'answer'
+        && ((collectionName == 'items' && resource.data.get('type', '') in ['customChallenge', 'loveYouChallenge'])
+          || resource.data.get('type', '') != 'answer'
           || resource.data.get('author', '') == request.auth.uid);
       allow create: if isCoupleMember()
         && coupleId == 'our-little-world'
@@ -120,10 +129,16 @@ service cloud.firestore {
         && collectionName != 'scheduledLetterContents'
         && !(collectionName == 'settings' && documentId == 'profiles')
         && request.resource.data.get('type', '') != 'answer'
-        && ownsAuthoredFields(request.resource.data)
+        && (request.resource.data.get('type', '') == 'customChallenge'
+          ? (collectionName == 'items' && isCustomChallengeCreate(request.resource.data))
+          : (request.resource.data.get('type', '') == 'loveYouChallenge'
+            ? collectionName == 'items'
+              && request.resource.data.get('uploads', {}).keys().hasOnly([ownNotificationProfileKey()])
+            : ownsAuthoredFields(request.resource.data)))
         && (request.resource.data.get('type', '') != 'specialDay'
           || (collectionName == 'items' && isValidSpecialDay(request.resource.data)))
-        && ownsDiaryPost(collectionName, request.resource.data);
+        && (request.resource.data.get('type', '') in ['customChallenge', 'loveYouChallenge']
+          || ownsDiaryPost(collectionName, request.resource.data));
       allow update: if isCoupleMember()
         && coupleId == 'our-little-world'
         && collectionName != 'notifications'
@@ -131,7 +146,10 @@ service cloud.firestore {
         && !(collectionName == 'settings' && documentId == 'profiles')
         && resource.data.get('type', '') != 'answer'
         && (
-          (ownsAuthoredFields(resource.data)
+          (collectionName == 'items'
+            && resource.data.get('type', '') != 'customChallenge'
+            && resource.data.get('type', '') != 'loveYouChallenge'
+            && ownsAuthoredFields(resource.data)
             && ownsAuthoredFields(request.resource.data)
             && ownsDiaryPost(collectionName, request.resource.data))
           || (collectionName == 'items'
@@ -139,6 +157,24 @@ service cloud.firestore {
             && isValidSpecialDay(request.resource.data)
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'category', 'date', 'recurring', 'updatedAt']))
           || (collectionName == 'items' && isLegacyScheduledLetterBodyMigration())
+          || (collectionName == 'items' && resource.data.get('type', '') == 'customChallenge'
+            && ((resource.data.get('author', '') == request.auth.uid
+                && resource.data.get('status', '') in ['upcoming', 'in-progress']
+                && request.resource.data.get('status', '') == resource.data.get('status', '')
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'updatedAtMs']))
+              || (resource.data.get('recipientKey', '') == ownNotificationProfileKey()
+                && request.resource.data.get('author', '') == resource.data.get('author', '')
+                && request.resource.data.get('recipientKey', '') == resource.data.get('recipientKey', '')
+                && request.resource.data.get('status', '') in ['in-progress', 'declined', 'completed']
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'actions', 'acceptedBy', 'acceptedAtMs', 'note', 'photoUrl', 'completedBy', 'completedByKey', 'completedAtMs'])
+                && ((request.resource.data.status == 'in-progress' && resource.data.status in ['upcoming', 'in-progress'])
+                  || (request.resource.data.status == 'declined' && resource.data.status == 'upcoming')
+                  || (request.resource.data.status == 'completed' && resource.data.status == 'in-progress')))))
+          || (collectionName == 'items' && resource.data.get('type', '') == 'loveYouChallenge'
+            && request.resource.data.get('type', '') == 'loveYouChallenge'
+            && request.resource.data.dayKey == resource.data.dayKey
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uploads', 'updatedAtMs'])
+            && request.resource.data.uploads.diff(resource.data.get('uploads', {})).affectedKeys().hasOnly([ownNotificationProfileKey()]))
         );
       allow delete: if isCoupleMember()
         && coupleId == 'our-little-world'
@@ -147,9 +183,15 @@ service cloud.firestore {
         && !(collectionName == 'settings' && documentId == 'profiles')
         && resource.data.get('type', '') != 'answer'
         && (
-          (ownsAuthoredFields(resource.data)
+          ((collectionName == 'items'
+              && resource.data.get('type', '') != 'customChallenge'
+              && resource.data.get('type', '') != 'loveYouChallenge'
+              && ownsAuthoredFields(resource.data))
             && ownsDiaryPost(collectionName, resource.data))
           || (collectionName == 'items' && resource.data.get('type', '') == 'specialDay')
+          || (collectionName == 'items' && resource.data.get('type', '') == 'customChallenge'
+            && resource.data.get('author', '') == request.auth.uid
+            && resource.data.get('status', '') == 'upcoming')
         );
     }
 

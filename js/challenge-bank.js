@@ -8,6 +8,11 @@ export const CHALLENGES = [
     id: "drink-water",
     title: "Drink Water 💧",
     description: "Track your glasses of water. Your daily goal is 8 glasses each."
+  },
+  {
+    id: "love-you-today",
+    title: "Send Something - Love You Today ❤️",
+    description: "Share a little photo or love note. It stays a secret until you both upload today."
   }
 ];
 

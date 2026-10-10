@@ -12,5 +12,15 @@ service firebase.storage {
         && request.resource.contentType.matches('audio/.*');
       allow delete: if isPartner();
     }
+    match /couples/our-little-world/love-challenge/{dayKey}/{fileName} {
+      allow read: if isPartner();
+      allow create, update: if isPartner()
+        && request.resource.size <= 12 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.metadata.ownerUid == request.auth.uid
+        && request.resource.metadata.dayKey == dayKey
+        && request.resource.metadata.profileKey.matches('^(kebyy|shazy)$');
+      allow delete: if isPartner() && resource.metadata.ownerUid == request.auth.uid;
+    }
   }
 }

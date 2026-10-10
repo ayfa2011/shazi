@@ -1,4 +1,4 @@
-import { $, esc, toast, todayKey, compressImage, compressImageWithFilter, scheduleDubaiDayRollover } from "./utils.js";
+import { $, esc, toast, todayKey, compressImageWithFilter, scheduleDubaiDayRollover } from "./utils.js";
 import {
   ensureChallengeAssignment,
   watchChallengeAssignments,
@@ -8,14 +8,18 @@ import {
   skipChallengeAssignment,
   notifyPartnerSafely,
   addItem,
-  setItem
+  setItem,
+  transitionCustomChallenge,
+  saveLovePhoto
 } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
-import { getDisplayName, getProfileKey } from "./profile-data.js";
+import { findProfileForAuthor, getProfileKey } from "./profile-data.js";
 import { challengeDays } from "./challenge-bank.js";
+import { uploadLoveChallengePhoto } from "./drive.js";
+import { sendToTelegram } from "../src/services/telegramService.js";
 
 let stopChallenges = null, stopLegacyChallenges = null, stopCustomChallenges = null, stopWaterChallenges = null, dayRolloverTimer = null, challengeRenderToken = 0;
-let customChallenges = [], customCompletedChallenges = [], waterTrackers = [];
+  let customChallenges = [], customCompletedChallenges = [], waterTrackers = [], loveUploads = [];
 
 function friendlyDate(dayKey) {
   return new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-GB", {
@@ -45,19 +49,26 @@ export function renderChallenges(el, user, profile) {
   const ownKey = getProfileKey(profile);
   const dayKey = todayKey();
   const week = challengeDays(dayKey, 7);
-  let assignments = [], legacyCompletions = [], assignmentsReady = false, assignmentsError = false;
+  const todayChallenges = week.filter(challenge => challenge.dayKey === dayKey);
+  let partnerProfiles = APP_CONFIG.profiles;
+  let assignments = [], assignmentsReady = false, assignmentsError = false;
   let selectedTab = "today";
   let showSkipped = false;
 
-  const todayAssignments = assignments.filter(a => assignmentFor(a).status === "completed" && a.challengeDate === dayKey);
-  const totalPoints = todayAssignments.length;
 
   el.innerHTML = `
     <style>
       .challenge-page { width:min(760px,100%); margin:0 auto; }
-      .summary-card { background: linear-gradient(135deg, #fff0f6, #ffe4ef); padding: 20px; border-radius: 20px; text-align: center; margin-bottom: 20px; border: 1px solid #f2dce5; box-shadow: 0 4px 15px #8f315d10; }
-      .summary-card h3 { margin: 0 0 10px; color: #60283f; font-size: 18px; }
-      .points-display { font-size: 40px; font-weight: 800; color: #e11d48; margin: 10px 0; }
+      .summary-card { background: radial-gradient(circle at top, #fff 0, #fff7fa 45%, #ffe8f1 100%); padding: 19px; border-radius: 24px; text-align: center; margin-bottom: 17px; border: 1px solid #f2dce5; box-shadow: 0 8px 25px #8f315d10; }
+      .summary-card h3 { margin: 0 0 14px; color: #60283f; font:700 20px Georgia,serif; }
+      .score-players { display:grid; grid-template-columns:1fr auto 1fr; gap:12px; align-items:center; }
+      .score-person { display:flex; align-items:center; gap:10px; min-width:0; text-align:left; }
+      .score-person:last-child { flex-direction:row-reverse; text-align:right; }
+      .score-avatar { width:56px; height:56px; flex:none; border-radius:50%; object-fit:cover; border:3px solid #fff; box-shadow:0 2px 9px #8f315d20; }
+      .score-name { display:block; color:#795364; font-size:12px; }
+      .score-value { display:block; color:#c83272; font:700 24px Georgia,serif; }
+      .score-heart { color:#e65391; font-size:20px; }
+      .score-caption { margin:9px 0 0; font-size:11px; }
       .challenge-page-head { display:flex; align-items:center; gap:10px; margin:2px 0 15px; }
       .challenge-page-head .challenge-sparkle { width:40px; height:40px; display:grid; place-items:center; border-radius:50%; background:#ffe6f0; font-size:21px; }
       .challenge-page-head h1 { margin:0; color:var(--deep); font-size:26px; }
@@ -82,6 +93,23 @@ export function renderChallenges(el, user, profile) {
       .challenge-completed-by { margin-top:8px!important; color:var(--muted)!important; font-size:11px!important; }
       .challenge-section-label { margin:17px 0 8px; color:#8c737d; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
       .challenge-empty { padding:24px 12px; border:1px dashed #efc8d8; border-radius:16px; color:var(--muted); text-align:center; font-size:13px; }
+      .challenge-sections { display:flex; gap:8px; margin:0 0 12px; }
+      .challenge-sections button { flex:1; padding:9px; border-radius:12px; background:#fff; border:1px solid #f2dce5; color:#795364; font-weight:700; }
+      .challenge-sections button.selected { background:#e65391; color:#fff; }
+      .give-challenge-hero { display:flex; align-items:center; gap:11px; margin:0 0 14px; padding:12px 14px; border-radius:18px; background:linear-gradient(110deg,#fff2f7,#ffe1ee); border:1px solid #f4ccdc; box-shadow:0 6px 18px #8f315d0c; }
+      .give-challenge-hero .gift { font-size:25px; }
+      .give-challenge-copy { flex:1; text-align:left; }
+      .give-challenge-copy strong { display:block; color:#60283f; font:700 15px Georgia,serif; }
+      .give-challenge-copy small { color:#896b78; }
+      .give-challenge-hero button { border:0; border-radius:999px; padding:10px 14px; background:#d84483; color:white; font-weight:700; white-space:nowrap; }
+      .love-widget { margin-top:12px; padding:13px; border-radius:16px; background:linear-gradient(135deg,#fff4f8,#fef0eb); text-align:center; }
+      .love-photos { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin:10px 0; }
+      .love-photo-card { position:relative; min-height:100px; overflow:hidden; border-radius:13px; background:#f9dce8; }
+      .love-photo-card img { width:100%; height:180px; object-fit:cover; display:block; transition:filter .3s; }
+      .love-photo-card img.locked { filter:blur(18px); transform:scale(1.08); }
+      .love-photo-label { position:absolute; bottom:0; left:0; right:0; padding:6px; background:#32162590; color:white; font-size:11px; }
+      .love-waiting { color:#9b5271; font:italic 13px Georgia,serif; }
+      .love-upload { border:0; border-radius:999px; padding:10px 15px; background:#d84483; color:white; font-weight:700; }
       .challenge-skipped-toggle { width:100%; margin-top:16px; padding:10px; border: none; border-radius:12px; background:#fff; color:#806d76; text-align:left; font-size:12px; font-weight:700; cursor: pointer; }
       .challenge-modal { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:16px; background:#32162580; }
       .challenge-modal-card { width:min(460px,100%); padding:18px; border:1px solid #f1dbe5; border-radius:20px; background:#fffafd; box-shadow:0 20px 60px #54213b30; }
@@ -127,22 +155,19 @@ export function renderChallenges(el, user, profile) {
       @media(max-width:420px) { .challenge-page-head h1 { font-size:23px; } .challenge-card { padding:13px; } .challenge-tabs button { font-size:12px; } }
     </style>
     <section class="challenge-page">
-      <div class="summary-card">
-        <h3>Today's Progress ♡</h3>
-        <div class="points-display">${totalPoints}</div>
-        <p>Points earned today</p>
-      </div>
+      <div class="summary-card" id="challenge-scoreboard"></div>
       <header class="challenge-page-head">
         <span class="challenge-sparkle" aria-hidden="true">✨</span>
         <h1>Challenges</h1>
-        <button type="button" class="challenge-main" style="padding: 6px 12px; margin-left: auto;" id="give-challenge-btn">+ Give Challenge</button>
       </header>
+      <button type="button" class="give-challenge-hero" id="give-challenge-btn"><span class="gift">💌</span><span class="give-challenge-copy"><strong>Send a little challenge</strong><small>Make their day with something sweet</small></span><span>Give Challenge →</span></button>
       <div id="give-challenge-modal-root"></div>
       <div id="custom-challenge-banner-root"></div>
       <nav class="challenge-tabs" aria-label="Challenge sections">
         <button type="button" class="challenge-tab selected" data-tab="today">Today</button>
         <button type="button" class="challenge-tab" data-tab="completed">Completed</button>
       </nav>
+      <div id="custom-assignment-lists"></div>
       <div class="challenge-list" id="challenge-list"><p class="challenge-empty">Loading your challenges…</p></div>
       <div id="challenge-modal-root"></div>
     </section>
@@ -152,6 +177,19 @@ export function renderChallenges(el, user, profile) {
   const modalRoot = $("#challenge-modal-root", el);
   const giveModalRoot = $("#give-challenge-modal-root", el);
   const customBannerRoot = $("#custom-challenge-banner-root", el);
+  const scoreboard = $("#challenge-scoreboard", el);
+  const customListsRoot = $("#custom-assignment-lists", el);
+  let customView = "received";
+
+  function renderScoreboard() {
+    const otherKey = Object.keys(partnerProfiles).find(key => key !== ownKey) || "shazy";
+    const people = [ownKey || "kebyy", otherKey];
+    scoreboard.innerHTML = `<h3>Our little love scoreboard ♡</h3><div class="score-players">${people.map(key => {
+      const person = partnerProfiles[key] || APP_CONFIG.profiles[key];
+      const points = assignments.filter(item => item.challengeDate === dayKey && (item.completedBy || []).some(done => done.profileKey === key || done.uid === person?.authUid)).length;
+      return `<div class="score-person"><img class="score-avatar" src="${esc(person?.avatar || "")}" alt="${esc(person?.name || "Partner")}"><span><small class="score-name">${esc(person?.name || "Partner")}</small><strong class="score-value">${points} <small>pts</small></strong></span></div>`;
+    }).join(`<span class="score-heart">♥</span>`)}</div><p class="score-caption">One point for every challenge completed today</p>`;
+  }
 
   function triggerCompletionSplash() {
     const splash = document.createElement("div");
@@ -161,68 +199,7 @@ export function renderChallenges(el, user, profile) {
     setTimeout(() => splash.remove(), 1000);
   }
 
-  function renderCustomBanner() {
-    if (customChallenges.length === 0) {
-        customBannerRoot.innerHTML = "";
-        return;
-    }
-    const latest = customChallenges[0];
-    const isPartner = latest.author !== user.uid;
-    const isInProgress = latest.status === "in-progress";
-    const deadline = Number(latest.deadlineAt || 0);
-    const remainingMs = deadline ? deadline - Date.now() : 0;
-    const remainingDays = deadline ? Math.max(0, Math.ceil(remainingMs / 86400000)) : null;
-    const countdown = deadline ? (remainingMs <= 0 ? "Deadline passed" : `${remainingDays} day${remainingDays === 1 ? "" : "s"} remaining`) : "No deadline";
-    const expired = deadline > 0 && remainingMs <= 0;
-
-    customBannerRoot.innerHTML = `
-        <div class="custom-challenge-banner">
-            <div class="custom-challenge-icon">🎁</div>
-            <div class="custom-challenge-info">
-                <strong>${isPartner ? "Keby / Shazy sent you a Challenge!" : "Your custom challenge"}</strong>
-                <p><b>${esc(latest.title)}</b></p>
-                <p>${esc(latest.description || "")}</p>
-                <p>${esc(countdown)}${latest.extensionRequested && !isPartner ? " · Partner asked for an extension" : ""}</p>
-                <p><small>${esc(latest.status || "upcoming")}</small></p>
-            </div>
-            ${isPartner && !isInProgress ? `<button class="challenge-secondary" id="extend-custom-btn">Ask for Extension</button><button class="challenge-main" id="accept-custom-btn">Accept</button>` : ""}
-            ${isPartner && isInProgress ? `<button class="challenge-secondary" id="extend-custom-btn">Ask for Extension</button><button class="challenge-main" id="submit-custom-btn">Submit</button>` : ""}
-            ${!isPartner && latest.extensionRequested ? `<span class="challenge-status">Extension requested</span>` : ""}
-            ${!isPartner && latest.extensionRequested ? `<button class="challenge-main" id="approve-extension-btn">+3 Days</button>` : ""}
-        </div>
-    `;
-
-    if (isPartner && !isInProgress) {
-        $("#accept-custom-btn", el).onclick = async event => {
-            const button = event.currentTarget;
-            button.disabled = true;
-            try {
-                await setItem(latest.id, { ...latest, status: "in-progress" });
-                void notifyPartnerSafely(ownKey, "challenge", `${profile.name} accepted your challenge: ${latest.title}`.slice(0, 240), `${latest.id}-accepted`, "challenges");
-                toast("Challenge accepted!");
-            } catch (error) {
-                console.error("Could not accept custom challenge:", error);
-                toast(error.message || "Could not accept this challenge.");
-                button.disabled = false;
-            }
-        };
-    }
-    if (isPartner && isInProgress) {
-        $("#submit-custom-btn", el).onclick = () => openCompletionModal(latest.id, latest, "custom");
-    }
-    if (isPartner) {
-      $("#extend-custom-btn", el)?.addEventListener("click", async () => {
-        try { await setItem(latest.id, { ...latest, extensionRequested: true }); void notifyPartnerSafely(ownKey, "challenge", `${profile.name} requested more time for a challenge.`, `${latest.id}-extension-${Date.now()}`, "challenges"); toast("Extension request sent ♡"); }
-        catch (error) { toast(error.message || "Could not request extension."); }
-      });
-    }
-    if (!isPartner && latest.extensionRequested) {
-      $("#approve-extension-btn", el)?.addEventListener("click", async () => {
-        try { await setItem(latest.id, { ...latest, extensionRequested: false, deadlineAt: Math.max(Date.now(), Number(latest.deadlineAt || Date.now())) + 3 * 86400000 }); void notifyPartnerSafely(ownKey, "challenge", `${profile.name} extended your challenge deadline.`, `${latest.id}-extended-${Date.now()}`, "challenges"); toast("Deadline extended by 3 days."); }
-        catch (error) { toast(error.message || "Could not extend deadline."); }
-      });
-    }
-  }
+  function renderCustomBanner() { customBannerRoot.innerHTML = ""; }
 
   el.querySelectorAll("[data-tab]").forEach(button => {
     button.onclick = () => {
@@ -232,16 +209,16 @@ export function renderChallenges(el, user, profile) {
     };
   });
 
-  $("#give-challenge-btn", el).onclick = () => {
+  function openGiveModal(editing = null) {
     giveModalRoot.innerHTML = `
       <div class="challenge-modal" id="give-challenge-modal" role="dialog" aria-modal="true">
         <section class="challenge-modal-card">
-          <header class="challenge-modal-head"><h2>Give a Challenge</h2><button type="button" class="challenge-modal-close" data-close-give-modal>×</button></header>
+          <header class="challenge-modal-head"><h2>${editing ? "Edit your challenge" : "Give a Challenge"}</h2><button type="button" class="challenge-modal-close" data-close-give-modal>×</button></header>
           <form class="challenge-complete-form" id="give-challenge-form">
-            <label>Title<input type="text" name="title" required></label>
-            <label>Description / Note<textarea name="description" required></textarea></label>
-            <label>Deadline (days)<select name="duration"><option value="1">1 day</option><option value="3">3 days</option><option value="5">5 days</option><option value="7" selected>7 days</option><option value="10">10 days</option><option value="14">14 days</option><option value="30">30 days</option></select></label>
-            <div class="challenge-modal-actions"><button type="button" class="challenge-secondary" data-close-give-modal>Cancel</button><button type="submit" class="challenge-main">Send Challenge</button></div>
+            <label>Title<input type="text" name="title" maxlength="100" required value="${esc(editing?.title || "")}"></label>
+            <label>Description / Note<textarea name="description" maxlength="500" required>${esc(editing?.description || "")}</textarea></label>
+            ${editing ? "" : `<label>Deadline (days)<select name="duration"><option value="1">1 day</option><option value="3">3 days</option><option value="5">5 days</option><option value="7" selected>7 days</option><option value="10">10 days</option><option value="14">14 days</option><option value="30">30 days</option></select></label>`}
+            <div class="challenge-modal-actions"><button type="button" class="challenge-secondary" data-close-give-modal>Cancel</button><button type="submit" class="challenge-main">${editing ? "Save changes" : "Send Challenge"}</button></div>
           </form>
         </section>
       </div>
@@ -249,19 +226,30 @@ export function renderChallenges(el, user, profile) {
     giveModalRoot.querySelectorAll("[data-close-give-modal]").forEach(b => b.onclick = () => giveModalRoot.innerHTML = "");
     $("#give-challenge-form", giveModalRoot).onsubmit = async (e) => {
         e.preventDefault();
-        const title = e.target.elements.title.value;
-        const description = e.target.elements.description.value;
+        const title = e.target.elements.title.value.trim();
+        const description = e.target.elements.description.value.trim();
+        if (!title || !description) return;
+        if (editing) {
+          try {
+            await transitionCustomChallenge(editing.id, { uid: user.uid, profileKey: ownKey }, "edit", { title, description });
+            toast("Challenge updated.");
+            giveModalRoot.innerHTML = "";
+          } catch (err) { toast(err.message || "Could not update this challenge."); }
+          return;
+        }
         const durationDays = Number(e.target.elements.duration.value || 7);
         const createdAt = Date.now();
         const deadlineAt = createdAt + durationDays * 86400000;
         try {
-            const customRef = await addItem("customChallenge", { title, description, durationDays, createdAtMs: createdAt, deadlineAt, extensionRequested: false, status: "upcoming", author: user.uid, authorName: profile.name, recipientKey: Object.keys(APP_CONFIG.profiles).find(key => key !== ownKey) || "" });
+            const recipientKey = Object.keys(APP_CONFIG.profiles).find(key => key !== ownKey) || "";
+            const customRef = await addItem("customChallenge", { title, description, durationDays, createdAtMs: createdAt, deadlineAt, extensionRequested: false, status: "upcoming", author: user.uid, authorKey: ownKey, authorName: profile.name, recipientKey, assignedAtMs: createdAt, sentAtMs: createdAt, sentDate: todayKey(), actions: [] });
             void notifyPartnerSafely(ownKey, "challenge", `${profile.name} sent you a challenge: ${title}`.slice(0, 240), customRef.id, "challenges");
             toast("Challenge sent!");
             giveModalRoot.innerHTML = "";
         } catch (err) { console.error(err); toast("Could not send challenge."); }
     }
-  };
+  }
+  $("#give-challenge-btn", el).onclick = () => openGiveModal();
 
   function assignmentFor(challenge) {
     const storedAssignment = assignments.find(item => item.id === challenge.id);
@@ -304,11 +292,21 @@ export function renderChallenges(el, user, profile) {
     const dateText = showDate ? `<span class="challenge-date">${esc(friendlyDate(challenge.dayKey))}</span>` : "";
     const isSnapChallenge = challenge.challengeId === "send-snap" || challenge.id?.endsWith("-send-snap");
     const isWaterChallenge = challenge.challengeId === "drink-water" || challenge.id?.endsWith("-drink-water");
+    const isLoveChallenge = challenge.challengeId === "love-you-today" || challenge.id?.endsWith("-love-you-today");
     const ownWater = waterTrackers.find(item => item.dayKey === dayKey && item.profileKey === ownKey);
     const otherKey = Object.keys(APP_CONFIG.profiles).find(key => key !== ownKey);
     const partnerWater = waterTrackers.find(item => item.dayKey === dayKey && item.profileKey === otherKey);
     const ownCount = Math.max(0, Math.min(8, Number(ownWater?.count || 0)));
     const partnerCount = Math.max(0, Math.min(8, Number(partnerWater?.count || 0)));
+    const loveRecord = loveUploads.find(item => item.dayKey === dayKey);
+    const uploads = loveRecord?.uploads || {};
+    const otherKeyForLove = Object.keys(partnerProfiles).find(key => key !== ownKey) || "shazy";
+    const revealed = Boolean(uploads[ownKey]?.photoUrl && uploads[otherKeyForLove]?.photoUrl && uploads[ownKey]?.dayKey === dayKey && uploads[otherKeyForLove]?.dayKey === dayKey);
+    const loveWidget = isLoveChallenge ? `<div class="love-widget">
+      ${revealed ? `<p>Our little love notes are here 🌸</p>` : `<p class="love-waiting">${uploads[ownKey]?.dayKey === dayKey ? "A secret photo is waiting! Upload yours to reveal each other's love note today 🌸" : "Share a little something today; it stays hidden until you both upload 🌸"}</p>`}
+      <div class="love-photos">${[ownKey, otherKeyForLove].map(key => { const image = uploads[key]; const person = partnerProfiles[key] || APP_CONFIG.profiles[key]; const visiblePhoto = image?.photoUrl && (revealed || key === ownKey); return visiblePhoto ? `<div class="love-photo-card"><img src="${esc(image.photoUrl)}" alt="${esc(person?.name || "Partner")}'s love photo"><span class="love-photo-label">${esc(person?.name || "Partner")}</span></div>` : `<div class="love-photo-card" style="display:grid;place-items:center;color:#a76180">${image?.photoUrl ? "🔒" : "♡"}<span class="love-photo-label">${esc(person?.name || "Partner")} · ${image?.photoUrl ? "secret" : "waiting"}</span></div>`; }).join("")}</div>
+      ${uploads[ownKey]?.dayKey === dayKey ? `<button class="love-upload" type="button" disabled>✓ Your photo is in</button>` : `<button class="love-upload" type="button" data-action="love-upload" data-id="${esc(assignment.id)}">Add your photo ♡</button>`}
+      </div>` : "";
     const specialWidget = isSnapChallenge
       ? `<button type="button" class="snap-mark" data-action="snap-complete" data-id="${esc(assignment.id)}" ${hasCompleted ? "disabled" : ""}>${hasCompleted ? "✓ Snap sent today" : "I sent today's Snap 📸"}</button>`
       : isWaterChallenge ? `<div class="water-widget">
@@ -317,8 +315,8 @@ export function renderChallenges(el, user, profile) {
           <button type="button" class="water-add" data-action="water-add" data-id="${esc(assignment.id)}" ${ownCount >= 8 ? "disabled" : ""}>+ Glass</button></div></div>
           <p><b>Keby:</b> ${ownKey === "kebyy" ? ownCount : partnerCount}/8 &nbsp; · &nbsp; <b>Shazy:</b> ${ownKey === "shazy" || ownKey === "shazila" ? ownCount : partnerCount}/8</p>
           ${(ownCount >= 8 && partnerCount >= 8) ? `<div class="water-celebrate">✅ Hydrated Together! 💧✨</div>` : ""}
-        </div>` : "";
-    const actions = isSnapChallenge || isWaterChallenge ? "" : status === "upcoming"
+        </div>` : loveWidget;
+    const actions = isSnapChallenge || isWaterChallenge || isLoveChallenge ? "" : status === "upcoming"
       ? `<div class="challenge-actions">${hasSkipped ? `<button class="challenge-main" data-action="accept" data-id="${esc(assignment.id)}">Accept instead</button>` : `<button class="challenge-secondary" data-action="skip" data-id="${esc(assignment.id)}">Skip</button><button class="challenge-main" data-action="accept" data-id="${esc(assignment.id)}">Accept</button>`}</div>`
       : status === "in-progress"
         ? hasCompleted
@@ -350,7 +348,6 @@ export function renderChallenges(el, user, profile) {
   }
 
   function renderToday() {
-    const todayChallenges = week.filter(challenge => challenge.dayKey === dayKey);
     const skipped = assignments.filter(item => assignmentFor(item).status === "skipped");
     let html = todayChallenges.map(challenge => assignmentFor(challenge).status === "skipped"
       ? `<p class="challenge-empty">Today's ${esc(challenge.title)} was skipped. You can find it below.</p>`
@@ -372,6 +369,7 @@ export function renderChallenges(el, user, profile) {
   function render() {
     if (!isCurrent()) return;
     renderCustomBanner();
+    renderScoreboard();
     if (assignmentsError) {
       list.innerHTML = `<p class="challenge-empty">Challenges could not be loaded. Please check your connection and try again.</p>`;
       return;
@@ -382,31 +380,61 @@ export function renderChallenges(el, user, profile) {
     }
     if (selectedTab === "today") {
       renderToday();
+      const received = customChallenges.filter(item => item.recipientKey === ownKey);
+      const sent = customChallenges.filter(item => item.author === user.uid);
+      customListsRoot.innerHTML = `<p class="challenge-section-label">Give Challenge · partner assignments</p><nav class="challenge-sections"><button type="button" data-custom-view="received" class="${customView === "received" ? "selected" : ""}">Received (${received.length})</button><button type="button" data-custom-view="sent" class="${customView === "sent" ? "selected" : ""}">Sent (${sent.length})</button></nav>${customView === "received" ? customChallengeCards(received, true) : customChallengeCards(sent, false)}`;
+      customListsRoot.querySelectorAll("[data-custom-view]").forEach(button => button.onclick = () => { customView = button.dataset.customView; render(); });
     } else {
+      customListsRoot.innerHTML = "";
       const oneMonthAgo = Date.now() - 30 * 86400000;
       const completed = assignments
-        .filter(item => assignmentFor(item).status === "completed" && (item.completedAt?.toMillis?.() || new Date(item.completedAt || 0).getTime()) > oneMonthAgo)
-        .sort((a, b) => (b.completedAt?.toMillis?.() || new Date(b.completedAt || 0).getTime()) - (a.completedAt?.toMillis?.() || new Date(a.completedAt || 0).getTime()));
+        .filter(item => assignmentFor(item).status === "completed" && (item.completedAt?.toMillis?.() || new Date(item.completedAt || 0).getTime() || Date.parse(`${item.challengeDate}T12:00:00`)) > oneMonthAgo)
+        .sort((a, b) => (b.completedAt?.toMillis?.() || new Date(b.completedAt || 0).getTime() || Date.parse(`${b.challengeDate}T12:00:00`)) - (a.completedAt?.toMillis?.() || new Date(a.completedAt || 0).getTime() || Date.parse(`${a.challengeDate}T12:00:00`)));
 
+      const standardCards = completed.map(item => challengeCard({ ...item, id: item.id, dayKey: item.challengeDate }, true)).join("");
       const customCompletedCards = customCompletedChallenges.map(item => `
         <article class="challenge-card">
           <div class="challenge-card-head"><div><h2>${esc(item.title || "Custom Challenge")}</h2></div><span class="challenge-status completed">✅ Completed</span></div>
           ${item.description ? `<p>${esc(item.description)}</p>` : ""}
           ${item.photoUrl ? `<img class="challenge-completion-photo" src="${esc(item.photoUrl)}" alt="Custom challenge completion">` : ""}
           ${item.note ? `<p class="challenge-completed-note">${esc(item.note)}</p>` : ""}
-          <p class="challenge-completed-by">Created by ${esc(getDisplayName(item.author, item.authorName || "Us"))}</p>
+          <p class="challenge-completed-by">${esc(findProfileForAuthor(item.completedBy || item.author, item.completedByName || item.authorName || "")?.name || item.completedByName || item.authorName || "Us")} · ${esc(friendlyDate(item.completedAtMs ? new Date(item.completedAtMs).toISOString().slice(0,10) : item.sentDate || dayKey))}</p>
         </article>
       `);
 
       list.innerHTML = completed.length || customCompletedCards.length
-      ? `${completed.map(item => challengeCard({ ...item, id: item.id, dayKey: item.challengeDate }, true)).join("")}${customCompletedCards.join("")}`
+      ? `${standardCards ? `<p class="challenge-section-label">Daily challenges · last 30 days</p>${standardCards}` : ""}${customCompletedCards.length ? `<p class="challenge-section-label">Partner challenges · all time</p>${customCompletedCards.join("")}` : ""}`
       : `<p class="challenge-empty">Completed challenges will be saved here ♡</p>`;
     }
 
     bindActions();
+    renderScoreboard();
+  }
+
+  function customChallengeCards(items, received) {
+    if (!items.length) return `<p class="challenge-empty">${received ? "No partner challenges are waiting right now ♡" : "Challenges you send will appear here ♡"}</p>`;
+    return `<div class="challenge-list">${items.sort((a,b) => Number(b.sentAtMs || b.createdAtMs || 0) - Number(a.sentAtMs || a.createdAtMs || 0)).map(item => {
+      const date = Number(item.sentAtMs || item.assignedAtMs || item.createdAtMs || 0);
+      const status = item.status === "in-progress" ? "Accepted" : item.status === "completed" ? "Completed" : item.status === "declined" ? "Declined" : "Pending";
+      return `<article class="challenge-card"><div class="challenge-card-head"><div><span class="challenge-date">${received ? "Assigned" : "Sent"} ${date ? esc(new Date(date).toLocaleDateString("en-GB", {day:"numeric",month:"short",year:"numeric"})) : ""}</span><h2>${esc(item.title || "Custom Challenge")}</h2></div><span class="challenge-status${status === "Completed" ? " completed" : ""}">${status}</span></div>${item.description ? `<p>${esc(item.description)}</p>` : ""}${item.note ? `<p class="challenge-completed-note">${esc(item.note)}</p>` : ""}${item.photoUrl ? `<img class="challenge-completion-photo" src="${esc(item.photoUrl)}" alt="Challenge completion">` : ""}${received && item.status === "upcoming" ? `<div class="challenge-actions"><button class="challenge-secondary" data-custom-action="decline" data-id="${esc(item.id)}">Decline</button><button class="challenge-main" data-custom-action="accept" data-id="${esc(item.id)}">Accept</button></div>` : ""}${received && item.status === "in-progress" ? `<div class="challenge-actions"><button class="challenge-main" data-custom-action="complete" data-id="${esc(item.id)}">Mark Complete</button></div>` : ""}${!received && item.status === "upcoming" ? `<div class="challenge-actions"><button class="challenge-secondary" data-custom-action="edit" data-id="${esc(item.id)}">Edit</button><button class="challenge-secondary" data-custom-action="delete" data-id="${esc(item.id)}">Delete</button></div>` : ""}</article>`;
+    }).join("")}</div>`;
   }
 
   function bindActions() {
+    customListsRoot.querySelectorAll("[data-custom-action]").forEach(button => button.onclick = async () => {
+      const item = customChallenges.find(challenge => challenge.id === button.dataset.id);
+      if (!item) return;
+      const action = button.dataset.customAction;
+      if (action === "edit") return openGiveModal(item);
+      if (action === "complete") return openCompletionModal(item.id, item, "custom");
+      button.disabled = true;
+      try {
+        await transitionCustomChallenge(item.id, { uid: user.uid, profileKey: ownKey, name: profile.name }, action);
+        if (action === "delete") toast("Challenge deleted.");
+        if (action === "accept") { void notifyPartnerSafely(ownKey, "challenge", `${profile.name} accepted your challenge: ${item.title}`.slice(0, 240), `${item.id}-accepted`, "challenges"); toast("Challenge accepted ♡"); }
+        if (action === "decline") { void notifyPartnerSafely(ownKey, "challenge", `${profile.name} declined your challenge: ${item.title}`.slice(0, 240), `${item.id}-declined`, "challenges"); toast("Challenge declined."); }
+      } catch (error) { toast(error.message || "Could not update this challenge."); button.disabled = false; }
+    });
     list.querySelectorAll("[data-action]").forEach(button => {
       button.onclick = async () => {
         const assignmentId = button.dataset.id;
@@ -424,6 +452,8 @@ export function renderChallenges(el, user, profile) {
             else await addItem("waterChallenge", { dayKey, profileKey: ownKey, uid: user.uid, name: profile.name, count: nextCount, updatedAtMs: Date.now() });
             if (nextCount >= 8 && Number(tracker?.count || 0) < 8) void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed today's water goal.`, `water-${dayKey}-${ownKey}`, "challenges");
             toast(nextCount >= 8 ? "Daily water goal complete! 💧" : `Glass ${nextCount}/8 saved.`);
+          } else if (button.dataset.action === "love-upload") {
+            openLovePhotoModal(assignmentId);
           } else if (button.dataset.action === "snap-complete") {
             await acceptChallengeAssignment(assignmentId, user.uid, ownKey, profile.name);
             await completeChallengeAssignment(assignmentId, { uid: user.uid, profileKey: ownKey, name: profile.name }, "Sent today's Snap on Snapchat 📸", "");
@@ -518,7 +548,7 @@ export function renderChallenges(el, user, profile) {
         if (selectedPhoto && !photoUrl) throw new Error("Could not read that photo. Choose another image.");
 
         if (challengeId === "custom") {
-            await setItem(assignmentId, { ...assignment, status: "completed", note: form.elements.note?.value || "", photoUrl });
+            await transitionCustomChallenge(assignmentId, { uid: user.uid, profileKey: ownKey, name: profile.name }, "complete", { note: form.elements.note?.value?.trim() || "", photoUrl });
             void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed your challenge.`, `${assignmentId}-completed`, "challenges");
         } else {
             await completeChallengeAssignment(assignmentId, {
@@ -537,6 +567,42 @@ export function renderChallenges(el, user, profile) {
         toast(error.message || "Could not save this completion.");
         submit.disabled = false;
         submit.textContent = "Save completion ♡";
+      }
+    };
+  }
+
+  function openLovePhotoModal(assignmentId) {
+    modalRoot.innerHTML = `<div class="challenge-modal" role="dialog" aria-modal="true"><section class="challenge-modal-card"><header class="challenge-modal-head"><h2>Send a little love 🌸</h2><button type="button" class="challenge-modal-close" data-close-love>×</button></header><p class="muted">Your photo stays hidden until your partner uploads theirs today too.</p><form class="challenge-complete-form" id="love-photo-form"><label>Choose today's photo<input type="file" name="photo" accept="image/*" capture="user" required></label><img class="challenge-photo-preview hidden" alt="Photo preview"><div class="challenge-modal-actions"><button type="button" class="challenge-secondary" data-close-love>Cancel</button><button type="submit" class="challenge-main">Send with love ♡</button></div></form></section></div>`;
+    const form = $("#love-photo-form", modalRoot);
+    const dialog = form.closest(".challenge-modal");
+    const image = form.querySelector("img");
+    dialog.querySelectorAll("[data-close-love]").forEach(button => button.onclick = () => { modalRoot.innerHTML = ""; });
+    dialog.onclick = event => { if (event.target === dialog) modalRoot.innerHTML = ""; };
+    form.elements.photo.onchange = () => {
+      const file = form.elements.photo.files[0];
+      if (!file) return;
+      image.src = URL.createObjectURL(file);
+      image.classList.remove("hidden");
+    };
+    form.onsubmit = async event => {
+      event.preventDefault();
+      const button = form.querySelector('[type="submit"]');
+      const file = form.elements.photo.files[0];
+      button.disabled = true;
+      button.textContent = "Sending…";
+      try {
+        const { photoUrl } = await uploadLoveChallengePhoto(file, dayKey, ownKey, user.uid);
+        await saveLovePhoto(dayKey, { uid: user.uid, profileKey: ownKey, name: profile.name }, photoUrl);
+        try { await sendToTelegram(file, `Love You Today · ${profile.name} · ${dayKey}`); }
+        catch (telegramError) { console.error("Telegram forwarding failed:", telegramError); toast("Your photo is saved here. Telegram forwarding could not finish."); }
+        void notifyPartnerSafely(ownKey, "challenge", `${profile.name} sent a secret love photo. Add yours to reveal them both 🌸`, `love-${dayKey}-${ownKey}`, "challenges");
+        modalRoot.innerHTML = "";
+        toast("Your love photo is waiting for your partner ♡");
+      } catch (error) {
+        console.error("Could not save love photo:", error);
+        toast(error.message || "Could not send your photo.");
+        button.disabled = false;
+        button.textContent = "Send with love ♡";
       }
     };
   }
@@ -582,7 +648,7 @@ export function renderChallenges(el, user, profile) {
   });
   stopCustomChallenges = watchItems("customChallenge", items => {
     if (!isCurrent()) return;
-    customChallenges = items.filter(item => item.status === "upcoming" || item.status === "in-progress");
+    customChallenges = items.filter(item => item.status !== "completed");
     customCompletedChallenges = items.filter(item => item.status === "completed");
     render();
   }, error => {
@@ -590,6 +656,15 @@ export function renderChallenges(el, user, profile) {
     if (!isCurrent()) return;
     toast("Custom challenges could not be loaded.");
   });
+  stopLegacyChallenges = watchItems("loveYouChallenge", items => {
+    if (!isCurrent()) return;
+    loveUploads = items;
+    render();
+  }, error => {
+    console.error("Love challenge uploads could not be synced:", error);
+    if (isCurrent()) toast("Love challenge photos could not be synced.");
+  });
+  window.addEventListener("couple-profiles-updated", () => { partnerProfiles = APP_CONFIG.profiles; render(); }, { once: true });
   prepareWeek();
 }
 

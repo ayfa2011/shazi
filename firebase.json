@@ -11,6 +11,12 @@
   },
   "hosting": {
     "public": ".",
+    "rewrites": [
+      {
+        "source": "/api/telegram-love-photo",
+        "function": "telegramLovePhoto"
+      }
+    ],
     "ignore": [
       "firebase.json",
       "**/.*",
@@ -27,5 +33,8 @@
         ]
       }
     ]
+  },
+  "functions": {
+    "source": "functions"
   }
 }

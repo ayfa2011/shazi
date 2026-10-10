@@ -1,0 +1,10 @@
+{
+  "name": "our-little-world-functions",
+  "type": "module",
+  "engines": { "node": "20" },
+  "dependencies": {
+    "firebase-functions": "^6.0.1",
+    "firebase-admin": "^12.7.0",
+    "busboy": "^1.6.0"
+  }
+}

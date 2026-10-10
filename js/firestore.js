@@ -425,6 +425,60 @@ export async function completeChallengeAssignment(challengeId, actor, note, phot
   });
 }
 
+export async function transitionCustomChallenge(id, actor, action, extra = {}) {
+  if (!firebaseReady) throw new Error("Connect Firebase before using challenges.");
+  const reference = doc(root(), id);
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists() || snapshot.data().type !== "customChallenge") throw new Error("This challenge is no longer available.");
+    const current = snapshot.data();
+    if (action === "edit" || action === "delete") {
+      if (current.author !== actor.uid) throw new Error("Only the person who created this challenge can change it.");
+      if (current.status === "completed") throw new Error("Completed challenges are kept as history.");
+      if (action === "delete") { transaction.delete(reference); return; }
+      transaction.update(reference, { ...extra, updatedAtMs: Date.now() });
+      return;
+    }
+    if (current.author === actor.uid) throw new Error("You cannot act on a challenge you created.");
+    const actions = Array.isArray(current.actions) ? current.actions : [];
+    const previous = actions.find(item => item.profileKey === actor.profileKey);
+    if (action === "accept") {
+      if (current.status === "completed" || current.status === "declined") throw new Error("This challenge is already closed.");
+      if (previous?.status === "accepted") return;
+      const nextActions = actions.filter(item => item.profileKey !== actor.profileKey);
+      nextActions.push({ ...actor, status: "accepted", updatedAtMs: Date.now() });
+      transaction.update(reference, { status: "in-progress", actions: nextActions, acceptedBy: actor.uid, acceptedAtMs: Date.now() });
+      return;
+    }
+    if (action === "decline") {
+      if (current.status !== "upcoming") throw new Error("Only pending challenges can be declined.");
+      transaction.update(reference, { status: "declined", actions: [...actions.filter(item => item.profileKey !== actor.profileKey), { ...actor, status: "declined", updatedAtMs: Date.now() }] });
+      return;
+    }
+    if (action === "complete") {
+      if (current.status !== "in-progress") throw new Error("Accept this challenge before completing it.");
+      transaction.update(reference, { status: "completed", note: extra.note || "", photoUrl: extra.photoUrl || "", completedBy: actor.uid, completedByKey: actor.profileKey, completedAtMs: Date.now(), actions: [...actions.filter(item => item.profileKey !== actor.profileKey), { ...actor, status: "completed", updatedAtMs: Date.now() }] });
+    }
+  });
+}
+
+export async function saveLovePhoto(dayKey, actor, photoUrl) {
+  if (!firebaseReady) throw new Error("Connect Firebase before using challenges.");
+  const reference = doc(root(), `love-you-${dayKey}`);
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(reference);
+    const current = snapshot.exists() ? snapshot.data() : { type: "loveYouChallenge", dayKey, uploads: {} };
+    if (current.uploads?.[actor.profileKey]?.dayKey === dayKey) throw new Error("You have already shared today's photo.");
+    transaction.set(reference, {
+      ...current,
+      type: "loveYouChallenge",
+      dayKey,
+      uploads: { ...(current.uploads || {}), [actor.profileKey]: { uid: actor.uid, name: actor.name, photoUrl, dayKey, uploadedAtMs: Date.now() } },
+      updatedAtMs: Date.now()
+    });
+  });
+}
+
 export function watchChallengeAssignments(callback, onError, limitVal = null) {
   if (!firebaseReady) throw new Error("Connect Firebase before using challenges.");
   let q = query(challengeAssignments(), orderBy("challengeDate", "desc"));
