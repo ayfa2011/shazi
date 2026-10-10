@@ -116,8 +116,10 @@ service cloud.firestore {
     }
 
     match /couples/{coupleId}/{collectionName}/{documentId} {
-      // Water progress uses deterministic per-day documents. Permit couple members
-      // to read these documents even before the first glass creates the document.
+      // Allow couple members to read the deterministic daily water-progress
+      // document even when it has not been created yet. Firestore evaluates
+      // resource.data as unavailable for a missing document, so the general
+      // rule below cannot authorize this transaction's initial batchGet.
       allow read: if isCoupleMember()
         && coupleId == 'our-little-world'
         && collectionName == 'items'
