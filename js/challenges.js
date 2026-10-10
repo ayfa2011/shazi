@@ -396,6 +396,12 @@ export function renderChallenges(el, user, profile) {
         <p class="challenge-completed-by">Completed by ${esc(getDisplayName(item.author, item.authorName || "Us"))}</p>
       </article>
       `);
+
+      let loadMoreBtn = "";
+      if (legacyCompletions.length === legacyLimit) {
+          loadMoreBtn = `<button type="button" id="load-more-legacy" style="width: 100%; margin-top: 10px; padding: 10px; border: 1px solid #f3d4df; border-radius: 999px; background: #fff8fb; color: #8f4263; font-weight: 600;">Load More</button>`;
+      }
+
       const customCompletedCards = customCompletedChallenges.map(item => `
       <article class="challenge-card">
         <div class="challenge-card-head"><div><h2>${esc(item.title || "Custom Challenge")}</h2></div><span class="challenge-status completed">✅ Completed</span></div>
@@ -406,8 +412,15 @@ export function renderChallenges(el, user, profile) {
       </article>
       `);
       list.innerHTML = completed.length || legacyCards.length || customCompletedCards.length
-      ? `${completed.map(item => challengeCard({ ...item, id: item.id, dayKey: item.challengeDate }, true)).join("")}${legacyCards.join("")}${customCompletedCards.join("")}`
+      ? `${completed.map(item => challengeCard({ ...item, id: item.id, dayKey: item.challengeDate }, true)).join("")}${legacyCards.join("")}${customCompletedCards.join("")}${loadMoreBtn}`
       : `<p class="challenge-empty">Completed challenges will be saved here ♡</p>`;
+
+      if (loadMoreBtn) {
+          $("#load-more-legacy", list).onclick = () => {
+              legacyLimit += 20;
+              updateLegacyWatch();
+          };
+      }
     }
 
     bindActions();
@@ -573,15 +586,21 @@ export function renderChallenges(el, user, profile) {
     list.innerHTML = `<p class="challenge-empty">Challenges could not be loaded. Please check your connection and try again.</p>`;
     toast("Challenge updates could not be synced.");
   });
-  stopLegacyChallenges = watchItems("challenge", items => {
-    if (!isCurrent()) return;
-    legacyCompletions = items.filter(item => item.done);
-    if (selectedTab === "completed") render();
-  }, error => {
-    console.error("Older challenges could not be loaded:", error);
-    if (!isCurrent()) return;
-    toast("Older challenges could not be loaded.");
-  });
+  let legacyLimit = 20;
+
+  function updateLegacyWatch() {
+    stopLegacyChallenges?.();
+    stopLegacyChallenges = watchItems("challenge", items => {
+      if (!isCurrent()) return;
+      legacyCompletions = items.filter(item => item.done);
+      if (selectedTab === "completed") render();
+    }, error => {
+      console.error("Older challenges could not be loaded:", error);
+      if (!isCurrent()) return;
+      toast("Older challenges could not be loaded.");
+    }, legacyLimit);
+  }
+  updateLegacyWatch();
   stopWaterChallenges = watchItems("waterChallenge", items => {
     if (!isCurrent()) return;
     waterTrackers = items;

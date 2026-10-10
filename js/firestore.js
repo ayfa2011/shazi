@@ -1,5 +1,5 @@
 import { db, firebaseReady } from "./firebase.js";
-import { collection, doc, addDoc, setDoc, getDoc, getDocs, deleteDoc, updateDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp, arrayUnion, arrayRemove, runTransaction, writeBatch, deleteField, Timestamp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+import { collection, doc, addDoc, setDoc, getDoc, getDocs, deleteDoc, updateDoc, query, where, orderBy, limit, startAfter, onSnapshot, serverTimestamp, arrayUnion, arrayRemove, runTransaction, writeBatch, deleteField, Timestamp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 
 const root = () => {
@@ -78,9 +78,24 @@ export async function listItems(type) {
   return s.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
+export async function listItemsPaginated(type, limitVal = 20, lastVisible = null) {
+  let q = query(root(), where("type", "==", type), orderBy("createdAt", "desc"), limit(limitVal));
+  if (lastVisible) {
+      q = query(root(), where("type", "==", type), orderBy("createdAt", "desc"), startAfter(lastVisible), limit(limitVal));
+  }
+  const s = await getDocs(q);
+  return {
+    items: s.docs.map(d => ({ id: d.id, ...d.data() })),
+    lastVisible: s.docs[s.docs.length - 1] || null
+  };
+}
+
 // Optimized backend listener filter
-export function watchItems(type, cb, onError) {
-  const q = query(root(), where("type", "==", type), orderBy("createdAt", "desc"));
+export function watchItems(type, cb, onError, limitVal = null) {
+  let q = query(root(), where("type", "==", type), orderBy("createdAt", "desc"));
+  if (limitVal) {
+      q = query(q, limit(limitVal));
+  }
   return onSnapshot(q, s => cb(s.docs.map(d => ({ id: d.id, ...d.data() }))), onError);
 }
 
@@ -411,9 +426,13 @@ export async function completeChallengeAssignment(challengeId, actor, note, phot
   });
 }
 
-export function watchChallengeAssignments(callback, onError) {
+export function watchChallengeAssignments(callback, onError, limitVal = null) {
   if (!firebaseReady) throw new Error("Connect Firebase before using challenges.");
-  return onSnapshot(query(challengeAssignments(), orderBy("challengeDate", "desc")), snapshot => {
+  let q = query(challengeAssignments(), orderBy("challengeDate", "desc"));
+  if (limitVal) {
+      q = query(q, limit(limitVal));
+  }
+  return onSnapshot(q, snapshot => {
     callback(snapshot.docs.map(item => ({ id: item.id, ...item.data() })));
   }, onError);
 }

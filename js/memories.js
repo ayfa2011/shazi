@@ -333,6 +333,14 @@ export function renderMemories(el, user, profile) {
       `)
       .join("");
 
+    if (allMemories.length === currentLimit) {
+        container.innerHTML += `<button type="button" id="load-more-memories" style="grid-column: 1 / -1; margin-top: 10px; padding: 10px; border: 1px solid #f3d4df; border-radius: 999px; background: #fff8fb; color: #8f4263; font-weight: 600;">Load More</button>`;
+        $("#load-more-memories", el).onclick = () => {
+            currentLimit += 20;
+            updateWatch();
+        };
+    }
+
     container.querySelectorAll(".memory-item").forEach((card) => {
       card.onclick = () => {
         const index = sortedMemories.findIndex((memory) => memory.id === card.dataset.id);
@@ -363,15 +371,21 @@ export function renderMemories(el, user, profile) {
   window.addEventListener("keydown", closeViewOnEscape);
   removeMemoryEscapeListener = () => window.removeEventListener("keydown", closeViewOnEscape);
 
-  stopMemories = watchItems("memory", (items) => {
-    if (!active || !el.isConnected) return;
-    allMemories = items || [];
-    renderGrid();
-  }, error => {
-    console.error("Memories could not be loaded:", error);
-    const container = $("#memories-grid-container", el);
-    if (container) container.innerHTML = `<p style="color:#9ca3af; font-size:13px; grid-column:1/-1;">Memories could not be loaded. Please try again.</p>`;
-  });
+  let currentLimit = 20;
+
+  function updateWatch() {
+    stopMemories?.();
+    stopMemories = watchItems("memory", (items) => {
+      if (!active || !el.isConnected) return;
+      allMemories = items || [];
+      renderGrid();
+    }, error => {
+      console.error("Memories could not be loaded:", error);
+      const container = $("#memories-grid-container", el);
+      if (container) container.innerHTML = `<p style="color:#9ca3af; font-size:13px; grid-column:1/-1;">Memories could not be loaded. Please try again.</p>`;
+    }, currentLimit);
+  }
+  updateWatch();
 }
 
 export function disposeMemories() {
