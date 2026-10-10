@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "our-little-world-";
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 const CACHE_NAME = `${CACHE_PREFIX}shell-${new URL(self.registration.scope).pathname}-${CACHE_VERSION}`;
 const SHELL_FILES = [
   "",
