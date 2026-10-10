@@ -120,7 +120,6 @@ service cloud.firestore {
         && coupleId == 'our-little-world'
         && collectionName != 'notifications'
         && collectionName != 'scheduledLetterContents'
-        && collectionName != 'privateLoveChallengePhotos'
         && ((collectionName == 'items' && resource.data.get('type', '') in ['customChallenge', 'loveYouChallenge'])
           || resource.data.get('type', '') != 'answer'
           || resource.data.get('author', '') == request.auth.uid);
@@ -128,7 +127,6 @@ service cloud.firestore {
         && coupleId == 'our-little-world'
         && collectionName != 'notifications'
         && collectionName != 'scheduledLetterContents'
-        && collectionName != 'privateLoveChallengePhotos'
         && !(collectionName == 'settings' && documentId == 'profiles')
         && request.resource.data.get('type', '') != 'answer'
         && (request.resource.data.get('type', '') == 'customChallenge'
@@ -145,7 +143,6 @@ service cloud.firestore {
         && coupleId == 'our-little-world'
         && collectionName != 'notifications'
         && collectionName != 'scheduledLetterContents'
-        && collectionName != 'privateLoveChallengePhotos'
         && !(collectionName == 'settings' && documentId == 'profiles')
         && resource.data.get('type', '') != 'answer'
         && (
@@ -183,7 +180,6 @@ service cloud.firestore {
         && coupleId == 'our-little-world'
         && collectionName != 'notifications'
         && collectionName != 'scheduledLetterContents'
-        && collectionName != 'privateLoveChallengePhotos'
         && !(collectionName == 'settings' && documentId == 'profiles')
         && resource.data.get('type', '') != 'answer'
         && (
@@ -364,4 +360,3 @@ service cloud.firestore {
     }
   }
 }
-
