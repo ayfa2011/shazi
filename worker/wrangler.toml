@@ -3,11 +3,8 @@ main = "worker.js"
 compatibility_date = "2025-01-01"
 
 [vars]
-# Firebase Console -> Project settings -> Project ID (same as projectId in your firebase.js)
-FIREBASE_PROJECT_ID = "YOUR_FIREBASE_PROJECT_ID"
-# Optional: lock CORS to your PWA domain, e.g. "https://yourapp.web.app"
-# ALLOWED_ORIGIN = "https://yourapp.web.app"
+FIREBASE_PROJECT_ID = "our-little-world-e9cbb"
 
 [[kv_namespaces]]
 binding = "PHOTOS"
-id = "PASTE_KV_NAMESPACE_ID_HERE"
+id = "0b40cea6a99b48f8996a38b938650eda"

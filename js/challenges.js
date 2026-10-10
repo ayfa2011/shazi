@@ -248,17 +248,18 @@ export function renderChallenges(el, user, profile) {
       const cacheKey = `${dayKey}:${key}`;
       if (uploads[key]?.dayKey !== dayKey || lovePhotoUrls.has(cacheKey)) return;
       lovePhotoUrls.set(cacheKey, "loading");
-      getTelegramLovePhoto(dayKey, key).then(blob => {
+      getTelegramLovePhoto(dayKey, key, ownKey).then(blob => {
         lovePhotoUrls.set(cacheKey, URL.createObjectURL(blob));
         if (isCurrent()) scheduleRender();
       }).catch(error => {
         lovePhotoUrls.delete(cacheKey);
         console.error("Love photo could not be revealed:", error);
+        setTimeout(() => { if (isCurrent()) scheduleRender(); }, 5000);
       });
     });
     const loveWidget = isLoveChallenge ? `<div class="love-widget">
       ${revealed ? `<p>Our little love notes are here 🌸</p>` : `<p class="love-waiting">${uploads[ownKey]?.dayKey === dayKey ? "A secret photo is waiting! Upload yours to reveal each other's love note today 🌸" : "Share a little something today; it stays hidden until you both upload 🌸"}</p>`}
-      <div class="love-photos">${[ownKey, ...partnerKeys].map(key => { const image = uploads[key]; const person = partnerProfiles[key]; const visiblePhoto = image?.dayKey === dayKey && (revealed || key === ownKey); const photoUrl = getPhotoUrl(key); return visiblePhoto && photoUrl && photoUrl !== "loading" ? `<div class="love-photo-card"><img src="${esc(photoUrl)}" alt="${esc(person?.name || "Partner")}'s love photo"><span class="love-photo-label">${esc(person?.name || "Partner")}</span></div>` : `<div class="love-photo-card" style="display:grid;place-items:center;color:#a76180">${visiblePhoto ? "…" : image?.dayKey === dayKey ? "🔒" : "♡"}<span class="love-photo-label">${esc(person?.name \vert{}\vert{} "Partner")} · ${visiblePhoto ? "revealing" : image?.dayKey === dayKey ? "secret" : "waiting"}</span></div>`; }).join("")}</div>
+      <div class="love-photos">${[ownKey, ...partnerKeys].map(key => { const image = uploads[key]; const person = partnerProfiles[key]; const visiblePhoto = image?.dayKey === dayKey && (revealed || key === ownKey); const photoUrl = getPhotoUrl(key); return visiblePhoto && photoUrl && photoUrl !== "loading" ? `<div class="love-photo-card"><img src="${esc(photoUrl)}" alt="${esc(person?.name || "Partner")}'s love photo"><span class="love-photo-label">${esc(person?.name || "Partner")}</span></div>` : `<div class="love-photo-card" style="display:grid;place-items:center;color:#a76180">${visiblePhoto ? "…" : image?.dayKey === dayKey ? "🔒" : "♡"}<span class="love-photo-label">${esc(person?.name || "Partner")} · ${visiblePhoto ? "revealing" : image?.dayKey === dayKey ? "secret" : "waiting"}</span></div>`; }).join("")}</div>
       ${uploads[ownKey]?.dayKey === dayKey ? `<button class="love-upload" type="button" disabled>✓ Your photo is in</button>` : `<button class="love-upload" type="button" data-action="love-upload" data-id="${esc(assignment.id)}">Add your photo ♡</button>`}
       </div>` : "";
     const specialWidget = isSnapChallenge
@@ -535,7 +536,7 @@ export function renderChallenges(el, user, profile) {
       button.disabled = true;
       button.textContent = "Sending…";
       try {
-        const telegramResult = await sendToTelegram(file, `Love You Today · ${profile.name} · ${dayKey}`, dayKey);
+        const telegramResult = await sendToTelegram(file, `Love You Today · ${profile.name} · ${dayKey}`, dayKey, ownKey);
         const fileId = telegramResult?.result?.document?.file_id || 
                        (telegramResult?.result?.photo ? telegramResult.result.photo[telegramResult.result.photo.length - 1].file_id : null);
 
