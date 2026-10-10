@@ -1,0 +1,13 @@
+name = "telegram-photo-proxy"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+# Firebase Console -> Project settings -> Project ID (same as projectId in your firebase.js)
+FIREBASE_PROJECT_ID = "YOUR_FIREBASE_PROJECT_ID"
+# Optional: lock CORS to your PWA domain, e.g. "https://yourapp.web.app"
+# ALLOWED_ORIGIN = "https://yourapp.web.app"
+
+[[kv_namespaces]]
+binding = "PHOTOS"
+id = "PASTE_KV_NAMESPACE_ID_HERE"

@@ -1,0 +1,7 @@
+{
+  "name": "telegram-photo-proxy",
+  "private": true,
+  "type": "module",
+  "dependencies": { "jose": "^5.9.6" },
+  "devDependencies": { "wrangler": "^3" }
+}
