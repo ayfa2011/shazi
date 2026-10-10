@@ -100,7 +100,7 @@ export function renderChallenges(el, user, profile) {
     scoreboard.innerHTML = `<h3>Our little love scoreboard ♡</h3><div class="score-players">${people.map(key => {
       const person = partnerProfiles[key] || APP_CONFIG.profiles[key];
       const points = assignments.filter(item => item.challengeDate === dayKey && (item.completedBy || []).some(done => done.profileKey === key || done.uid === person?.authUid)).length;
-      return `<div class="score-person"><img class="score-avatar" src="${esc(person?.avatar \vert{}\vert{} "")}" alt="${esc(person?.name || "Partner")}"><span><small class="score-name">${esc(person?.name || "Partner")}</small><strong class="score-value">${points} <small>pts</small></strong></span></div>`;
+      return `<div class="score-person"><img class="score-avatar" src="${esc(person?.avatar || "")}" alt="${esc(person?.name || "Partner")}"><span><small class="score-name">${esc(person?.name || "Partner")}</small><strong class="score-value">${points} <small>pts</small></strong></span></div>`;
     }).join(`<span class="score-heart">♥</span>`)}</div><p class="score-caption">One point for each daily challenge completed</p><div class="daily-progress"><strong>${assignments.filter(item => (item.completedBy || []).some(done => done.profileKey === ownKey || done.uid === user.uid)).length} / ${todayChallenges.length} done by you</strong><span class="daily-progress-track"><span class="daily-progress-fill" style="display:block;width:${Math.min(100, assignments.filter(item => (item.completedBy || []).some(done => done.profileKey === ownKey || done.uid === user.uid)) / todayChallenges.length * 100)}%"></span></span></div>`;
   }
 
