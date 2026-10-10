@@ -48,8 +48,10 @@ export function renderChallenges(el, user, profile) {
   });
   const ownKey = getProfileKey(profile);
   const dayKey = todayKey();
-  const week = challengeDays(dayKey, 7);
-  const todayChallenges = week.filter(challenge => challenge.dayKey === dayKey);
+  const todayChallenges = challengeDays(dayKey, 1);
+  const monthStart = new Date(`${dayKey}T00:00:00Z`);
+  monthStart.setUTCDate(monthStart.getUTCDate() - 30);
+  const historyStartDay = monthStart.toISOString().slice(0, 10);
   let partnerProfiles = APP_CONFIG.profiles;
   let assignments = [], assignmentsReady = false, assignmentsError = false;
   let selectedTab = "today";
@@ -439,7 +441,7 @@ export function renderChallenges(el, user, profile) {
       button.onclick = async () => {
         const assignmentId = button.dataset.id;
         const assignment = assignments.find(item => item.id === assignmentId);
-        const challenge = week.find(item => item.id === assignmentId);
+        const challenge = todayChallenges.find(item => item.id === assignmentId);
         if (!assignment && !challenge) return toast("Could not identify this challenge.");
         const resolvedAssignment = assignment || assignmentFor(challenge);
         if (!resolvedAssignment || !ownKey) return toast("Could not identify this challenge.");
@@ -609,16 +611,19 @@ export function renderChallenges(el, user, profile) {
 
   async function prepareWeek() {
     try {
-      const prepared = await Promise.all(week.map(challenge => ensureChallengeAssignment(challenge)));
+      const prepared = await Promise.all(todayChallenges.map(challenge => ensureChallengeAssignment(challenge)));
       const current = new Map(prepared.map(assignment => [assignment.id, assignment]));
       assignments.forEach(assignment => current.set(assignment.id, assignment));
       assignments = [...current.values()];
       assignmentsReady = true;
       render();
     } catch (error) {
-      console.error("Could not prepare this week's challenges:", error);
+      console.error("Could not prepare today's challenges:", error);
       if (isCurrent()) {
-        list.innerHTML = `<p class="challenge-empty">Challenges could not be loaded. Please check your connection and try again.</p>`;
+        assignmentsReady = true;
+        assignmentsError = true;
+        list.innerHTML = `<p class="challenge-empty">Challenges could not be loaded. Please check your connection and try again. <button type="button" id="retry-challenges">Retry</button></p>`;
+        $("#retry-challenges", list).onclick = () => { assignmentsReady = false; assignmentsError = false; render(); prepareWeek(); };
         toast(error.message || "Could not load challenges.");
       }
     }
@@ -634,9 +639,10 @@ export function renderChallenges(el, user, profile) {
     if (!isCurrent()) return;
     assignmentsError = true;
     assignmentsReady = true;
-    list.innerHTML = `<p class="challenge-empty">Challenges could not be loaded. Please check your connection and try again.</p>`;
+    list.innerHTML = `<p class="challenge-empty">Challenges could not be loaded. Please check your connection and try again. <button type="button" id="retry-challenges">Retry</button></p>`;
+    $("#retry-challenges", list).onclick = () => { assignmentsError = false; assignmentsReady = false; disposeChallenges(); window.App?.navigate("challenges"); };
     toast("Challenge updates could not be synced.");
-  });
+  }, historyStartDay, 100);
 
   stopWaterChallenges = watchItems("waterChallenge", items => {
     if (!isCurrent()) return;

@@ -5,6 +5,8 @@ import { getProfileKey } from "./profile-data.js";
 let stopMemories = null;
 let active = false;
 let removeMemoryEscapeListener = null;
+let memoryLoadTimer = null;
+let memoryWatchGeneration = 0;
 
 function parseLocalMemoryDate(dateStr) {
   if (!dateStr) return new Date(0);
@@ -17,6 +19,7 @@ function parseLocalMemoryDate(dateStr) {
 
 export function renderMemories(el, user, profile) {
   stopMemories?.();
+  clearTimeout(memoryLoadTimer);
   removeMemoryEscapeListener?.();
   removeMemoryEscapeListener = null;
   active = true;
@@ -167,6 +170,11 @@ export function renderMemories(el, user, profile) {
           <p id="view-mem-note" class="memory-quote"></p>
           <button id="view-mem-edit-btn" class="memory-view-edit" type="button">Edit memory</button>
         </div>
+        <nav class="memory-view-nav" aria-label="Memory navigation">
+          <button id="memory-prev-btn" class="memory-nav-btn" type="button" aria-label="Previous memory">← Previous</button>
+          <span id="memory-nav-position" class="memory-nav-position" aria-live="polite"></span>
+          <button id="memory-next-btn" class="memory-nav-btn" type="button" aria-label="Next memory">Next →</button>
+        </nav>
       </article>
     </div>
   `;
@@ -375,21 +383,44 @@ export function renderMemories(el, user, profile) {
 
   function updateWatch() {
     stopMemories?.();
-    stopMemories = watchItems("memory", (items) => {
-      if (!active || !el.isConnected) return;
-      allMemories = items || [];
-      renderGrid();
-    }, error => {
-      console.error("Memories could not be loaded:", error);
+    clearTimeout(memoryLoadTimer);
+    const generation = ++memoryWatchGeneration;
+    const showLoadError = message => {
+      if (!active || !el.isConnected || generation !== memoryWatchGeneration) return;
       const container = $("#memories-grid-container", el);
-      if (container) container.innerHTML = `<p style="color:#9ca3af; font-size:13px; grid-column:1/-1;">Memories could not be loaded. Please try again.</p>`;
-    }, currentLimit);
+      const count = $("#memories-count", el);
+      if (count) count.textContent = "Unable to load";
+      if (container) container.innerHTML = `<p class="memories-empty"><span>♡</span>${esc(message)}<br><button type="button" id="retry-memories" style="margin-top:10px;padding:8px 14px;border:1px solid #efd5e0;border-radius:999px;background:#fff8fb;color:#8f4263;font-weight:700">Try again</button></p>`;
+      $("#retry-memories", el)?.addEventListener("click", () => {
+        if (count) count.textContent = "Loading…";
+        if (container) container.innerHTML = `<p class="memories-empty"><span>♡</span>Gathering your little moments…</p>`;
+        updateWatch();
+      }, { once: true });
+    };
+    try {
+      stopMemories = watchItems("memory", (items) => {
+        if (!active || !el.isConnected || generation !== memoryWatchGeneration) return;
+        clearTimeout(memoryLoadTimer);
+        allMemories = items || [];
+        renderGrid();
+      }, error => {
+        console.error("Memories could not be loaded:", error);
+        clearTimeout(memoryLoadTimer);
+        showLoadError("Memories could not be loaded. Check your connection and try again.");
+      }, currentLimit);
+      memoryLoadTimer = setTimeout(() => showLoadError("Memories are taking longer than expected to load."), 12000);
+    } catch (error) {
+      console.error("Could not start the memories listener:", error);
+      showLoadError("Memories could not be loaded. Check your connection and try again.");
+    }
   }
   updateWatch();
 }
 
 export function disposeMemories() {
   active = false;
+  clearTimeout(memoryLoadTimer);
+  memoryWatchGeneration++;
   stopMemories?.();
   stopMemories = null;
   removeMemoryEscapeListener?.();

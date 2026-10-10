@@ -479,9 +479,12 @@ export async function saveLovePhoto(dayKey, actor, photoUrl) {
   });
 }
 
-export function watchChallengeAssignments(callback, onError, limitVal = null) {
+export function watchChallengeAssignments(callback, onError, sinceDayKey = "", limitVal = 100) {
   if (!firebaseReady) throw new Error("Connect Firebase before using challenges.");
-  let q = query(challengeAssignments(), orderBy("challengeDate", "desc"));
+  const constraints = [];
+  if (sinceDayKey) constraints.push(where("challengeDate", ">=", sinceDayKey));
+  constraints.push(orderBy("challengeDate", "desc"));
+  let q = query(challengeAssignments(), ...constraints);
   if (limitVal) {
       q = query(q, limit(limitVal));
   }
