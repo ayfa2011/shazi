@@ -1,4 +1,5 @@
 export const TELEGRAM_CONFIG = {
-  // Credentials belong in the server environment, never in a public browser bundle.
+  // The Worker keeps the Telegram bot credential on its server side.
+  WORKER_URL: "https://telegram-photo-proxy.akabeeram.workers.dev/",
   CHAT_ID: "-4865219021"
 };

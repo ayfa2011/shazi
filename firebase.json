@@ -10,6 +10,7 @@
     "rules": "firebase/storage.rules"
   },
   "hosting": {
+    "site": "our-little-world-e9cbb",
     "public": ".",
     "rewrites": [
       {
