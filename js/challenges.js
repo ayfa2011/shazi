@@ -100,7 +100,7 @@ export function renderChallenges(el, user, profile) {
     scoreboard.innerHTML = `<h3>Our little love scoreboard ♡</h3><div class="score-players">${people.map(key => {
       const person = partnerProfiles[key] || APP_CONFIG.profiles[key];
       const points = assignments.filter(item => item.challengeDate === dayKey && (item.completedBy || []).some(done => done.profileKey === key || done.uid === person?.authUid)).length;
-      return `<div class="score-person"><img class="score-avatar" src="${esc(person?.avatar || "")}" alt="${esc(person?.name || "Partner")}"><span><small class="score-name">${esc(person?.name || "Partner")}</small><strong class="score-value">${points} <small>pts</small></strong></span></div>`;
+      return `<div class="score-person"><img class="score-avatar" src="${esc(person?.avatar \vert{}\vert{} "")}" alt="${esc(person?.name || "Partner")}"><span><small class="score-name">${esc(person?.name || "Partner")}</small><strong class="score-value">${points} <small>pts</small></strong></span></div>`;
     }).join(`<span class="score-heart">♥</span>`)}</div><p class="score-caption">One point for each daily challenge completed</p><div class="daily-progress"><strong>${assignments.filter(item => (item.completedBy || []).some(done => done.profileKey === ownKey || done.uid === user.uid)).length} / ${todayChallenges.length} done by you</strong><span class="daily-progress-track"><span class="daily-progress-fill" style="display:block;width:${Math.min(100, assignments.filter(item => (item.completedBy || []).some(done => done.profileKey === ownKey || done.uid === user.uid)) / todayChallenges.length * 100)}%"></span></span></div>`;
   }
 
@@ -242,7 +242,6 @@ export function renderChallenges(el, user, profile) {
     const loveRecord = loveUploads.find(item => item.dayKey === dayKey);
     const uploads = loveRecord?.uploads || {};
     const partnerKeys = Object.keys(partnerProfiles).filter(key => key !== ownKey);
-    const otherKeyForLove = partnerKeys[0];
     const revealed = Boolean(uploads[ownKey]?.dayKey === dayKey && partnerKeys.every(key => uploads[key]?.dayKey === dayKey));
     const getPhotoUrl = key => lovePhotoUrls.get(`${dayKey}:${key}`) || "";
     [ownKey, ...(revealed ? partnerKeys : [])].filter(Boolean).forEach(key => {
@@ -259,7 +258,7 @@ export function renderChallenges(el, user, profile) {
     });
     const loveWidget = isLoveChallenge ? `<div class="love-widget">
       ${revealed ? `<p>Our little love notes are here 🌸</p>` : `<p class="love-waiting">${uploads[ownKey]?.dayKey === dayKey ? "A secret photo is waiting! Upload yours to reveal each other's love note today 🌸" : "Share a little something today; it stays hidden until you both upload 🌸"}</p>`}
-      <div class="love-photos">${[ownKey, ...partnerKeys].map(key => { const image = uploads[key]; const person = partnerProfiles[key]; const visiblePhoto = image?.dayKey === dayKey && (revealed || key === ownKey); const photoUrl = getPhotoUrl(key); return visiblePhoto && photoUrl && photoUrl !== "loading" ? `<div class="love-photo-card"><img src="${esc(photoUrl)}" alt="${esc(person?.name || "Partner")}'s love photo"><span class="love-photo-label">${esc(person?.name || "Partner")}</span></div>` : `<div class="love-photo-card" style="display:grid;place-items:center;color:#a76180">${visiblePhoto ? "…" : image?.dayKey === dayKey ? "🔒" : "♡"}<span class="love-photo-label">${esc(person?.name || "Partner")} · ${visiblePhoto ? "revealing" : image?.dayKey === dayKey ? "secret" : "waiting"}</span></div>`; }).join("")}</div>
+      <div class="love-photos">${[ownKey, ...partnerKeys].map(key => { const image = uploads[key]; const person = partnerProfiles[key]; const visiblePhoto = image?.dayKey === dayKey && (revealed || key === ownKey); const photoUrl = getPhotoUrl(key); return visiblePhoto && photoUrl && photoUrl !== "loading" ? `<div class="love-photo-card"><img src="${esc(photoUrl)}" alt="${esc(person?.name || "Partner")}'s love photo"><span class="love-photo-label">${esc(person?.name || "Partner")}</span></div>` : `<div class="love-photo-card" style="display:grid;place-items:center;color:#a76180">${visiblePhoto ? "…" : image?.dayKey === dayKey ? "🔒" : "♡"}<span class="love-photo-label">${esc(person?.name \vert{}\vert{} "Partner")} · ${visiblePhoto ? "revealing" : image?.dayKey === dayKey ? "secret" : "waiting"}</span></div>`; }).join("")}</div>
       ${uploads[ownKey]?.dayKey === dayKey ? `<button class="love-upload" type="button" disabled>✓ Your photo is in</button>` : `<button class="love-upload" type="button" data-action="love-upload" data-id="${esc(assignment.id)}">Add your photo ♡</button>`}
       </div>` : "";
     const specialWidget = isSnapChallenge
@@ -267,7 +266,7 @@ export function renderChallenges(el, user, profile) {
       : isWaterChallenge ? `<div class="water-widget">
           <div class="water-bottle-row"><div class="water-bottle" aria-label="Water bottle"><div class="water-fill" style="height:${ownCount / 8 * 100}%"></div></div>
           <div class="water-counts"><strong>💧 ${ownCount}/8 glasses</strong><small>${waterTrackersReady ? "Your daily hydration goal" : "Syncing water progress…"}</small><div class="water-controls"><button type="button" class="water-remove" data-action="water-remove" data-id="${esc(assignment.id)}" aria-label="Remove one glass" ${!waterTrackersReady || ownCount <= 0 ? "disabled" : ""}>−</button><button type="button" class="water-add" data-action="water-add" data-id="${esc(assignment.id)}" aria-label="Add one glass" ${!waterTrackersReady || ownCount >= 8 ? "disabled" : ""}>+ Add a glass</button></div></div></div>
-          <div class="daily-partner-status">${Object.entries(partnerProfiles).map(([key, person]) => { const count = key === ownKey ? ownCount : partnerCount; return `<span>${esc(person.name)} · ${count}/8 ${count >= 8 ? "✓" : ""}</span>`; }).join("")}</div>
+          <div class="daily-partner-status">${Object.entries(partnerProfiles).map(([key, person]) => { const count = key === ownKey ? ownCount : partnerCount; return `<span>${esc(person.name)} · ${count}/8${count >= 8 ? "✓" : ""}</span>`; }).join("")}</div>
           ${(ownCount >= 8 && partnerCount >= 8) ? `<div class="water-celebrate">✅ Hydrated Together! 💧✨</div>` : ""}
         </div>` : loveWidget;
     const actions = isSnapChallenge || isWaterChallenge || isLoveChallenge ? "" : status === "upcoming"
@@ -536,8 +535,11 @@ export function renderChallenges(el, user, profile) {
       button.disabled = true;
       button.textContent = "Sending…";
       try {
-        await sendToTelegram(file, `Love You Today · ${profile.name} · ${dayKey}`, dayKey);
-        await saveLovePhoto(dayKey, { uid: user.uid, profileKey: ownKey, name: profile.name });
+        const telegramResult = await sendToTelegram(file, `Love You Today · ${profile.name} · ${dayKey}`, dayKey);
+        const fileId = telegramResult?.result?.document?.file_id || 
+                       (telegramResult?.result?.photo ? telegramResult.result.photo[telegramResult.result.photo.length - 1].file_id : null);
+
+        await saveLovePhoto(dayKey, { uid: user.uid, profileKey: ownKey, name: profile.name, fileId });
         void notifyPartnerSafely(ownKey, "challenge", `${profile.name} sent a secret love photo. Add yours to reveal them both 🌸`, `love-${dayKey}-${ownKey}`, "challenges");
         closeLoveModal();
         toast("Your love photo is waiting for your partner ♡");

@@ -120,9 +120,12 @@ service cloud.firestore {
         && coupleId == 'our-little-world'
         && collectionName != 'notifications'
         && collectionName != 'scheduledLetterContents'
-        && ((collectionName == 'items' && resource.data.get('type', '') in ['customChallenge', 'loveYouChallenge'])
+        && (
+          (collectionName == 'items' && resource.data.get('type', '') in ['customChallenge', 'loveYouChallenge'])
           || resource.data.get('type', '') != 'answer'
-          || resource.data.get('author', '') == request.auth.uid);
+          || resource.data.get('author', '') == request.auth.uid
+          || documentId.matches('^love-you-[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        );
       allow create: if isCoupleMember()
         && coupleId == 'our-little-world'
         && collectionName != 'notifications'
