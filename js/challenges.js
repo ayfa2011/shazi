@@ -19,7 +19,7 @@ import { sendToTelegram, getTelegramLovePhoto } from "../src/services/telegramSe
 
 let stopChallenges = null, stopLoveChallenges = null, stopCustomChallenges = null, stopWaterChallenges = null, dayRolloverTimer = null, challengeRenderToken = 0;
 let customCompletedChallenges = [], customAllChallenges = [], waterTrackers = [], waterTrackersReady = false, loveUploads = [];
-let removeProfilesListener = null, removeEscapeListener = null, removeActionsListener = null, lovePhotoUrls = new Map(), loveRetryCounts = new Map();
+let removeProfilesListener = null, removeEscapeListener = null, removeActionsListener = null, lovePhotoUrls = new Map(), loveRetryCounts = new Map(), lovePhotoMissing = new Set();
 let queuedChallengeRender = 0;
 
 function friendlyDate(dayKey) {
@@ -246,7 +246,7 @@ export function renderChallenges(el, user, profile) {
     const getPhotoUrl = key => lovePhotoUrls.get(`${dayKey}:${key}`) || "";
     [ownKey, ...(revealed ? partnerKeys : [])].filter(Boolean).forEach(key => {
       const cacheKey = `${dayKey}:${key}`;
-      if (uploads[key]?.dayKey !== dayKey || lovePhotoUrls.has(cacheKey)) return;
+      if (uploads[key]?.dayKey !== dayKey || lovePhotoUrls.has(cacheKey) || lovePhotoMissing.has(cacheKey)) return;
       lovePhotoUrls.set(cacheKey, "loading");
       getTelegramLovePhoto(dayKey, key, ownKey).then(blob => {
         lovePhotoUrls.set(cacheKey, URL.createObjectURL(blob));
@@ -254,16 +254,22 @@ export function renderChallenges(el, user, profile) {
       }).catch(error => {
         lovePhotoUrls.delete(cacheKey);
         console.error("Love photo could not be revealed:", error);
-        // Retry only while the partner has not finished (423), at most 6 times
+        // Own photo missing on the server (older upload): let the person send it again
+        if (error.status === 404 && key === ownKey) {
+          lovePhotoMissing.add(cacheKey);
+          if (isCurrent()) scheduleRender();
+          return;
+        }
+        // Partner not ready yet (423) or partner is re-sending (404): retry at most 6 times
         const tries = (loveRetryCounts.get(cacheKey) || 0) + 1;
         loveRetryCounts.set(cacheKey, tries);
-        if (error.status === 423 && tries <= 6) setTimeout(() => { if (isCurrent()) scheduleRender(); }, 5000);
+        if ((error.status === 423 || error.status === 404) && tries <= 6) setTimeout(() => { if (isCurrent()) scheduleRender(); }, 5000);
       });
     });
     const loveWidget = isLoveChallenge ? `<div class="love-widget">
       ${revealed ? `<p>Our little love notes are here 🌸</p>` : `<p class="love-waiting">${uploads[ownKey]?.dayKey === dayKey ? "A secret photo is waiting! Upload yours to reveal each other's love note today 🌸" : "Share a little something today; it stays hidden until you both upload 🌸"}</p>`}
       <div class="love-photos">${[ownKey, ...partnerKeys].map(key => { const image = uploads[key]; const person = partnerProfiles[key]; const visiblePhoto = image?.dayKey === dayKey && (revealed || key === ownKey); const photoUrl = getPhotoUrl(key); return visiblePhoto && photoUrl && photoUrl !== "loading" ? `<div class="love-photo-card"><img src="${esc(photoUrl)}" alt="${esc(person?.name || "Partner")}'s love photo"><span class="love-photo-label">${esc(person?.name || "Partner")}</span></div>` : `<div class="love-photo-card" style="display:grid;place-items:center;color:#a76180">${visiblePhoto ? "…" : image?.dayKey === dayKey ? "🔒" : "♡"}<span class="love-photo-label">${esc(person?.name || "Partner")} · ${visiblePhoto ? "revealing" : image?.dayKey === dayKey ? "secret" : "waiting"}</span></div>`; }).join("")}</div>
-      ${uploads[ownKey]?.dayKey === dayKey ? `<button class="love-upload" type="button" disabled>✓ Your photo is in</button>` : `<button class="love-upload" type="button" data-action="love-upload" data-id="${esc(assignment.id)}">Add your photo ♡</button>`}
+      ${uploads[ownKey]?.dayKey === dayKey && !lovePhotoMissing.has(`${dayKey}:${ownKey}`) ? `<button class="love-upload" type="button" disabled>✓ Your photo is in</button>` : `<button class="love-upload" type="button" data-action="love-upload" data-id="${esc(assignment.id)}">${uploads[ownKey]?.dayKey === dayKey ? "Send your photo again ♡" : "Add your photo ♡"}</button>`}
       </div>` : "";
     const specialWidget = isSnapChallenge
       ? `<button type="button" class="snap-mark" data-action="snap-complete" data-id="${esc(assignment.id)}" ${hasCompleted ? "disabled" : ""}>${hasCompleted ? "✓ Snap sent today" : "I sent today's Snap 📸"}</button>`
@@ -544,6 +550,10 @@ export function renderChallenges(el, user, profile) {
                        (telegramResult?.result?.photo ? telegramResult.result.photo[telegramResult.result.photo.length - 1].file_id : null);
 
         await saveLovePhoto(dayKey, { uid: user.uid, profileKey: ownKey, name: profile.name, fileId });
+        lovePhotoMissing.delete(`${dayKey}:${ownKey}`);
+        loveRetryCounts.clear();
+        for (const [k, v] of lovePhotoUrls) { if (k.startsWith(`${dayKey}:`)) { if (v !== "loading") URL.revokeObjectURL(v); lovePhotoUrls.delete(k); } }
+        scheduleRender();
         void notifyPartnerSafely(ownKey, "challenge", `${profile.name} sent a secret love photo. Add yours to reveal them both 🌸`, `love-${dayKey}-${ownKey}`, "challenges");
         closeLoveModal();
         toast("Your love photo is waiting for your partner ♡");
@@ -676,4 +686,5 @@ export function disposeChallenges() {
   for (const url of lovePhotoUrls.values()) if (url !== "loading") URL.revokeObjectURL(url);
   lovePhotoUrls.clear();
   loveRetryCounts.clear();
+  lovePhotoMissing.clear();
 }
