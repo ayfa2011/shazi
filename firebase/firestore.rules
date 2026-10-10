@@ -116,6 +116,13 @@ service cloud.firestore {
     }
 
     match /couples/{coupleId}/{collectionName}/{documentId} {
+      // Water progress uses deterministic per-day documents. Permit couple members
+      // to read these documents even before the first glass creates the document.
+      allow read: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && collectionName == 'items'
+        && documentId.matches('^water-[0-9]{4}-[0-9]{2}-[0-9]{2}-(kebyy|shazy)$');
+
       allow read: if isCoupleMember()
         && coupleId == 'our-little-world'
         && collectionName != 'notifications'
