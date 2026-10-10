@@ -1,4 +1,4 @@
-import { $, esc, toast, todayKey, compressImageWithFilter, scheduleDubaiDayRollover } from "./utils.js";
+import { $, esc, toast, todayKey, compressImage, scheduleDubaiDayRollover } from "./utils.js";
 import {
   ensureChallengeAssignment,
   watchChallengeAssignments,
@@ -8,18 +8,19 @@ import {
   skipChallengeAssignment,
   notifyPartnerSafely,
   addItem,
-  setItem,
   transitionCustomChallenge,
-  saveLovePhoto
+  saveLovePhoto,
+  changeDailyWaterProgress
 } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getProfileKey } from "./profile-data.js";
 import { challengeDays } from "./challenge-bank.js";
-import { uploadLoveChallengePhoto } from "./drive.js";
-import { sendToTelegram } from "../src/services/telegramService.js";
+import { sendToTelegram, getTelegramLovePhoto } from "../src/services/telegramService.js";
 
-let stopChallenges = null, stopLegacyChallenges = null, stopCustomChallenges = null, stopWaterChallenges = null, dayRolloverTimer = null, challengeRenderToken = 0;
-  let customChallenges = [], customCompletedChallenges = [], waterTrackers = [], loveUploads = [];
+let stopChallenges = null, stopLoveChallenges = null, stopCustomChallenges = null, stopWaterChallenges = null, dayRolloverTimer = null, challengeRenderToken = 0;
+let customCompletedChallenges = [], customAllChallenges = [], waterTrackers = [], waterTrackersReady = false, loveUploads = [];
+let removeProfilesListener = null, removeEscapeListener = null, removeActionsListener = null, lovePhotoUrls = new Map();
+let queuedChallengeRender = 0;
 
 function friendlyDate(dayKey) {
   return new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-GB", {
@@ -40,6 +41,11 @@ function statusLabel(status) {
 
 export function renderChallenges(el, user, profile) {
   disposeChallenges();
+  customAllChallenges = [];
+  customCompletedChallenges = [];
+  waterTrackers = [];
+  waterTrackersReady = false;
+  loveUploads = [];
   const renderToken = challengeRenderToken;
   const isCurrent = () => renderToken === challengeRenderToken && el.isConnected;
   clearTimeout(dayRolloverTimer);
@@ -54,123 +60,29 @@ export function renderChallenges(el, user, profile) {
   const historyStartDay = monthStart.toISOString().slice(0, 10);
   let partnerProfiles = APP_CONFIG.profiles;
   let assignments = [], assignmentsReady = false, assignmentsError = false;
+  const reconcilingDailyPoints = new Set();
   let selectedTab = "today";
-  let showSkipped = false;
 
 
   el.innerHTML = `
-    <style>
-      .challenge-page { width:min(760px,100%); margin:0 auto; }
-      .summary-card { background: radial-gradient(circle at top, #fff 0, #fff7fa 45%, #ffe8f1 100%); padding: 19px; border-radius: 24px; text-align: center; margin-bottom: 17px; border: 1px solid #f2dce5; box-shadow: 0 8px 25px #8f315d10; }
-      .summary-card h3 { margin: 0 0 14px; color: #60283f; font:700 20px Georgia,serif; }
-      .score-players { display:grid; grid-template-columns:1fr auto 1fr; gap:12px; align-items:center; }
-      .score-person { display:flex; align-items:center; gap:10px; min-width:0; text-align:left; }
-      .score-person:last-child { flex-direction:row-reverse; text-align:right; }
-      .score-avatar { width:56px; height:56px; flex:none; border-radius:50%; object-fit:cover; border:3px solid #fff; box-shadow:0 2px 9px #8f315d20; }
-      .score-name { display:block; color:#795364; font-size:12px; }
-      .score-value { display:block; color:#c83272; font:700 24px Georgia,serif; }
-      .score-heart { color:#e65391; font-size:20px; }
-      .score-caption { margin:9px 0 0; font-size:11px; }
-      .challenge-page-head { display:flex; align-items:center; gap:10px; margin:2px 0 15px; }
-      .challenge-page-head .challenge-sparkle { width:40px; height:40px; display:grid; place-items:center; border-radius:50%; background:#ffe6f0; font-size:21px; }
-      .challenge-page-head h1 { margin:0; color:var(--deep); font-size:26px; }
-      .challenge-tabs { display:grid; grid-template-columns:repeat(2,1fr); gap:5px; margin-bottom:13px; padding:4px; border-radius:15px; background:#ffeaf2; }
-      .challenge-tab { padding:9px 5px; border-radius:11px; background:transparent; color:#916b7d; font-size:13px; font-weight:600; }
-      .challenge-tab.selected { background:#fff; color:#c83272; box-shadow:0 2px 8px #8f315d12; }
-      .challenge-list { display:grid; gap:10px; }
-      .challenge-card { padding:15px; border:1px solid #f2dce5; border-radius:17px; background:#fff; box-shadow:0 4px 16px #8f315d08; position: relative; overflow: hidden; }
-      .challenge-card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
-      .challenge-card h2 { margin:8px 0 4px; color:#60283f; font:700 17px/1.3 system-ui,sans-serif; }
-      .challenge-card p { margin:4px 0 10px; color:#795364; font-size:13px; line-height:1.45; }
-      .challenge-date { color:var(--muted); font-size:11px; }
-      .challenge-status { flex:none; padding:5px 8px; border-radius:999px; background:#fff0f6; color:var(--deep); font-size:10px; font-weight:700; }
-      .challenge-status.completed { background:#eaf8f0; color:#24794a; }
-      .challenge-status.skipped { background:#f5f1f3; color:#806d76; }
-      .challenge-actions { display:flex; justify-content:flex-end; gap:7px; margin-top:11px; }
-      .challenge-actions button { padding:8px 13px; border-radius:999px; font-size:12px; font-weight:700; border: none; cursor: pointer; }
-      .challenge-secondary { background:#fff0f6; color:var(--deep); }
-      .challenge-main { background:#e65391; color:#fff; }
-      .challenge-completion-photo { display:block; width:100%; max-height:280px; margin-top:9px; border-radius:13px; object-fit:cover; }
-      .challenge-completed-note { margin:9px 0 0!important; padding:9px 11px; border-radius:11px; background:#fff7fa; color:#60283f!important; }
-      .challenge-completed-by { margin-top:8px!important; color:var(--muted)!important; font-size:11px!important; }
-      .challenge-section-label { margin:17px 0 8px; color:#8c737d; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
-      .challenge-empty { padding:24px 12px; border:1px dashed #efc8d8; border-radius:16px; color:var(--muted); text-align:center; font-size:13px; }
-      .challenge-sections { display:flex; gap:8px; margin:0 0 12px; }
-      .challenge-sections button { flex:1; padding:9px; border-radius:12px; background:#fff; border:1px solid #f2dce5; color:#795364; font-weight:700; }
-      .challenge-sections button.selected { background:#e65391; color:#fff; }
-      .give-challenge-hero { display:flex; align-items:center; gap:11px; margin:0 0 14px; padding:12px 14px; border-radius:18px; background:linear-gradient(110deg,#fff2f7,#ffe1ee); border:1px solid #f4ccdc; box-shadow:0 6px 18px #8f315d0c; }
-      .give-challenge-hero .gift { font-size:25px; }
-      .give-challenge-copy { flex:1; text-align:left; }
-      .give-challenge-copy strong { display:block; color:#60283f; font:700 15px Georgia,serif; }
-      .give-challenge-copy small { color:#896b78; }
-      .give-challenge-hero button { border:0; border-radius:999px; padding:10px 14px; background:#d84483; color:white; font-weight:700; white-space:nowrap; }
-      .love-widget { margin-top:12px; padding:13px; border-radius:16px; background:linear-gradient(135deg,#fff4f8,#fef0eb); text-align:center; }
-      .love-photos { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin:10px 0; }
-      .love-photo-card { position:relative; min-height:100px; overflow:hidden; border-radius:13px; background:#f9dce8; }
-      .love-photo-card img { width:100%; height:180px; object-fit:cover; display:block; transition:filter .3s; }
-      .love-photo-card img.locked { filter:blur(18px); transform:scale(1.08); }
-      .love-photo-label { position:absolute; bottom:0; left:0; right:0; padding:6px; background:#32162590; color:white; font-size:11px; }
-      .love-waiting { color:#9b5271; font:italic 13px Georgia,serif; }
-      .love-upload { border:0; border-radius:999px; padding:10px 15px; background:#d84483; color:white; font-weight:700; }
-      .challenge-skipped-toggle { width:100%; margin-top:16px; padding:10px; border: none; border-radius:12px; background:#fff; color:#806d76; text-align:left; font-size:12px; font-weight:700; cursor: pointer; }
-      .challenge-modal { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:16px; background:#32162580; }
-      .challenge-modal-card { width:min(460px,100%); padding:18px; border:1px solid #f1dbe5; border-radius:20px; background:#fffafd; box-shadow:0 20px 60px #54213b30; }
-      .challenge-modal-head { display:flex; justify-content:space-between; align-items:center; gap:10px; }
-      .challenge-modal-head h2 { margin:0; color:var(--deep); font-size:20px; }
-      .challenge-modal-close { width:34px; height:34px; border-radius:50%; background:#ffe7f0; color:var(--deep); font-size:20px; border: none; cursor: pointer; }
-      .challenge-complete-form { display:grid; gap:12px; margin:13px 0 0; }
-      .challenge-complete-form label { display: grid; gap: 4px; font-size: 13px; color: #60283f; font-weight: 600; }
-      .challenge-complete-form textarea { min-height:82px; resize:vertical; padding: 8px; border-radius: 10px; border: 1px solid #f1dbe5; }
-      .challenge-complete-form input[type=file], .challenge-complete-form input[type=text] { width:100%; padding:8px; font-size:12px; border-radius: 10px; border: 1px solid #f1dbe5; }
-      .challenge-photo-preview { max-width:100%; max-height:180px; border-radius:12px; object-fit:cover; }
-      .challenge-modal-actions { display:flex; justify-content:flex-end; gap:8px; }
-      .challenge-modal-actions button { padding:9px 14px; border-radius:999px; border: none; cursor: pointer; }
-      .snap-preview-container { position: relative; margin-top: 10px; border-radius: 13px; overflow: hidden; }
-      .snap-blur { filter: blur(25px); transition: filter 0.3s ease; cursor: pointer; }
-      .snap-blur.revealed { filter: blur(0); }
-      .snap-reveal-hint { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,0.1); color: white; font-weight: 700; pointer-events: none; }
-      .water-tracker { display: flex; gap: 8px; margin: 10px 0; justify-content: center; }
-      .water-glass { font-size: 32px; filter: grayscale(1); cursor: pointer; transition: transform 0.2s; }
-      .water-glass.filled { filter: grayscale(0); }
-      .water-glass:active { transform: scale(1.2); }
-      .water-widget { margin-top:12px; padding:13px; border-radius:15px; background:linear-gradient(135deg,#effaff,#f3f0ff); }
-      .water-bottle-row { display:flex; align-items:center; gap:13px; }
-      .water-bottle { width:54px; height:90px; border:3px solid #73bde9; border-radius:14px 14px 11px 11px; position:relative; overflow:hidden; background:#fff; flex:none; }
-      .water-bottle:before { content:""; position:absolute; top:-9px; left:14px; width:20px; height:11px; border:3px solid #73bde9; border-radius:5px 5px 0 0; background:#dff5ff; }
-      .water-fill { position:absolute; bottom:0; left:0; right:0; background:linear-gradient(#83dcff,#329de5); transition:height .35s ease; opacity:.9; }
-      .water-counts { flex:1; min-width:0; }
-      .water-counts strong { display:block; color:#205c83; font-size:14px; }
-      .water-counts small { color:#58798b; font-size:12px; }
-      .water-add { margin-top:9px; padding:8px 14px; border:0; border-radius:999px; background:#269bd9; color:#fff; font-weight:700; cursor:pointer; }
-      .water-celebrate { margin-top:10px; padding:10px; border-radius:12px; background:#e7f8eb; color:#207a42; text-align:center; font-weight:800; }
-      .snap-mark { margin-top:10px; padding:10px 14px; border:0; border-radius:999px; background:#e65391; color:#fff; font-weight:700; cursor:pointer; }
-      .snap-mark:disabled,.water-add:disabled { opacity:.55; cursor:default; }
-      .custom-challenge-banner { background: linear-gradient(135deg, #fff0f6, #ffe4ef); border: 1px solid #f2dce5; border-radius: 17px; padding: 15px; margin-bottom: 15px; display: flex; align-items: center; gap: 12px; animation: slideIn 0.5s ease-out; }
-      @keyframes slideIn { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-      .custom-challenge-icon { font-size: 24px; }
-      .custom-challenge-info { flex: 1; }
-      .custom-challenge-info strong { display: block; font-size: 14px; color: var(--deep); }
-      .custom-challenge-info p { margin: 2px 0 0; font-size: 12px; color: #795364; }
-      .completion-splash { position: fixed; inset: 0; z-index: 2000; pointer-events: none; display: grid; place-items: center; }
-      .splash-heart { font-size: 60px; animation: popUp 1s forwards; }
-      @keyframes popUp { 0% { transform: scale(0); opacity: 0; } 50% { transform: scale(1.5); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
-      @media(max-width:420px) { .challenge-page-head h1 { font-size:23px; } .challenge-card { padding:13px; } .challenge-tabs button { font-size:12px; } }
-    </style>
     <section class="challenge-page">
       <div class="summary-card" id="challenge-scoreboard"></div>
       <header class="challenge-page-head">
         <span class="challenge-sparkle" aria-hidden="true">✨</span>
         <h1>Challenges</h1>
       </header>
-      <button type="button" class="give-challenge-hero" id="give-challenge-btn"><span class="gift">💌</span><span class="give-challenge-copy"><strong>Send a little challenge</strong><small>Make their day with something sweet</small></span><span>Give Challenge →</span></button>
       <div id="give-challenge-modal-root"></div>
-      <div id="custom-challenge-banner-root"></div>
-      <nav class="challenge-tabs" aria-label="Challenge sections">
-        <button type="button" class="challenge-tab selected" data-tab="today">Today</button>
-        <button type="button" class="challenge-tab" data-tab="completed">Completed</button>
+      <nav class="challenge-tabs" role="tablist" aria-label="Challenge sections">
+        <button type="button" role="tab" aria-selected="true" class="challenge-tab selected" data-tab="today">Today</button>
+        <button type="button" role="tab" aria-selected="false" class="challenge-tab" data-tab="partner">Partner <span id="partner-pending-dot" class="challenge-tab-dot hidden"></span></button>
+        <button type="button" role="tab" aria-selected="false" class="challenge-tab" data-tab="history">History</button>
       </nav>
-      <div id="custom-assignment-lists"></div>
       <div class="challenge-list" id="challenge-list"><p class="challenge-empty">Loading your challenges…</p></div>
+      <section id="partner-panel" hidden>
+        <button type="button" class="give-challenge-hero" id="give-challenge-btn"><span class="gift">💌</span><span class="give-challenge-copy"><strong>Send a little challenge</strong><small>Make their day with something sweet</small></span><span>Give Challenge →</span></button>
+        <nav class="challenge-sections" role="tablist" aria-label="Partner challenges"><button type="button" role="tab" aria-selected="true" data-custom-view="received" class="selected">Received (0)</button><button type="button" role="tab" aria-selected="false" data-custom-view="sent">Sent (0)</button></nav>
+        <div id="custom-assignment-lists"></div>
+      </section>
       <div id="challenge-modal-root"></div>
     </section>
   `;
@@ -178,19 +90,18 @@ export function renderChallenges(el, user, profile) {
   const list = $("#challenge-list", el);
   const modalRoot = $("#challenge-modal-root", el);
   const giveModalRoot = $("#give-challenge-modal-root", el);
-  const customBannerRoot = $("#custom-challenge-banner-root", el);
   const scoreboard = $("#challenge-scoreboard", el);
   const customListsRoot = $("#custom-assignment-lists", el);
+  const partnerPanel = $("#partner-panel", el);
   let customView = "received";
 
   function renderScoreboard() {
-    const otherKey = Object.keys(partnerProfiles).find(key => key !== ownKey) || "shazy";
-    const people = [ownKey || "kebyy", otherKey];
+    const people = Object.keys(partnerProfiles);
     scoreboard.innerHTML = `<h3>Our little love scoreboard ♡</h3><div class="score-players">${people.map(key => {
       const person = partnerProfiles[key] || APP_CONFIG.profiles[key];
       const points = assignments.filter(item => item.challengeDate === dayKey && (item.completedBy || []).some(done => done.profileKey === key || done.uid === person?.authUid)).length;
       return `<div class="score-person"><img class="score-avatar" src="${esc(person?.avatar || "")}" alt="${esc(person?.name || "Partner")}"><span><small class="score-name">${esc(person?.name || "Partner")}</small><strong class="score-value">${points} <small>pts</small></strong></span></div>`;
-    }).join(`<span class="score-heart">♥</span>`)}</div><p class="score-caption">One point for every challenge completed today</p>`;
+    }).join(`<span class="score-heart">♥</span>`)}</div><p class="score-caption">One point for each daily challenge completed</p><div class="daily-progress"><strong>${assignments.filter(item => (item.completedBy || []).some(done => done.profileKey === ownKey || done.uid === user.uid)).length} / ${todayChallenges.length} done by you</strong><span class="daily-progress-track"><span class="daily-progress-fill" style="display:block;width:${Math.min(100, assignments.filter(item => (item.completedBy || []).some(done => done.profileKey === ownKey || done.uid === user.uid)) / todayChallenges.length * 100)}%"></span></span></div>`;
   }
 
   function triggerCompletionSplash() {
@@ -201,21 +112,22 @@ export function renderChallenges(el, user, profile) {
     setTimeout(() => splash.remove(), 1000);
   }
 
-  function renderCustomBanner() { customBannerRoot.innerHTML = ""; }
-
   el.querySelectorAll("[data-tab]").forEach(button => {
     button.onclick = () => {
       selectedTab = button.dataset.tab;
-      el.querySelectorAll("[data-tab]").forEach(tab => tab.classList.toggle("selected", tab === button));
+      el.querySelectorAll("[data-tab]").forEach(tab => {
+        tab.classList.toggle("selected", tab === button);
+        tab.setAttribute("aria-selected", String(tab === button));
+      });
       render();
     };
   });
 
   function openGiveModal(editing = null) {
     giveModalRoot.innerHTML = `
-      <div class="challenge-modal" id="give-challenge-modal" role="dialog" aria-modal="true">
+      <div class="challenge-modal" id="give-challenge-modal" role="dialog" aria-modal="true" aria-labelledby="give-challenge-title">
         <section class="challenge-modal-card">
-          <header class="challenge-modal-head"><h2>${editing ? "Edit your challenge" : "Give a Challenge"}</h2><button type="button" class="challenge-modal-close" data-close-give-modal>×</button></header>
+          <header class="challenge-modal-head"><h2 id="give-challenge-title">${editing ? "Edit your challenge" : "Give a Challenge"}</h2><button type="button" class="challenge-modal-close" data-close-give-modal aria-label="Close">×</button></header>
           <form class="challenge-complete-form" id="give-challenge-form">
             <label>Title<input type="text" name="title" maxlength="100" required value="${esc(editing?.title || "")}"></label>
             <label>Description / Note<textarea name="description" maxlength="500" required>${esc(editing?.description || "")}</textarea></label>
@@ -226,6 +138,7 @@ export function renderChallenges(el, user, profile) {
       </div>
     `;
     giveModalRoot.querySelectorAll("[data-close-give-modal]").forEach(b => b.onclick = () => giveModalRoot.innerHTML = "");
+    giveModalRoot.querySelector('input[name="title"]')?.focus();
     $("#give-challenge-form", giveModalRoot).onsubmit = async (e) => {
         e.preventDefault();
         const title = e.target.elements.title.value.trim();
@@ -285,6 +198,32 @@ export function renderChallenges(el, user, profile) {
     return { ...assignment, status: "upcoming" };
   }
 
+  function waterRecordFor(key) {
+    const records = waterTrackers.filter(item => item.dayKey === dayKey && item.profileKey === key);
+    return records.find(item => item.id === `water-${dayKey}-${key}`) || records.sort((a, b) =>
+      Number(b.updatedAtMs || b.createdAtMs || b.createdAt?.toMillis?.() || 0) - Number(a.updatedAtMs || a.createdAtMs || a.createdAt?.toMillis?.() || 0)
+    )[0];
+  }
+
+  function waterCountFor(key) {
+    return Math.max(0, Math.min(8, Number(waterRecordFor(key)?.count || 0)));
+  }
+
+  function reconcileTodayPoints() {
+    if (!assignmentsReady) return;
+    const actor = { uid: user.uid, profileKey: ownKey, name: profile.name };
+    const loveRecord = loveUploads.find(item => item.dayKey === dayKey);
+    const completedRoutines = [
+      ...(waterCountFor(ownKey) >= 8 ? [[`${dayKey}-drink-water`, "Reached today's 8-glass water goal."]] : []),
+      ...(loveRecord?.uploads?.[ownKey]?.dayKey === dayKey ? [[`${dayKey}-love-you-today`, "Shared today's love photo."]] : [])
+    ];
+    for (const [id, note] of completedRoutines) {
+      if (!assignments.some(item => item.id === id) || assignments.find(item => item.id === id)?.completedBy?.some(person => person.uid === user.uid || person.profileKey === ownKey) || reconcilingDailyPoints.has(id)) continue;
+      reconcilingDailyPoints.add(id);
+      completeChallengeAssignment(id, actor, note, "").catch(error => console.error("Could not sync a completed daily challenge:", error)).finally(() => reconcilingDailyPoints.delete(id));
+    }
+  }
+
   function challengeCard(challenge, showDate = false) {
     const assignment = assignmentFor(challenge);
     const status = assignment.status || "upcoming";
@@ -295,27 +234,40 @@ export function renderChallenges(el, user, profile) {
     const isSnapChallenge = challenge.challengeId === "send-snap" || challenge.id?.endsWith("-send-snap");
     const isWaterChallenge = challenge.challengeId === "drink-water" || challenge.id?.endsWith("-drink-water");
     const isLoveChallenge = challenge.challengeId === "love-you-today" || challenge.id?.endsWith("-love-you-today");
-    const ownWater = waterTrackers.find(item => item.dayKey === dayKey && item.profileKey === ownKey);
+    const ownWater = waterRecordFor(ownKey);
     const otherKey = Object.keys(APP_CONFIG.profiles).find(key => key !== ownKey);
-    const partnerWater = waterTrackers.find(item => item.dayKey === dayKey && item.profileKey === otherKey);
+    const partnerWater = waterRecordFor(otherKey);
     const ownCount = Math.max(0, Math.min(8, Number(ownWater?.count || 0)));
     const partnerCount = Math.max(0, Math.min(8, Number(partnerWater?.count || 0)));
     const loveRecord = loveUploads.find(item => item.dayKey === dayKey);
     const uploads = loveRecord?.uploads || {};
-    const otherKeyForLove = Object.keys(partnerProfiles).find(key => key !== ownKey) || "shazy";
-    const revealed = Boolean(uploads[ownKey]?.photoUrl && uploads[otherKeyForLove]?.photoUrl && uploads[ownKey]?.dayKey === dayKey && uploads[otherKeyForLove]?.dayKey === dayKey);
+    const partnerKeys = Object.keys(partnerProfiles).filter(key => key !== ownKey);
+    const otherKeyForLove = partnerKeys[0];
+    const revealed = Boolean(uploads[ownKey]?.dayKey === dayKey && partnerKeys.every(key => uploads[key]?.dayKey === dayKey));
+    const getPhotoUrl = key => lovePhotoUrls.get(`${dayKey}:${key}`) || "";
+    [ownKey, ...(revealed ? partnerKeys : [])].filter(Boolean).forEach(key => {
+      const cacheKey = `${dayKey}:${key}`;
+      if (uploads[key]?.dayKey !== dayKey || lovePhotoUrls.has(cacheKey)) return;
+      lovePhotoUrls.set(cacheKey, "loading");
+      getTelegramLovePhoto(dayKey, key).then(blob => {
+        lovePhotoUrls.set(cacheKey, URL.createObjectURL(blob));
+        if (isCurrent()) scheduleRender();
+      }).catch(error => {
+        lovePhotoUrls.delete(cacheKey);
+        console.error("Love photo could not be revealed:", error);
+      });
+    });
     const loveWidget = isLoveChallenge ? `<div class="love-widget">
       ${revealed ? `<p>Our little love notes are here 🌸</p>` : `<p class="love-waiting">${uploads[ownKey]?.dayKey === dayKey ? "A secret photo is waiting! Upload yours to reveal each other's love note today 🌸" : "Share a little something today; it stays hidden until you both upload 🌸"}</p>`}
-      <div class="love-photos">${[ownKey, otherKeyForLove].map(key => { const image = uploads[key]; const person = partnerProfiles[key] || APP_CONFIG.profiles[key]; const visiblePhoto = image?.photoUrl && (revealed || key === ownKey); return visiblePhoto ? `<div class="love-photo-card"><img src="${esc(image.photoUrl)}" alt="${esc(person?.name || "Partner")}'s love photo"><span class="love-photo-label">${esc(person?.name || "Partner")}</span></div>` : `<div class="love-photo-card" style="display:grid;place-items:center;color:#a76180">${image?.photoUrl ? "🔒" : "♡"}<span class="love-photo-label">${esc(person?.name || "Partner")} · ${image?.photoUrl ? "secret" : "waiting"}</span></div>`; }).join("")}</div>
+      <div class="love-photos">${[ownKey, ...partnerKeys].map(key => { const image = uploads[key]; const person = partnerProfiles[key]; const visiblePhoto = image?.dayKey === dayKey && (revealed || key === ownKey); const photoUrl = getPhotoUrl(key); return visiblePhoto && photoUrl && photoUrl !== "loading" ? `<div class="love-photo-card"><img src="${esc(photoUrl)}" alt="${esc(person?.name || "Partner")}'s love photo"><span class="love-photo-label">${esc(person?.name || "Partner")}</span></div>` : `<div class="love-photo-card" style="display:grid;place-items:center;color:#a76180">${visiblePhoto ? "…" : image?.dayKey === dayKey ? "🔒" : "♡"}<span class="love-photo-label">${esc(person?.name || "Partner")} · ${visiblePhoto ? "revealing" : image?.dayKey === dayKey ? "secret" : "waiting"}</span></div>`; }).join("")}</div>
       ${uploads[ownKey]?.dayKey === dayKey ? `<button class="love-upload" type="button" disabled>✓ Your photo is in</button>` : `<button class="love-upload" type="button" data-action="love-upload" data-id="${esc(assignment.id)}">Add your photo ♡</button>`}
       </div>` : "";
     const specialWidget = isSnapChallenge
       ? `<button type="button" class="snap-mark" data-action="snap-complete" data-id="${esc(assignment.id)}" ${hasCompleted ? "disabled" : ""}>${hasCompleted ? "✓ Snap sent today" : "I sent today's Snap 📸"}</button>`
       : isWaterChallenge ? `<div class="water-widget">
           <div class="water-bottle-row"><div class="water-bottle" aria-label="Water bottle"><div class="water-fill" style="height:${ownCount / 8 * 100}%"></div></div>
-          <div class="water-counts"><strong>💧 ${ownCount}/8 glasses</strong><small>Your daily hydration goal</small><div class="water-tracker" aria-label="Water progress">${Array.from({length:8},(_,i)=>`<span class="water-glass ${i < ownCount ? "filled" : ""}">${i < ownCount ? "💧" : "🥛"}</span>`).join("")}</div>
-          <button type="button" class="water-add" data-action="water-add" data-id="${esc(assignment.id)}" ${ownCount >= 8 ? "disabled" : ""}>+ Glass</button></div></div>
-          <p><b>Keby:</b> ${ownKey === "kebyy" ? ownCount : partnerCount}/8 &nbsp; · &nbsp; <b>Shazy:</b> ${ownKey === "shazy" || ownKey === "shazila" ? ownCount : partnerCount}/8</p>
+          <div class="water-counts"><strong>💧 ${ownCount}/8 glasses</strong><small>${waterTrackersReady ? "Your daily hydration goal" : "Syncing water progress…"}</small><div class="water-controls"><button type="button" class="water-remove" data-action="water-remove" data-id="${esc(assignment.id)}" aria-label="Remove one glass" ${!waterTrackersReady || ownCount <= 0 ? "disabled" : ""}>−</button><button type="button" class="water-add" data-action="water-add" data-id="${esc(assignment.id)}" aria-label="Add one glass" ${!waterTrackersReady || ownCount >= 8 ? "disabled" : ""}>+ Add a glass</button></div></div></div>
+          <div class="daily-partner-status">${Object.entries(partnerProfiles).map(([key, person]) => { const count = key === ownKey ? ownCount : partnerCount; return `<span>${esc(person.name)} · ${count}/8 ${count >= 8 ? "✓" : ""}</span>`; }).join("")}</div>
           ${(ownCount >= 8 && partnerCount >= 8) ? `<div class="water-celebrate">✅ Hydrated Together! 💧✨</div>` : ""}
         </div>` : loveWidget;
     const actions = isSnapChallenge || isWaterChallenge || isLoveChallenge ? "" : status === "upcoming"
@@ -340,8 +292,9 @@ export function renderChallenges(el, user, profile) {
       : "";
     return `
       <article class="challenge-card">
-        <div class="challenge-card-head"><div>${dateText}<h2>${esc(assignment.title || challenge.title)}</h2></div><span class="challenge-status${badgeClass}">${esc(statusLabel(status))}</span></div>
+        <div class="challenge-card-head"><div>${dateText}<h2>${esc(assignment.title || challenge.title)}</h2></div><span class="challenge-status${badgeClass}">${isSnapChallenge || isWaterChallenge || isLoveChallenge ? (Object.keys(partnerProfiles).every(key => (assignment.completedBy || []).some(done => done.profileKey === key || done.uid === partnerProfiles[key]?.authUid)) ? "Together ✓" : "In today’s routine") : esc(statusLabel(status))}</span></div>
         <p>${esc(assignment.description || challenge.description)}</p>
+        ${(isSnapChallenge || isWaterChallenge || isLoveChallenge) ? `<div class="daily-partner-status">${Object.entries(partnerProfiles).map(([key, person]) => { const complete = (assignment.completedBy || []).some(done => done.profileKey === key || (person.authUid && done.uid === person.authUid)); return `<span>${esc(person.name)} · ${complete ? "✓ Done" : "⏳ Waiting"}</span>`; }).join("")}</div>` : ""}
         ${completion}
         ${specialWidget}
         ${actions}
@@ -350,47 +303,43 @@ export function renderChallenges(el, user, profile) {
   }
 
   function renderToday() {
-    const skipped = assignments.filter(item => assignmentFor(item).status === "skipped");
-    let html = todayChallenges.map(challenge => assignmentFor(challenge).status === "skipped"
-      ? `<p class="challenge-empty">Today's ${esc(challenge.title)} was skipped. You can find it below.</p>`
-      : challengeCard(challenge)).join("");
-    if (skipped.length) {
-      html += `<button type="button" class="challenge-skipped-toggle" id="toggle-skipped">${showSkipped ? "Hide" : "Show"} skipped challenges (${skipped.length})</button>`;
-      if (showSkipped) {
-        html += `<p class="challenge-section-label">Skipped</p>${skipped.map(item => challengeCard({ ...item, id: item.id, dayKey: item.challengeDate }, true)).join("")}`;
-      }
-    }
-    list.innerHTML = html;
-    $("#toggle-skipped", list)?.addEventListener("click", () => {
-      showSkipped = !showSkipped;
-      renderToday();
-      bindActions();
-    });
+    list.innerHTML = todayChallenges.map(challenge => challengeCard(challenge)).join("");
   }
 
   function render() {
     if (!isCurrent()) return;
-    renderCustomBanner();
     renderScoreboard();
-    if (assignmentsError) {
+    partnerPanel.hidden = selectedTab !== "partner";
+    list.hidden = selectedTab === "partner";
+    el.querySelector("#partner-pending-dot").classList.toggle("hidden", !customAllChallenges.some(item => item.recipientKey === ownKey && item.status === "upcoming"));
+    if (assignmentsError && selectedTab !== "partner") {
       list.innerHTML = `<p class="challenge-empty">Challenges could not be loaded. Please check your connection and try again.</p>`;
       return;
     }
-    if (!assignmentsReady) {
+    if (!assignmentsReady && selectedTab !== "partner") {
       list.innerHTML = `<p class="challenge-empty">Loading your challenges…</p>`;
       return;
     }
     if (selectedTab === "today") {
       renderToday();
-      const received = customChallenges.filter(item => item.recipientKey === ownKey);
-      const sent = customChallenges.filter(item => item.author === user.uid);
-      customListsRoot.innerHTML = `<p class="challenge-section-label">Give Challenge · partner assignments</p><nav class="challenge-sections"><button type="button" data-custom-view="received" class="${customView === "received" ? "selected" : ""}">Received (${received.length})</button><button type="button" data-custom-view="sent" class="${customView === "sent" ? "selected" : ""}">Sent (${sent.length})</button></nav>${customView === "received" ? customChallengeCards(received, true) : customChallengeCards(sent, false)}`;
-      customListsRoot.querySelectorAll("[data-custom-view]").forEach(button => button.onclick = () => { customView = button.dataset.customView; render(); });
-    } else {
+      customListsRoot.innerHTML = "";
+    } else if (selectedTab === "partner") {
+      const received = customAllChallenges.filter(item => item.recipientKey === ownKey);
+      const sent = customAllChallenges.filter(item => item.author === user.uid);
+      customListsRoot.innerHTML = customChallengeCards(customView === "received" ? received : sent, customView === "received");
+      partnerPanel.querySelectorAll("[data-custom-view]").forEach(button => {
+        const items = button.dataset.customView === "received" ? received : sent;
+        const pending = items.filter(item => item.status === "upcoming").length;
+        button.textContent = `${button.dataset.customView === "received" ? "Received" : "Sent"} (${items.length}${pending ? ` · ${pending} pending` : ""})`;
+        button.classList.toggle("selected", customView === button.dataset.customView);
+        button.setAttribute("aria-selected", String(customView === button.dataset.customView));
+        button.onclick = () => { customView = button.dataset.customView; render(); };
+      });
+    } else if (selectedTab === "history") {
       customListsRoot.innerHTML = "";
       const oneMonthAgo = Date.now() - 30 * 86400000;
       const completed = assignments
-        .filter(item => assignmentFor(item).status === "completed" && (item.completedAt?.toMillis?.() || new Date(item.completedAt || 0).getTime() || Date.parse(`${item.challengeDate}T12:00:00`)) > oneMonthAgo)
+        .filter(item => (item.completedBy || []).length > 0 && (item.completedAt?.toMillis?.() || new Date(item.completedAt || 0).getTime() || Date.parse(`${item.challengeDate}T12:00:00`)) > oneMonthAgo)
         .sort((a, b) => (b.completedAt?.toMillis?.() || new Date(b.completedAt || 0).getTime() || Date.parse(`${b.challengeDate}T12:00:00`)) - (a.completedAt?.toMillis?.() || new Date(a.completedAt || 0).getTime() || Date.parse(`${a.challengeDate}T12:00:00`)));
 
       const standardCards = completed.map(item => challengeCard({ ...item, id: item.id, dayKey: item.challengeDate }, true)).join("");
@@ -409,8 +358,14 @@ export function renderChallenges(el, user, profile) {
       : `<p class="challenge-empty">Completed challenges will be saved here ♡</p>`;
     }
 
-    bindActions();
-    renderScoreboard();
+  }
+
+  function scheduleRender() {
+    if (queuedChallengeRender) return;
+    queuedChallengeRender = requestAnimationFrame(() => {
+      queuedChallengeRender = 0;
+      render();
+    });
   }
 
   function customChallengeCards(items, received) {
@@ -418,92 +373,84 @@ export function renderChallenges(el, user, profile) {
     return `<div class="challenge-list">${items.sort((a,b) => Number(b.sentAtMs || b.createdAtMs || 0) - Number(a.sentAtMs || a.createdAtMs || 0)).map(item => {
       const date = Number(item.sentAtMs || item.assignedAtMs || item.createdAtMs || 0);
       const status = item.status === "in-progress" ? "Accepted" : item.status === "completed" ? "Completed" : item.status === "declined" ? "Declined" : "Pending";
-      return `<article class="challenge-card"><div class="challenge-card-head"><div><span class="challenge-date">${received ? "Assigned" : "Sent"} ${date ? esc(new Date(date).toLocaleDateString("en-GB", {day:"numeric",month:"short",year:"numeric"})) : ""}</span><h2>${esc(item.title || "Custom Challenge")}</h2></div><span class="challenge-status${status === "Completed" ? " completed" : ""}">${status}</span></div>${item.description ? `<p>${esc(item.description)}</p>` : ""}${item.note ? `<p class="challenge-completed-note">${esc(item.note)}</p>` : ""}${item.photoUrl ? `<img class="challenge-completion-photo" src="${esc(item.photoUrl)}" alt="Challenge completion">` : ""}${received && item.status === "upcoming" ? `<div class="challenge-actions"><button class="challenge-secondary" data-custom-action="decline" data-id="${esc(item.id)}">Decline</button><button class="challenge-main" data-custom-action="accept" data-id="${esc(item.id)}">Accept</button></div>` : ""}${received && item.status === "in-progress" ? `<div class="challenge-actions"><button class="challenge-main" data-custom-action="complete" data-id="${esc(item.id)}">Mark Complete</button></div>` : ""}${!received && item.status === "upcoming" ? `<div class="challenge-actions"><button class="challenge-secondary" data-custom-action="edit" data-id="${esc(item.id)}">Edit</button><button class="challenge-secondary" data-custom-action="delete" data-id="${esc(item.id)}">Delete</button></div>` : ""}</article>`;
+      return `<article class="challenge-card"><div class="challenge-card-head"><div><span class="challenge-date">${received ? "Assigned" : "Sent"} ${date ? esc(new Date(date).toLocaleDateString("en-GB", {day:"numeric",month:"short",year:"numeric"})) : ""}</span><h2>${esc(item.title || "Custom Challenge")}</h2></div><span class="challenge-status${status === "Completed" ? " completed" : ""}">${status}</span></div>${item.description ? `<p>${esc(item.description)}</p>` : ""}${item.note ? `<p class="challenge-completed-note">${esc(item.note)}</p>` : ""}${item.photoUrl ? `<img class="challenge-completion-photo" src="${esc(item.photoUrl)}" alt="Challenge completion">` : ""}${received && item.status === "upcoming" ? `<div class="challenge-actions"><button class="challenge-secondary" data-custom-action="decline" data-id="${esc(item.id)}">Decline</button><button class="challenge-main" data-custom-action="accept" data-id="${esc(item.id)}">Accept</button></div>` : ""}${received && item.status === "in-progress" ? `<div class="challenge-actions"><button class="challenge-main" data-custom-action="complete" data-id="${esc(item.id)}">Mark Complete</button></div>` : ""}${!received && item.status !== "completed" ? `<div class="challenge-actions">${["upcoming", "in-progress"].includes(item.status) ? `<button class="challenge-secondary" data-custom-action="edit" data-id="${esc(item.id)}">Edit</button>` : ""}<button class="challenge-secondary" data-custom-action="delete" data-id="${esc(item.id)}">Delete</button></div>` : ""}</article>`;
     }).join("")}</div>`;
   }
 
   function bindActions() {
-    customListsRoot.querySelectorAll("[data-custom-action]").forEach(button => button.onclick = async () => {
-      const item = customChallenges.find(challenge => challenge.id === button.dataset.id);
-      if (!item) return;
-      const action = button.dataset.customAction;
-      if (action === "edit") return openGiveModal(item);
-      if (action === "complete") return openCompletionModal(item.id, item, "custom");
+    const handleActionClick = async event => {
+      const customButton = event.target.closest?.("[data-custom-action]");
+      if (customButton && el.contains(customButton)) {
+        const item = customAllChallenges.find(challenge => challenge.id === customButton.dataset.id);
+        if (!item) return;
+        const action = customButton.dataset.customAction;
+        if (action === "edit") return openGiveModal(item);
+        if (action === "complete") return openCompletionModal(item.id, item);
+        if (action === "delete" && !confirm("Delete this challenge? This cannot be undone.")) return;
+        customButton.disabled = true;
+        try {
+          await transitionCustomChallenge(item.id, { uid: user.uid, profileKey: ownKey, name: profile.name }, action);
+          if (action === "delete") toast("Challenge deleted.");
+          if (action === "accept") { void notifyPartnerSafely(ownKey, "challenge", `${profile.name} accepted your challenge: ${item.title}`.slice(0, 240), `${item.id}-accepted`, "challenges"); toast("Challenge accepted ♡"); }
+          if (action === "decline") { void notifyPartnerSafely(ownKey, "challenge", `${profile.name} declined your challenge: ${item.title}`.slice(0, 240), `${item.id}-declined`, "challenges"); toast("Challenge declined."); }
+        } catch (error) { toast(error.message || "Could not update this challenge."); customButton.disabled = false; }
+        return;
+      }
+      const button = event.target.closest?.("[data-action]");
+      if (!button || !el.contains(button)) return;
+      const assignmentId = button.dataset.id;
+      const assignment = assignments.find(item => item.id === assignmentId);
+      const challenge = todayChallenges.find(item => item.id === assignmentId);
+      if (!assignment && !challenge) return toast("Could not identify this challenge.");
+      const resolvedAssignment = assignment || assignmentFor(challenge);
+      if (!resolvedAssignment || !ownKey) return toast("Could not identify this challenge.");
       button.disabled = true;
       try {
-        await transitionCustomChallenge(item.id, { uid: user.uid, profileKey: ownKey, name: profile.name }, action);
-        if (action === "delete") toast("Challenge deleted.");
-        if (action === "accept") { void notifyPartnerSafely(ownKey, "challenge", `${profile.name} accepted your challenge: ${item.title}`.slice(0, 240), `${item.id}-accepted`, "challenges"); toast("Challenge accepted ♡"); }
-        if (action === "decline") { void notifyPartnerSafely(ownKey, "challenge", `${profile.name} declined your challenge: ${item.title}`.slice(0, 240), `${item.id}-declined`, "challenges"); toast("Challenge declined."); }
-      } catch (error) { toast(error.message || "Could not update this challenge."); button.disabled = false; }
-    });
-    list.querySelectorAll("[data-action]").forEach(button => {
-      button.onclick = async () => {
-        const assignmentId = button.dataset.id;
-        const assignment = assignments.find(item => item.id === assignmentId);
-        const challenge = todayChallenges.find(item => item.id === assignmentId);
-        if (!assignment && !challenge) return toast("Could not identify this challenge.");
-        const resolvedAssignment = assignment || assignmentFor(challenge);
-        if (!resolvedAssignment || !ownKey) return toast("Could not identify this challenge.");
-        button.disabled = true;
-        try {
-          if (button.dataset.action === "water-add") {
-            const tracker = waterTrackers.find(item => item.dayKey === dayKey && item.profileKey === ownKey);
-            const nextCount = Math.min(8, Number(tracker?.count || 0) + 1);
-            if (tracker) await setItem(tracker.id, { ...tracker, count: nextCount, updatedAtMs: Date.now() });
-            else await addItem("waterChallenge", { dayKey, profileKey: ownKey, uid: user.uid, name: profile.name, count: nextCount, updatedAtMs: Date.now() });
-            if (nextCount >= 8 && Number(tracker?.count || 0) < 8) void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed today's water goal.`, `water-${dayKey}-${ownKey}`, "challenges");
-            toast(nextCount >= 8 ? "Daily water goal complete! 💧" : `Glass ${nextCount}/8 saved.`);
-          } else if (button.dataset.action === "love-upload") {
-            openLovePhotoModal(assignmentId);
-          } else if (button.dataset.action === "snap-complete") {
-            await acceptChallengeAssignment(assignmentId, user.uid, ownKey, profile.name);
-            await completeChallengeAssignment(assignmentId, { uid: user.uid, profileKey: ownKey, name: profile.name }, "Sent today's Snap on Snapchat 📸", "");
-            void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed a challenge.`, `${assignmentId}-completed`, "challenges");
-            triggerCompletionSplash();
-            toast("Snap marked as sent ♡");
-          } else if (button.dataset.action === "accept") {
-            await acceptChallengeAssignment(assignmentId, user.uid, ownKey, profile.name);
-            await notifyPartnerSafely(ownKey, "challenge", `${profile.name} accepted your challenge: ${assignment?.title || challenge?.title || "Challenge"}`.slice(0, 240), `${assignmentId}-accepted`, "challenges");
-            toast("Challenge accepted. Have fun together ♡");
-          } else if (button.dataset.action === "skip") {
-            await skipChallengeAssignment(assignmentId, user.uid, ownKey, profile.name);
-            void notifyPartnerSafely(ownKey, "challenge", `${profile.name} skipped a challenge.`, `${assignmentId}-skipped`, "challenges");
-            toast("Challenge moved to Skipped.");
-          } else {
-            const challengeId = resolvedAssignment.challengeId || resolvedAssignment.id.slice(11);
-            openCompletionModal(assignmentId, resolvedAssignment, challengeId);
-          }
-        } catch (error) {
-          console.error("Could not update challenge:", error);
-          toast(error.message || "Could not update this challenge.");
+        if (button.dataset.action === "water-add") {
+          const nextCount = await changeDailyWaterProgress(dayKey, { uid: user.uid, profileKey: ownKey, name: profile.name }, 1, waterCountFor(ownKey));
+          if (nextCount === 8) void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed today's water goal.`, `water-${dayKey}-${ownKey}`, "challenges");
+          toast(nextCount >= 8 ? "Daily water goal complete! 💧" : `Glass ${nextCount}/8 saved.`);
+        } else if (button.dataset.action === "water-remove") {
+          const nextCount = await changeDailyWaterProgress(dayKey, { uid: user.uid, profileKey: ownKey, name: profile.name }, -1, waterCountFor(ownKey));
+          toast(`Water progress updated: ${nextCount}/8. Undo complete.`);
+        } else if (button.dataset.action === "love-upload") {
           button.disabled = false;
+          openLovePhotoModal();
+        } else if (button.dataset.action === "snap-complete") {
+          await completeChallengeAssignment(assignmentId, { uid: user.uid, profileKey: ownKey, name: profile.name }, "Sent today's Snap on Snapchat 📸", "");
+          void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed a challenge.`, `${assignmentId}-completed`, "challenges");
+          triggerCompletionSplash();
+          toast("Snap marked as sent ♡");
+        } else if (button.dataset.action === "accept") {
+          await acceptChallengeAssignment(assignmentId, user.uid, ownKey, profile.name);
+          void notifyPartnerSafely(ownKey, "challenge", `${profile.name} accepted your challenge: ${assignment?.title || challenge?.title || "Challenge"}`.slice(0, 240), `${assignmentId}-accepted`, "challenges");
+          toast("Challenge accepted. Have fun together ♡");
+        } else if (button.dataset.action === "skip") {
+          await skipChallengeAssignment(assignmentId, user.uid, ownKey, profile.name);
+          void notifyPartnerSafely(ownKey, "challenge", `${profile.name} skipped a challenge.`, `${assignmentId}-skipped`, "challenges");
+          toast("Challenge moved to Skipped.");
+        } else {
+          openCompletionModal(assignmentId, resolvedAssignment);
         }
-      };
-    });
+      } catch (error) {
+        console.error("Could not update challenge:", error);
+        toast(error.message || "Could not update this challenge.");
+        button.disabled = false;
+      }
+    };
+    el.addEventListener("click", handleActionClick);
+    removeActionsListener = () => el.removeEventListener("click", handleActionClick);
   }
 
-  function openCompletionModal(assignmentId, assignment, challengeId) {
-    const isSnap = challengeId === "send-snap";
-    const isDrinkWater = challengeId === "drink-water";
-
+  function openCompletionModal(assignmentId, assignment) {
     modalRoot.innerHTML = `
       <div class="challenge-modal" id="challenge-completion-modal" role="dialog" aria-modal="true" aria-labelledby="challenge-completion-title">
         <section class="challenge-modal-card">
-          <header class="challenge-modal-head"><h2 id="challenge-completion-title">${isSnap ? "Snap a photo!" : isDrinkWater ? "Hydrate together!" : "Complete challenge"}</h2><button type="button" class="challenge-modal-close" data-close-modal aria-label="Close">×</button></header>
+          <header class="challenge-modal-head"><h2 id="challenge-completion-title">Complete challenge</h2><button type="button" class="challenge-modal-close" data-close-modal aria-label="Close">×</button></header>
           <p class="muted">${esc(assignment.title)}</p>
           <form class="challenge-complete-form" id="challenge-complete-form">
-            ${isSnap ? `<label>Snap a photo<input type="file" name="photo" accept="image/*" capture="user" required></label>
-            <label>Filter<select name="filter">
-                <option value="none">None</option>
-                <option value="grayscale(100%)">B&W</option>
-                <option value="sepia(100%)">Sepia</option>
-                <option value="brightness(150%)">Bright</option>
-                <option value="contrast(150%)">Contrast</option>
-            </select></label>` :
-              isDrinkWater ? `<p>Did you both drink a glass of water?</p>` :
-              `<label>Note (optional)<textarea name="note" maxlength="500" placeholder="Add a little note about it…"></textarea></label>
-            <label>Photo (optional)<input type="file" name="photo" accept="image/*"></label>`}
+          <label>Note (optional)<textarea name="note" maxlength="500" placeholder="Add a little note about it…"></textarea></label>
+          <label>Photo (optional)<input type="file" name="photo" accept="image/*"></label>
             <img class="challenge-photo-preview hidden" id="challenge-photo-preview" alt="Selected completion photo" style="filter:none;">
             <div class="challenge-modal-actions"><button type="button" class="challenge-secondary" data-close-modal>Cancel</button><button type="submit" class="challenge-main">Save completion ♡</button></div>
           </form>
@@ -518,6 +465,7 @@ export function renderChallenges(el, user, profile) {
     dialog.onclick = event => {
       if (event.target === dialog) modalRoot.innerHTML = "";
     };
+    (form.elements.note || dialog.querySelector("button[data-close-modal]"))?.focus();
     form.elements.photo?.addEventListener('change', () => {
       selectedPhoto = form.elements.photo.files[0] || null;
       if (!selectedPhoto) {
@@ -533,35 +481,19 @@ export function renderChallenges(el, user, profile) {
       reader.readAsDataURL(selectedPhoto);
     });
 
-    if (form.elements.filter) {
-        form.elements.filter.onchange = () => {
-            image.style.filter = form.elements.filter.value;
-        };
-    }
-
     form.onsubmit = async event => {
       event.preventDefault();
       const submit = form.querySelector('[type="submit"]');
       submit.disabled = true;
       submit.textContent = "Saving…";
       try {
-        const filter = isSnap ? form.elements.filter?.value : "none";
-        const photoUrl = selectedPhoto ? await compressImageWithFilter(selectedPhoto, filter) : "";
+        const photoUrl = selectedPhoto ? await compressImage(selectedPhoto) : "";
         if (selectedPhoto && !photoUrl) throw new Error("Could not read that photo. Choose another image.");
 
-        if (challengeId === "custom") {
-            await transitionCustomChallenge(assignmentId, { uid: user.uid, profileKey: ownKey, name: profile.name }, "complete", { note: form.elements.note?.value?.trim() || "", photoUrl });
-            void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed your challenge.`, `${assignmentId}-completed`, "challenges");
-        } else {
-            await completeChallengeAssignment(assignmentId, {
-              uid: user.uid,
-              profileKey: ownKey,
-              name: profile.name
-            }, form.elements.note?.value?.trim() || "", photoUrl);
-            void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed a challenge.`, `${assignmentId}-completed`, "challenges");
-        }
+        await transitionCustomChallenge(assignmentId, { uid: user.uid, profileKey: ownKey, name: profile.name }, "complete", { note: form.elements.note?.value?.trim() || "", photoUrl });
+        void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed your challenge.`, `${assignmentId}-completed`, "challenges");
 
-        if (isDrinkWater || challengeId === "custom") triggerCompletionSplash();
+        triggerCompletionSplash();
         modalRoot.innerHTML = "";
         toast("Challenge completed ♡");
       } catch (error) {
@@ -573,19 +505,30 @@ export function renderChallenges(el, user, profile) {
     };
   }
 
-  function openLovePhotoModal(assignmentId) {
-    modalRoot.innerHTML = `<div class="challenge-modal" role="dialog" aria-modal="true"><section class="challenge-modal-card"><header class="challenge-modal-head"><h2>Send a little love 🌸</h2><button type="button" class="challenge-modal-close" data-close-love>×</button></header><p class="muted">Your photo stays hidden until your partner uploads theirs today too.</p><form class="challenge-complete-form" id="love-photo-form"><label>Choose today's photo<input type="file" name="photo" accept="image/*,.heic,.heif,.jpg,.jpeg,.png,.webp,.avif,.tif,.tiff,.gif,.bmp" capture="user" required></label><small>JPEG, PNG, HEIC/HEIF, WebP, AVIF, TIFF, GIF, and BMP · up to 12 MB</small><img class="challenge-photo-preview hidden" alt="Photo preview"><div class="challenge-modal-actions"><button type="button" class="challenge-secondary" data-close-love>Cancel</button><button type="submit" class="challenge-main">Send with love ♡</button></div></form></section></div>`;
+  function openLovePhotoModal() {
+    modalRoot.innerHTML = `<div class="challenge-modal" role="dialog" aria-modal="true"><section class="challenge-modal-card"><header class="challenge-modal-head"><h2>Send a little love 🌸</h2><button type="button" class="challenge-modal-close" data-close-love aria-label="Close">×</button></header><p class="muted">Your photo stays hidden from your partner until they upload theirs today too.</p><form class="challenge-complete-form" id="love-photo-form"><label>Choose today's photo<input type="file" name="photo" accept="image/*,.heic,.heif,.jpg,.jpeg,.png,.webp,.avif,.tif,.tiff,.gif,.bmp" required></label><small>JPEG, PNG, HEIC/HEIF, WebP, AVIF, TIFF, GIF, and BMP · up to 12 MB</small><img class="challenge-photo-preview hidden" alt="Photo preview"><div class="challenge-modal-actions"><button type="button" class="challenge-secondary" data-close-love>Cancel</button><button type="submit" class="challenge-main">Send with love ♡</button></div></form></section></div>`;
     const form = $("#love-photo-form", modalRoot);
     const dialog = form.closest(".challenge-modal");
+    dialog.setAttribute("aria-labelledby", "love-photo-title");
+    dialog.querySelector("h2").id = "love-photo-title";
     const image = form.querySelector("img");
-    dialog.querySelectorAll("[data-close-love]").forEach(button => button.onclick = () => { modalRoot.innerHTML = ""; });
-    dialog.onclick = event => { if (event.target === dialog) modalRoot.innerHTML = ""; };
+    let previewUrl = "";
+    const closeLoveModal = () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      previewUrl = "";
+      modalRoot.innerHTML = "";
+    };
+    dialog.querySelectorAll("[data-close-love]").forEach(button => button.onclick = closeLoveModal);
+    dialog.onclick = event => { if (event.target === dialog) closeLoveModal(); };
     form.elements.photo.onchange = () => {
       const file = form.elements.photo.files[0];
       if (!file) return;
-      image.src = URL.createObjectURL(file);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      previewUrl = URL.createObjectURL(file);
+      image.src = previewUrl;
       image.classList.remove("hidden");
     };
+    form.elements.photo.focus();
     form.onsubmit = async event => {
       event.preventDefault();
       const button = form.querySelector('[type="submit"]');
@@ -593,12 +536,10 @@ export function renderChallenges(el, user, profile) {
       button.disabled = true;
       button.textContent = "Sending…";
       try {
-        const { photoUrl } = await uploadLoveChallengePhoto(file, dayKey, ownKey, user.uid);
-        await saveLovePhoto(dayKey, { uid: user.uid, profileKey: ownKey, name: profile.name }, photoUrl);
-        try { await sendToTelegram(file, `Love You Today · ${profile.name} · ${dayKey}`); }
-        catch (telegramError) { console.error("Telegram forwarding failed:", telegramError); toast("Your photo is saved here. Telegram forwarding could not finish."); }
+        await sendToTelegram(file, `Love You Today · ${profile.name} · ${dayKey}`, dayKey);
+        await saveLovePhoto(dayKey, { uid: user.uid, profileKey: ownKey, name: profile.name });
         void notifyPartnerSafely(ownKey, "challenge", `${profile.name} sent a secret love photo. Add yours to reveal them both 🌸`, `love-${dayKey}-${ownKey}`, "challenges");
-        modalRoot.innerHTML = "";
+        closeLoveModal();
         toast("Your love photo is waiting for your partner ♡");
       } catch (error) {
         console.error("Could not save love photo:", error);
@@ -609,13 +550,14 @@ export function renderChallenges(el, user, profile) {
     };
   }
 
-  async function prepareWeek() {
+  async function prepareTodayChallenges() {
     try {
       const prepared = await Promise.all(todayChallenges.map(challenge => ensureChallengeAssignment(challenge)));
       const current = new Map(prepared.map(assignment => [assignment.id, assignment]));
       assignments.forEach(assignment => current.set(assignment.id, assignment));
       assignments = [...current.values()];
       assignmentsReady = true;
+      reconcileTodayPoints();
       render();
     } catch (error) {
       console.error("Could not prepare today's challenges:", error);
@@ -623,7 +565,7 @@ export function renderChallenges(el, user, profile) {
         assignmentsReady = true;
         assignmentsError = true;
         list.innerHTML = `<p class="challenge-empty">Challenges could not be loaded. Please check your connection and try again. <button type="button" id="retry-challenges">Retry</button></p>`;
-        $("#retry-challenges", list).onclick = () => { assignmentsReady = false; assignmentsError = false; render(); prepareWeek(); };
+        $("#retry-challenges", list).onclick = () => { assignmentsReady = false; assignmentsError = false; render(); prepareTodayChallenges(); };
         toast(error.message || "Could not load challenges.");
       }
     }
@@ -633,7 +575,8 @@ export function renderChallenges(el, user, profile) {
     if (!isCurrent()) return;
     assignmentsError = false;
     assignments = items;
-    render();
+    reconcileTodayPoints();
+    scheduleRender();
   }, error => {
     console.error("Challenge updates could not be synced:", error);
     if (!isCurrent()) return;
@@ -647,31 +590,61 @@ export function renderChallenges(el, user, profile) {
   stopWaterChallenges = watchItems("waterChallenge", items => {
     if (!isCurrent()) return;
     waterTrackers = items;
-    render();
+    waterTrackersReady = true;
+    reconcileTodayPoints();
+    scheduleRender();
   }, error => {
     console.error("Water challenge updates could not be synced:", error);
     if (isCurrent()) toast("Water tracker could not be synced.");
-  });
+  }, 120);
   stopCustomChallenges = watchItems("customChallenge", items => {
     if (!isCurrent()) return;
-    customChallenges = items.filter(item => item.status !== "completed");
+    customAllChallenges = items;
     customCompletedChallenges = items.filter(item => item.status === "completed");
-    render();
+    scheduleRender();
   }, error => {
     console.error("Custom challenges could not be loaded:", error);
     if (!isCurrent()) return;
     toast("Custom challenges could not be loaded.");
   });
-  stopLegacyChallenges = watchItems("loveYouChallenge", items => {
+  stopLoveChallenges = watchItems("loveYouChallenge", items => {
     if (!isCurrent()) return;
     loveUploads = items;
-    render();
+    reconcileTodayPoints();
+    scheduleRender();
   }, error => {
     console.error("Love challenge uploads could not be synced:", error);
     if (isCurrent()) toast("Love challenge photos could not be synced.");
-  });
-  window.addEventListener("couple-profiles-updated", () => { partnerProfiles = APP_CONFIG.profiles; render(); }, { once: true });
-  prepareWeek();
+  }, 90);
+  function onProfilesUpdated() { partnerProfiles = APP_CONFIG.profiles; render(); }
+  removeProfilesListener = () => window.removeEventListener("couple-profiles-updated", onProfilesUpdated);
+  window.addEventListener("couple-profiles-updated", onProfilesUpdated);
+  function onChallengeEscape(event) {
+    if (event.key === "Escape") {
+      modalRoot.querySelector("[data-close-love], [data-close-modal]")?.click();
+      giveModalRoot.querySelector("[data-close-give-modal]")?.click();
+      return;
+    }
+    if (event.key === "Tab") {
+      const dialog = modalRoot.querySelector('[role="dialog"]') || giveModalRoot.querySelector('[role="dialog"]');
+      if (!dialog) return;
+      const focusable = [...dialog.querySelectorAll('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [href], [tabindex]:not([tabindex="-1"])')];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+  }
+  removeEscapeListener = () => window.removeEventListener("keydown", onChallengeEscape);
+  window.addEventListener("keydown", onChallengeEscape);
+  bindActions();
+  prepareTodayChallenges();
 }
 
 export function disposeChallenges() {
@@ -680,10 +653,20 @@ export function disposeChallenges() {
   dayRolloverTimer = null;
   stopChallenges?.();
   stopChallenges = null;
-  stopLegacyChallenges?.();
-  stopLegacyChallenges = null;
+  stopLoveChallenges?.();
+  stopLoveChallenges = null;
   stopCustomChallenges?.();
   stopCustomChallenges = null;
   stopWaterChallenges?.();
   stopWaterChallenges = null;
+  if (queuedChallengeRender) cancelAnimationFrame(queuedChallengeRender);
+  queuedChallengeRender = 0;
+  removeProfilesListener?.();
+  removeProfilesListener = null;
+  removeActionsListener?.();
+  removeActionsListener = null;
+  removeEscapeListener?.();
+  removeEscapeListener = null;
+  for (const url of lovePhotoUrls.values()) if (url !== "loading") URL.revokeObjectURL(url);
+  lovePhotoUrls.clear();
 }

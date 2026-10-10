@@ -12,8 +12,7 @@ function recipientProfileKey(recipient) {
   return Object.entries(APP_CONFIG.profiles).find(([key, profile]) =>
     key.toLocaleLowerCase() === normalized ||
     profile.name.toLocaleLowerCase() === normalized ||
-    profile.previousNames?.some(name => name.toLocaleLowerCase() === normalized) ||
-    (key === "kebyy" && normalized === "kebyy")
+    profile.previousNames?.some(name => name.toLocaleLowerCase() === normalized)
   )?.[0] || "";
 }
 
@@ -372,9 +371,7 @@ async function transitionChallengeAssignment(challengeId, action, actor, extra =
     if (skippedBy.length >= participantCount) {
       throw new Error("Both partners have already skipped this challenge.");
     }
-    if (action === "complete" && hasCompleted) {
-      throw new Error("You have already recorded your completion.");
-    }
+    if (action === "complete" && hasCompleted) return;
 
     const nextAccepted = acceptedBy.filter(person => !isActor(person));
     const nextSkipped = skippedBy.filter(person => !isActor(person));
@@ -425,6 +422,59 @@ export async function completeChallengeAssignment(challengeId, actor, note, phot
   });
 }
 
+export async function changeDailyWaterProgress(dayKey, actor, delta, baselineCount = 0) {
+  if (!firebaseReady) throw new Error("Connect Firebase before tracking water.");
+  if (!Number.isInteger(delta) || ![-1, 1].includes(delta)) throw new Error("Choose one glass to add or remove.");
+  const trackerRef = doc(root(), `water-${dayKey}-${actor.profileKey}`);
+  const assignmentRef = doc(challengeAssignments(), `${dayKey}-drink-water`);
+  let nextCount = 0;
+  await runTransaction(db, async transaction => {
+    const [snapshot, assignmentSnapshot] = await Promise.all([
+      transaction.get(trackerRef),
+      transaction.get(assignmentRef)
+    ]);
+    if (!assignmentSnapshot.exists()) throw new Error("Today's water challenge is not ready yet. Please try again.");
+    const current = snapshot.exists() ? snapshot.data() : {};
+    const previousCount = Math.max(0, Math.min(8, Number(snapshot.exists() ? current.count || 0 : baselineCount || 0)));
+    nextCount = Math.max(0, Math.min(8, previousCount + delta));
+    transaction.set(trackerRef, {
+      ...current,
+      type: "waterChallenge",
+      dayKey,
+      profileKey: actor.profileKey,
+      uid: actor.uid,
+      author: actor.uid,
+      name: actor.name,
+      count: nextCount,
+      createdAt: serverTimestamp(),
+      updatedAtMs: Date.now()
+    });
+    if ((nextCount === 8 && previousCount < 8) || (nextCount < 8 && previousCount === 8)) {
+      const assignment = assignmentSnapshot.data();
+      const isActor = person => person.uid === actor.uid || person.profileKey === actor.profileKey;
+      const completedBy = (assignment.completedBy || []).filter(person => !isActor(person));
+      if (nextCount === 8) completedBy.push({ ...actor, note: "Reached today's 8-glass water goal.", completedAt: Date.now() });
+      const acceptedBy = (assignment.acceptedBy || []).filter(person => !isActor(person));
+      if (nextCount === 8) acceptedBy.push(actor);
+      const skippedValues = Array.isArray(assignment.skippedBy) ? assignment.skippedBy : assignment.skippedBy ? [assignment.skippedBy] : [];
+      const skippedBy = skippedValues.filter(person => !isActor(person));
+      const participantCount = Math.max(1, Object.keys(APP_CONFIG.profiles).length);
+      const status = completedBy.length >= participantCount ? "completed"
+        : skippedBy.length >= participantCount ? "skipped"
+        : acceptedBy.length || completedBy.length ? "in-progress" : "upcoming";
+      transaction.update(assignmentRef, {
+        completedBy,
+        acceptedBy,
+        skippedBy,
+        status,
+        completedAt: status === "completed" ? serverTimestamp() : null,
+        updatedAt: serverTimestamp()
+      });
+    }
+  });
+  return nextCount;
+}
+
 export async function transitionCustomChallenge(id, actor, action, extra = {}) {
   if (!firebaseReady) throw new Error("Connect Firebase before using challenges.");
   const reference = doc(root(), id);
@@ -462,20 +512,47 @@ export async function transitionCustomChallenge(id, actor, action, extra = {}) {
   });
 }
 
-export async function saveLovePhoto(dayKey, actor, photoUrl) {
+export async function saveLovePhoto(dayKey, actor) {
   if (!firebaseReady) throw new Error("Connect Firebase before using challenges.");
   const reference = doc(root(), `love-you-${dayKey}`);
+  const assignmentRef = doc(challengeAssignments(), `${dayKey}-love-you-today`);
   await runTransaction(db, async transaction => {
-    const snapshot = await transaction.get(reference);
+    const [snapshot, assignmentSnapshot] = await Promise.all([
+      transaction.get(reference),
+      transaction.get(assignmentRef)
+    ]);
+    if (!assignmentSnapshot.exists()) throw new Error("Today's love challenge is not ready yet. Please try again.");
     const current = snapshot.exists() ? snapshot.data() : { type: "loveYouChallenge", dayKey, uploads: {} };
-    if (current.uploads?.[actor.profileKey]?.dayKey === dayKey) throw new Error("You have already shared today's photo.");
-    transaction.set(reference, {
-      ...current,
-      type: "loveYouChallenge",
-      dayKey,
-      uploads: { ...(current.uploads || {}), [actor.profileKey]: { uid: actor.uid, name: actor.name, photoUrl, dayKey, uploadedAtMs: Date.now() } },
-      updatedAtMs: Date.now()
-    });
+    if (current.uploads?.[actor.profileKey]?.dayKey !== dayKey) {
+      transaction.set(reference, {
+        ...current,
+        type: "loveYouChallenge",
+        dayKey,
+        uploads: { ...(current.uploads || {}), [actor.profileKey]: { uid: actor.uid, name: actor.name, dayKey, uploadedAtMs: Date.now() } },
+        createdAt: current.createdAt || serverTimestamp(),
+        updatedAtMs: Date.now()
+      });
+    }
+    const assignment = assignmentSnapshot.data();
+    const completedBy = assignment.completedBy || [];
+    const alreadyCompleted = completedBy.some(person => person.uid === actor.uid || person.profileKey === actor.profileKey);
+    if (!alreadyCompleted) {
+      const nextCompleted = [...completedBy, { ...actor, note: "Shared today's love photo.", completedAt: Date.now() }];
+      const acceptedBy = (assignment.acceptedBy || []).filter(person => person.uid !== actor.uid && person.profileKey !== actor.profileKey);
+      acceptedBy.push(actor);
+      const skippedValues = Array.isArray(assignment.skippedBy) ? assignment.skippedBy : assignment.skippedBy ? [assignment.skippedBy] : [];
+      const skippedBy = skippedValues.filter(person => person.uid !== actor.uid && person.profileKey !== actor.profileKey);
+      const participantCount = Math.max(1, Object.keys(APP_CONFIG.profiles).length);
+      const status = nextCompleted.length >= participantCount ? "completed" : "in-progress";
+      transaction.update(assignmentRef, {
+        completedBy: nextCompleted,
+        acceptedBy,
+        skippedBy,
+        status,
+        completedAt: status === "completed" ? serverTimestamp() : null,
+        updatedAt: serverTimestamp()
+      });
+    }
   });
 }
 

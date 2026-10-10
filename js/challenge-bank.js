@@ -23,7 +23,9 @@ export function challengeForDay(dayKey) {
 
 export function challengeDays(startDayKey, count = 7) {
   const firstDay = Date.parse(`${startDayKey}T00:00:00Z`);
-  return Array.from({ length: count }, (_, index) => {
+  if (!Number.isFinite(firstDay) || new Date(firstDay).toISOString().slice(0, 10) !== startDayKey) return [];
+  const safeCount = Number.isInteger(count) && count > 0 ? count : 0;
+  return Array.from({ length: safeCount }, (_, index) => {
     const dayKey = new Date(firstDay + index * 86400000).toISOString().slice(0, 10);
     return CHALLENGES.map(challenge => ({ ...challenge, dayKey, challengeId: challenge.id, id: `${dayKey}-${challenge.id}` }));
   }).flat();

@@ -1,11 +1,12 @@
 const CACHE_PREFIX = "our-little-world-";
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 const CACHE_NAME = `${CACHE_PREFIX}shell-${new URL(self.registration.scope).pathname}-${CACHE_VERSION}`;
 const SHELL_FILES = [
   "",
   "index.html",
   "manifest.webmanifest",
   "css/styles.css",
+  "css/challenges.css",
   "icons/app-icon.svg",
   "icons/app-icon-192.png",
   "icons/app-icon-512.png"
