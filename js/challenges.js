@@ -14,8 +14,8 @@ import { APP_CONFIG } from "../config/app-config.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { challengeDays } from "./challenge-bank.js";
 
-let stopChallenges = null, stopLegacyChallenges = null, stopCustomChallenges = null, dayRolloverTimer = null, challengeRenderToken = 0;
-let customChallenges = [], customCompletedChallenges = [];
+let stopChallenges = null, stopLegacyChallenges = null, stopCustomChallenges = null, stopWaterChallenges = null, dayRolloverTimer = null, challengeRenderToken = 0;
+let customChallenges = [], customCompletedChallenges = [], waterTrackers = [];
 
 function friendlyDate(dayKey) {
   return new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-GB", {
@@ -99,6 +99,18 @@ export function renderChallenges(el, user, profile) {
       .water-glass { font-size: 32px; filter: grayscale(1); cursor: pointer; transition: transform 0.2s; }
       .water-glass.filled { filter: grayscale(0); }
       .water-glass:active { transform: scale(1.2); }
+      .water-widget { margin-top:12px; padding:13px; border-radius:15px; background:linear-gradient(135deg,#effaff,#f3f0ff); }
+      .water-bottle-row { display:flex; align-items:center; gap:13px; }
+      .water-bottle { width:54px; height:90px; border:3px solid #73bde9; border-radius:14px 14px 11px 11px; position:relative; overflow:hidden; background:#fff; flex:none; }
+      .water-bottle:before { content:""; position:absolute; top:-9px; left:14px; width:20px; height:11px; border:3px solid #73bde9; border-radius:5px 5px 0 0; background:#dff5ff; }
+      .water-fill { position:absolute; bottom:0; left:0; right:0; background:linear-gradient(#83dcff,#329de5); transition:height .35s ease; opacity:.9; }
+      .water-counts { flex:1; min-width:0; }
+      .water-counts strong { display:block; color:#205c83; font-size:14px; }
+      .water-counts small { color:#58798b; font-size:12px; }
+      .water-add { margin-top:9px; padding:8px 14px; border:0; border-radius:999px; background:#269bd9; color:#fff; font-weight:700; cursor:pointer; }
+      .water-celebrate { margin-top:10px; padding:10px; border-radius:12px; background:#e7f8eb; color:#207a42; text-align:center; font-weight:800; }
+      .snap-mark { margin-top:10px; padding:10px 14px; border:0; border-radius:999px; background:#e65391; color:#fff; font-weight:700; cursor:pointer; }
+      .snap-mark:disabled,.water-add:disabled { opacity:.55; cursor:default; }
 
       .custom-challenge-banner { background: linear-gradient(135deg, #fff0f6, #ffe4ef); border: 1px solid #f2dce5; border-radius: 17px; padding: 15px; margin-bottom: 15px; display: flex; align-items: center; gap: 12px; animation: slideIn 0.5s ease-out; }
       @keyframes slideIn { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
@@ -153,16 +165,26 @@ export function renderChallenges(el, user, profile) {
     const latest = customChallenges[0];
     const isPartner = latest.author !== user.uid;
     const isInProgress = latest.status === "in-progress";
+    const deadline = Number(latest.deadlineAt || 0);
+    const remainingMs = deadline ? deadline - Date.now() : 0;
+    const remainingDays = deadline ? Math.max(0, Math.ceil(remainingMs / 86400000)) : null;
+    const countdown = deadline ? (remainingMs <= 0 ? "Deadline passed" : `${remainingDays} day${remainingDays === 1 ? "" : "s"} remaining`) : "No deadline";
+    const expired = deadline > 0 && remainingMs <= 0;
 
     customBannerRoot.innerHTML = `
         <div class="custom-challenge-banner">
             <div class="custom-challenge-icon">🎁</div>
             <div class="custom-challenge-info">
-                <strong>${isPartner ? "Partner sent you a Challenge!" : "Your custom challenge"}</strong>
-                <p>${esc(latest.title)}</p>
+                <strong>${isPartner ? "Keby / Shazy sent you a Challenge!" : "Your custom challenge"}</strong>
+                <p><b>${esc(latest.title)}</b></p>
+                <p>${esc(latest.description || "")}</p>
+                <p>${esc(countdown)}${latest.extensionRequested && !isPartner ? " · Partner asked for an extension" : ""}</p>
+                <p><small>${esc(latest.status || "upcoming")}</small></p>
             </div>
-            ${isPartner && !isInProgress ? `<button class="challenge-main" id="accept-custom-btn">Accept</button>` : ""}
-            ${isPartner && isInProgress ? `<button class="challenge-main" id="submit-custom-btn">Submit</button>` : ""}
+            ${isPartner && !isInProgress ? `<button class="challenge-secondary" id="extend-custom-btn">Ask for Extension</button><button class="challenge-main" id="accept-custom-btn">Accept</button>` : ""}
+            ${isPartner && isInProgress ? `<button class="challenge-secondary" id="extend-custom-btn">Ask for Extension</button><button class="challenge-main" id="submit-custom-btn">Submit</button>` : ""}
+            ${!isPartner && latest.extensionRequested ? `<span class="challenge-status">Extension requested</span>` : ""}
+            ${!isPartner && latest.extensionRequested ? `<button class="challenge-main" id="approve-extension-btn">+3 Days</button>` : ""}
         </div>
     `;
 
@@ -171,7 +193,7 @@ export function renderChallenges(el, user, profile) {
             const button = event.currentTarget;
             button.disabled = true;
             try {
-                await setItem(latest.id, { ...latest, status: "in-progress" }, "customChallenge");
+                await setItem(latest.id, { ...latest, status: "in-progress" });
                 toast("Challenge accepted!");
             } catch (error) {
                 console.error("Could not accept custom challenge:", error);
@@ -182,6 +204,18 @@ export function renderChallenges(el, user, profile) {
     }
     if (isPartner && isInProgress) {
         $("#submit-custom-btn", el).onclick = () => openCompletionModal(latest.id, latest, "custom");
+    }
+    if (isPartner) {
+      $("#extend-custom-btn", el)?.addEventListener("click", async () => {
+        try { await setItem(latest.id, { ...latest, extensionRequested: true }); toast("Extension request sent ♡"); }
+        catch (error) { toast(error.message || "Could not request extension."); }
+      });
+    }
+    if (!isPartner && latest.extensionRequested) {
+      $("#approve-extension-btn", el)?.addEventListener("click", async () => {
+        try { await setItem(latest.id, { ...latest, extensionRequested: false, deadlineAt: Math.max(Date.now(), Number(latest.deadlineAt || Date.now())) + 3 * 86400000 }); toast("Deadline extended by 3 days."); }
+        catch (error) { toast(error.message || "Could not extend deadline."); }
+      });
     }
   }
 
@@ -200,7 +234,8 @@ export function renderChallenges(el, user, profile) {
           <header class="challenge-modal-head"><h2>Give a Challenge</h2><button type="button" class="challenge-modal-close" data-close-give-modal>×</button></header>
           <form class="challenge-complete-form" id="give-challenge-form">
             <label>Title<input type="text" name="title" required></label>
-            <label>Description<textarea name="description" required></textarea></label>
+            <label>Description / Note<textarea name="description" required></textarea></label>
+            <label>Deadline (days)<select name="duration"><option value="1">1 day</option><option value="3">3 days</option><option value="5">5 days</option><option value="7" selected>7 days</option><option value="10">10 days</option><option value="14">14 days</option><option value="30">30 days</option></select></label>
             <div class="challenge-modal-actions"><button type="button" class="challenge-secondary" data-close-give-modal>Cancel</button><button type="submit" class="challenge-main">Send Challenge</button></div>
           </form>
         </section>
@@ -211,8 +246,11 @@ export function renderChallenges(el, user, profile) {
         e.preventDefault();
         const title = e.target.elements.title.value;
         const description = e.target.elements.description.value;
+        const durationDays = Number(e.target.elements.duration.value || 7);
+        const createdAt = Date.now();
+        const deadlineAt = createdAt + durationDays * 86400000;
         try {
-            await addItem("customChallenge", { title, description, status: "upcoming", author: user.uid, authorName: profile.name });
+            await addItem("customChallenge", { title, description, durationDays, createdAtMs: createdAt, deadlineAt, extensionRequested: false, status: "upcoming", author: user.uid, authorName: profile.name, recipientKey: Object.keys(APP_CONFIG.profiles).find(key => key !== ownKey) || "" });
             await notifyPartnerSafely(ownKey, "challenge", `${profile.name} sent you a challenge: ${title}`, "custom", "challenges");
             toast("Challenge sent!");
             giveModalRoot.innerHTML = "";
@@ -259,7 +297,23 @@ export function renderChallenges(el, user, profile) {
     const hasCompleted = (assignment.completedBy || []).some(person => person.uid === user.uid || person.profileKey === ownKey);
     const badgeClass = status === "completed" || status === "skipped" ? ` ${status}` : "";
     const dateText = showDate ? `<span class="challenge-date">${esc(friendlyDate(challenge.dayKey))}</span>` : "";
-    const actions = status === "upcoming"
+    const isSnapChallenge = challenge.challengeId === "send-snap" || challenge.id?.endsWith("-send-snap");
+    const isWaterChallenge = challenge.challengeId === "drink-water" || challenge.id?.endsWith("-drink-water");
+    const ownWater = waterTrackers.find(item => item.dayKey === dayKey && item.profileKey === ownKey);
+    const otherKey = Object.keys(APP_CONFIG.profiles).find(key => key !== ownKey);
+    const partnerWater = waterTrackers.find(item => item.dayKey === dayKey && item.profileKey === otherKey);
+    const ownCount = Math.max(0, Math.min(8, Number(ownWater?.count || 0)));
+    const partnerCount = Math.max(0, Math.min(8, Number(partnerWater?.count || 0)));
+    const specialWidget = isSnapChallenge
+      ? `<button type="button" class="snap-mark" data-action="snap-complete" data-id="${esc(assignment.id)}" ${hasCompleted ? "disabled" : ""}>${hasCompleted ? "✓ Snap sent today" : "I sent today's Snap 📸"}</button>`
+      : isWaterChallenge ? `<div class="water-widget">
+          <div class="water-bottle-row"><div class="water-bottle" aria-label="Water bottle"><div class="water-fill" style="height:${ownCount / 8 * 100}%"></div></div>
+          <div class="water-counts"><strong>💧 ${ownCount}/8 glasses</strong><small>Your daily hydration goal</small><div class="water-tracker" aria-label="Water progress">${Array.from({length:8},(_,i)=>`<span class="water-glass ${i < ownCount ? "filled" : ""}">${i < ownCount ? "💧" : "🥛"}</span>`).join("")}</div>
+          <button type="button" class="water-add" data-action="water-add" data-id="${esc(assignment.id)}" ${ownCount >= 8 ? "disabled" : ""}>+ Glass</button></div></div>
+          <p><b>Keby:</b> ${ownKey === "kebyy" ? ownCount : partnerCount}/8 &nbsp; · &nbsp; <b>Shazy:</b> ${ownKey === "shazy" || ownKey === "shazila" ? ownCount : partnerCount}/8</p>
+          ${(ownCount >= 8 && partnerCount >= 8) ? `<div class="water-celebrate">✅ Hydrated Together! 💧✨</div>` : ""}
+        </div>` : "";
+    const actions = isSnapChallenge || isWaterChallenge ? "" : status === "upcoming"
       ? `<div class="challenge-actions">${hasSkipped ? `<button class="challenge-main" data-action="accept" data-id="${esc(assignment.id)}">Accept instead</button>` : `<button class="challenge-secondary" data-action="skip" data-id="${esc(assignment.id)}">Skip</button><button class="challenge-main" data-action="accept" data-id="${esc(assignment.id)}">Accept</button>`}</div>`
       : status === "in-progress"
         ? hasCompleted
@@ -284,18 +338,18 @@ export function renderChallenges(el, user, profile) {
         <div class="challenge-card-head"><div>${dateText}<h2>${esc(assignment.title || challenge.title)}</h2></div><span class="challenge-status${badgeClass}">${esc(statusLabel(status))}</span></div>
         <p>${esc(assignment.description || challenge.description)}</p>
         ${completion}
+        ${specialWidget}
         ${actions}
       </article>
     `;
   }
 
   function renderToday() {
-    const todayChallenge = week[0];
-    const current = assignmentFor(todayChallenge);
+    const todayChallenges = week.filter(challenge => challenge.dayKey === dayKey);
     const skipped = assignments.filter(item => assignmentFor(item).status === "skipped");
-    let html = current.status === "skipped"
-      ? `<p class="challenge-empty">Today's challenge was skipped. You can find it below.</p>`
-      : challengeCard(todayChallenge);
+    let html = todayChallenges.map(challenge => assignmentFor(challenge).status === "skipped"
+      ? `<p class="challenge-empty">Today's ${esc(challenge.title)} was skipped. You can find it below.</p>`
+      : challengeCard(challenge)).join("");
     if (skipped.length) {
       html += `<button type="button" class="challenge-skipped-toggle" id="toggle-skipped">${showSkipped ? "Hide" : "Show"} skipped challenges (${skipped.length})</button>`;
       if (showSkipped) {
@@ -370,7 +424,18 @@ export function renderChallenges(el, user, profile) {
         if (!resolvedAssignment || !ownKey) return toast("Could not identify this challenge.");
         button.disabled = true;
         try {
-          if (button.dataset.action === "accept") {
+          if (button.dataset.action === "water-add") {
+            const tracker = waterTrackers.find(item => item.dayKey === dayKey && item.profileKey === ownKey);
+            const nextCount = Math.min(8, Number(tracker?.count || 0) + 1);
+            if (tracker) await setItem(tracker.id, { ...tracker, count: nextCount, updatedAtMs: Date.now() });
+            else await addItem("waterChallenge", { dayKey, profileKey: ownKey, uid: user.uid, name: profile.name, count: nextCount, updatedAtMs: Date.now() });
+            toast(nextCount >= 8 ? "Daily water goal complete! 💧" : `Glass ${nextCount}/8 saved.`);
+          } else if (button.dataset.action === "snap-complete") {
+            await acceptChallengeAssignment(assignmentId, user.uid, ownKey, profile.name);
+            await completeChallengeAssignment(assignmentId, { uid: user.uid, profileKey: ownKey, name: profile.name }, "Sent today's Snap on Snapchat 📸", "");
+            triggerCompletionSplash();
+            toast("Snap marked as sent ♡");
+          } else if (button.dataset.action === "accept") {
             await acceptChallengeAssignment(assignmentId, user.uid, ownKey, profile.name);
             toast("Challenge accepted. Have fun together ♡");
           } else if (button.dataset.action === "skip") {
@@ -456,7 +521,7 @@ export function renderChallenges(el, user, profile) {
         if (selectedPhoto && !photoUrl) throw new Error("Could not read that photo. Choose another image.");
 
         if (challengeId === "custom") {
-            await setItem(assignmentId, { ...assignment, status: "completed", note: form.elements.note?.value || "", photoUrl }, "customChallenge");
+            await setItem(assignmentId, { ...assignment, status: "completed", note: form.elements.note?.value || "", photoUrl });
         } else {
             await completeChallengeAssignment(assignmentId, {
               uid: user.uid,
@@ -517,6 +582,14 @@ export function renderChallenges(el, user, profile) {
     if (!isCurrent()) return;
     toast("Older challenges could not be loaded.");
   });
+  stopWaterChallenges = watchItems("waterChallenge", items => {
+    if (!isCurrent()) return;
+    waterTrackers = items;
+    render();
+  }, error => {
+    console.error("Water challenge updates could not be synced:", error);
+    if (isCurrent()) toast("Water tracker could not be synced.");
+  });
   stopCustomChallenges = watchItems("customChallenge", items => {
     if (!isCurrent()) return;
     customChallenges = items.filter(item => item.status === "upcoming" || item.status === "in-progress");
@@ -540,4 +613,6 @@ export function disposeChallenges() {
   stopLegacyChallenges = null;
   stopCustomChallenges?.();
   stopCustomChallenges = null;
+  stopWaterChallenges?.();
+  stopWaterChallenges = null;
 }
