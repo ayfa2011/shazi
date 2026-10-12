@@ -20,13 +20,7 @@ export function renderDrawing(el, user, profile) {
         <h1>Our Canvas</h1>
         <div class="drawing-presence-pill"><span class="presence-dot"></span><span id="drawing-presence">Connecting…</span></div>
       </div>
-      <div class="drawing-heading-actions">
-        <button type="button" class="tool-button" id="drawing-undo" aria-label="Undo last stroke" title="Undo (⌘/Ctrl+Z)" disabled>↶ Undo</button>
-        <button type="button" class="tool-button" id="drawing-redo" aria-label="Redo last stroke" title="Redo (⌘/Ctrl+Shift+Z)" disabled>↷ Redo</button>
-        <button type="button" class="tool-button" id="drawing-clear" title="Clear canvas">Clear</button>
-        <button type="button" class="tool-button drawing-history-trigger" id="drawing-history-open">History</button>
-        <button type="button" class="primary" id="drawing-save">Save &amp; send ♡</button>
-      </div>
+
     </header>
 
     <div class="draw-board">

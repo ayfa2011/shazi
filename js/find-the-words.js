@@ -194,11 +194,22 @@ export function mountFindTheWordsGame(container, user, profile) {
       const selected = previewCells.includes(index);
       return `<button type="button" class="find-words-cell ${style}${selected ? " selecting" : ""}" data-find-cell="${index}" aria-label="${letter}, row ${Math.floor(index / BOARD_SIZE) + 1}, column ${index % BOARD_SIZE + 1}">${letter}</button>`;
     }).join("");
-    const wordList = game.words.map(item => {
+    const sortedWords = [...game.words].sort((a, b) => {
+      if (!a.foundBy && b.foundBy) return -1;
+      if (a.foundBy && !b.foundBy) return 1;
+      return a.word.localeCompare(b.word);
+    });
+    const wordChips = sortedWords.map(item => {
       const finder = item.foundBy ? item.foundBy === user.uid ? "You" : getDisplayName(item.foundBy, "Partner") : "";
       const style = item.foundBy ? item.foundBy === user.uid ? "own" : "partner" : "";
-      return `<li class="find-words-word ${style}${item.foundBy ? " found" : ""}"><span>${esc(item.word.toLocaleUpperCase())}</span>${finder ? `<small>${esc(finder)}</small>` : ""}</li>`;
+      const isFound = Boolean(item.foundBy);
+      return `<span class="find-words-chip ${isFound ? `found ${style}` : "remaining"}" role="listitem">
+        ${isFound ? `<span class="chip-status">✓</span>` : `<span class="chip-bullet">•</span>`}
+        <span class="chip-word">${esc(item.word.toLocaleUpperCase())}</span>
+        ${finder ? `<small class="chip-finder">${esc(finder)}</small>` : ""}
+      </span>`;
     }).join("");
+    const remainingCount = WORDS_PER_GAME - completedCount;
     content.innerHTML = `<section class="find-words-match">
       <div class="find-words-status">
         <div><strong>${finished ? "Round complete" : "Word hunt is live"}</strong><span>${esc(ownerMessage)}</span></div>
@@ -207,8 +218,18 @@ export function mountFindTheWordsGame(container, user, profile) {
       <div class="find-words-scores">${scoreCards}<div class="find-words-online-count"><span class="find-words-presence-dot${presence[otherPlayer?.[0]]?.online ? " online" : ""}"></span>${presence[otherPlayer?.[0]]?.online ? "Partner online" : "Partner offline"}</div></div>
       <div class="find-words-play-area">
         <div class="find-words-board-wrap"><div class="find-words-board" role="group" aria-label="Letter grid">${cells}</div></div>
-        <aside class="find-words-words-panel"><h2>Find these words <span>${WORDS_PER_GAME}</span></h2><ul class="find-words-list">${wordList}</ul></aside>
       </div>
+      <footer class="find-words-words-tray" aria-label="Words to find">
+        <div class="find-words-tray-header">
+          <div class="find-words-tray-title">
+            <span class="tray-icon" aria-hidden="true">🎯</span>
+            <strong>Target Words</strong>
+            <span class="find-words-tray-badge">${remainingCount} remaining</span>
+          </div>
+          <span class="find-words-tray-progress">${completedCount} of ${WORDS_PER_GAME} found</span>
+        </div>
+        <div class="find-words-chips-grid" role="list">${wordChips}</div>
+      </footer>
       ${finished ? `<button class="primary find-words-new-round" type="button" data-new-find-words>Play with a new set of words</button>` : ""}
     </section>`;
   }

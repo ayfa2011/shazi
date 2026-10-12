@@ -203,6 +203,7 @@ service cloud.firestore {
           || (collectionName == 'items' && resource.data.get('type', '') == 'customChallenge'
             && resource.data.get('author', '') == request.auth.uid
             && resource.data.get('status', '') != 'completed')
+          || collectionName == 'drawingMessages'
         );
     }
 

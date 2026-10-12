@@ -13,7 +13,8 @@ const SOS_ROWS = 9;
 const SOS_COLUMNS = 7;
 const SOS_CELL_COUNT = SOS_ROWS * SOS_COLUMNS;
 const SOS_DIRECTIONS = [[0, 1], [1, 0], [1, 1], [1, -1]];
-const symbols = ["🌸", "🌙", "🍓", "🐻", "💌", "🦋"];
+const symbols = ["🌸", "🌙", "🍓", "🐻", "💌", "🦋", "✨", "🧸", "🌻", "💖"];
+const EMOJI_PALETTE = ["❤️", "💖", "🌙", "✨", "🍓", "🧸", "💌", "🌹", "🎬", "🍿", "🛋️", "✈️", "☕", "🏖️", "🍕", "🍫", "🍩", "🥞", "🍣", "💍", "🕯️", "🥂", "🎶", "🫧", "🍯", "🥑"];
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 const challenges = [
   "Choose today's movie.",
@@ -170,8 +171,9 @@ function gameScore(game, state) {
 
 function isValidActiveGameState(game, state) {
   if (!state || typeof state !== "object") return false;
-  if (game === "memory-match") return Array.isArray(state.cards) && state.cards.length === symbols.length * 2 &&
-    state.cards.every(symbol => symbols.includes(symbol)) && Array.isArray(state.flipped) &&
+  if (game === "memory-match") return Array.isArray(state.cards) &&
+    (state.cards.length === symbols.length * 2 || state.cards.length === 20 || state.cards.length === 12) &&
+    state.cards.every(symbol => typeof symbol === "string" && symbol) && Array.isArray(state.flipped) &&
     Array.isArray(state.matched) && Number.isInteger(state.moves) && state.moves >= 0 &&
     typeof state.locked === "boolean";
   if (game === "word-guess") return typeof state.word === "string" && state.word.length <= 32 &&
@@ -443,8 +445,12 @@ function renderSosGame(content, user, gameState, presence, selectedLetter) {
   const lineCells = new Set((state?.lines || []).flatMap(line => line.cells));
   const cells = (state?.board || Array(SOS_CELL_COUNT).fill("")).map((letter, index) => {
     const owner = state?.owners?.[index];
-    const ownership = owner ? owner === uid ? " own" : " partner" : "";
-    const lineClass = lineCells.has(index) ? " sos-line-cell" : "";
+    const ownership = owner ? (owner === uid ? " own" : " partner") : "";
+    const lineInfo = (state?.lines || []).find(l => l.cells.includes(index));
+    const lineOwner = lineInfo?.uid;
+    const lineClass = lineCells.has(index)
+      ? ` sos-line-cell${lineOwner === uid ? " own-line" : lineOwner ? " partner-line" : ""}`
+      : "";
     const disabled = !playing || state.turnUid !== uid || !member || Boolean(letter);
     return `<button type="button" class="sos-cell${ownership}${lineClass}" data-sos-cell="${index}" aria-label="Row ${Math.floor(index / SOS_COLUMNS) + 1}, column ${index % SOS_COLUMNS + 1}${letter ? `, ${letter}` : ", empty"}${lineCells.has(index) ? ", part of SOS" : ""}"${disabled ? " disabled" : ""}>${esc(letter)}</button>`;
   }).join("");
@@ -546,6 +552,10 @@ function isValidGameRoom(room, game) {
       room.triviaQuestionIndex >= room.questions.length ||
       !["first", "guess", "result", "finished"].includes(room.triviaStage) ||
       !room.playerUids.includes(room.triviaAnswererUid))) return false;
+  if (game === "emoji-quiz" && room.quizPhase && (!["creator", "guesser", "result"].includes(room.quizPhase) ||
+      !Number.isInteger(room.quizRoundNumber) || room.quizRoundNumber < 0 ||
+      !room.playerUids.includes(room.quizCreatorUid) ||
+      (room.quizPhase === "guesser" && (!room.quizRound || typeof room.quizRound.emojis !== "string")))) return false;
   if (room.status === "playing") return room.playerUids.includes(room.turnUid);
   return !room.turnUid && (!room.winnerUid || room.playerUids.includes(room.winnerUid));
 }
