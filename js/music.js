@@ -33,27 +33,58 @@ function formatClock(seconds) {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
-/** Support both the promise and the legacy callback form of decodeAudioData. */
-function decodeAudio(context, bytes) {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (fn, value) => {
-      if (settled) return;
-      settled = true;
-      fn(value);
-    };
-    let pending;
+  async function uploadAndAddTrack(file) {
+    const status = $("#music-upload-status");
     try {
-      pending = context.decodeAudioData(bytes, buffer => finish(resolve, buffer), error => finish(reject, error));
-    } catch (error) {
-      finish(reject, error);
-      return;
-    }
-    if (pending && typeof pending.then === "function") pending.then(buffer => finish(resolve, buffer), error => finish(reject, error));
-  });
-}
+      status.textContent = `Uploading ${file.name}...`;
+      const response = await sendToTelegram(file);
+      if (!response.ok) {
+        throw new Error(`Telegram upload failed: ${response.statusText}`);
+      }
+      const result = await response.json();
+      const message = result?.result;
+      const fileId = message?.audio?.file_id || message?.video?.file_id || message?.document?.file_id;
 
-/** Write decoded PCM samples as a 16-bit WAV blob: pristine audio, no lossy re-encode. */
+      if (!fileId) {
+        throw new Error("Could not get a file_id from Telegram.");
+      }
+
+      status.textContent = `Adding ${file.name} to the playlist...`;
+      await addItem(uid, {
+        ownerUid: uid,
+        ownerName: auth.currentUser.displayName,
+        name: file.name,
+        telegramFileId: fileId,
+        mimeType: file.type,
+        uploadedAt: serverTimestamp(),
+      });
+
+      status.textContent = ``;
+      toast(`${file.name} has been added to the music collection.`);
+      notifyPartnerSafely("A new song was just added!", "/music");
+
+    } catch (error) {
+      console.error("Track upload failed:", error);
+      toast.error(`Could not upload ${file.name}.`);
+      status.textContent = `Upload failed.`;
+    }
+  }
+
+  function handleFiles(files) {
+    for (const file of files) {
+      if (file.size > MAX_FILE_SIZE) {
+        toast.error(`${file.name} is too large. The limit is ${MAX_FILE_SIZE / 1024 / 1024} MB.`);
+        continue;
+      }
+      if (!AUDIO_EXTENSIONS.test(file.name)) {
+        toast.error(`${file.name} doesn\'t look like an audio or video file.`);
+        continue;
+      }
+      uploadAndAddTrack(file);
+    }
+  }
+
+/** Support both the promise and the legacy callback form of decodeAudioData. */
 function encodeWav(audioBuffer, channelCount) {
   const frames = audioBuffer.length;
   const bytesPerSample = 2;
@@ -308,32 +339,38 @@ export function initMusic(user) {
       audioErrorShown = false;
       releaseTrackUrl();
       setStatus("Loading the song from Telegram…");
-      trackUrl(value).then(url => {
-        if (disposed || generation !== trackLoadGeneration || !url) return;
-        activeTrackFileId = nextTrackKey;
-        lastRenderedUrl = nextTrackKey;
-        player.src = url;
-        player.load();
-        renderSession(session);
-      }).catch(error => reportError(error, "This Telegram track could not be loaded."));
+      trackUrl(value)
+        .then(url => {
+          if (disposed || generation !== trackLoadGeneration || !url) return;
+          activeTrackFileId = nextTrackKey;
+          lastRenderedUrl = nextTrackKey;
+          audio.src = url; // Use the audio element directly
+          audio.load();
+          renderSession(session);
+        })
+        .catch(error => reportError(error, "This Telegram track could not be loaded."));
       return;
     }
-    if (typeof value.time === "number" && Math.abs(player.currentTime - value.time) > 2.5) {
-      if (player.readyState >= 1) player.currentTime = value.time;
+
+    if (typeof value.time === "number" && Math.abs(audio.currentTime - value.time) > 2.5) {
+      if (audio.readyState >= 1) audio.currentTime = value.time;
       else pendingSeek = value.time;
     }
-    if (value.playing && player.paused) {
-      player.play().then(() => {
-        audioErrorShown = false;
-      }).catch(error => {
-        if (!audioErrorShown) {
-          audioErrorShown = true;
-          setStatus("Audio needs permission on this device. Tap “Listen” to start hearing it.");
-          console.info("Playback requires a local user gesture:", error);
-        }
-      });
-    } else if (!value.playing && !player.paused) {
-      player.pause();
+
+    if (value.playing && audio.paused) {
+      audio.play()
+        .then(() => {
+          audioErrorShown = false;
+        })
+        .catch(error => {
+          if (!audioErrorShown) {
+            audioErrorShown = true;
+            setStatus("Audio needs permission on this device. Tap “Listen” to start hearing it.");
+            console.info("Playback requires a local user gesture:", error);
+          }
+        });
+    } else if (!value.playing && !audio.paused) {
+      audio.pause();
     }
     if (!audioErrorShown) {
       setStatus(value.playing
@@ -672,11 +709,11 @@ export function initMusic(user) {
 
   const onPlayerTimeUpdate = () => {
     renderProgress();
-    if (!session?.playing || session.ownerUid !== uid || player.paused) return;
+    if (!session?.playing || session.ownerUid !== uid || audio.paused) return;
     const now = Date.now();
     if (now - lastTimeWrite < SYNC_INTERVAL_MS) return;
     lastTimeWrite = now;
-    patchOwnedSession({ time: player.currentTime }).catch(error => {
+    patchOwnedSession({ time: audio.currentTime }).catch(error => {
       reportError(error, "Music playback position could not be synced.");
     });
   };
@@ -685,7 +722,7 @@ export function initMusic(user) {
     if (session?.ownerUid === uid) clearSession(uid);
   };
   const onPlayerMetadata = () => {
-    if (pendingSeek !== null) player.currentTime = pendingSeek;
+    if (pendingSeek !== null) audio.currentTime = pendingSeek;
     pendingSeek = null;
     renderProgress();
   };
@@ -694,25 +731,25 @@ export function initMusic(user) {
   const onPlayerWaiting = () => setStatus("Buffering the song…");
   const onPlayerPlaying = () => {
     audioErrorShown = false;
-    if (progressInput) progressInput.disabled = !(Number.isFinite(player.duration) && player.duration > 0);
+    if (progressInput) progressInput.disabled = !(Number.isFinite(audio.duration) && audio.duration > 0);
     if (!seeking) renderSession(session);
   };
   const onPlayerPause = () => renderProgress();
   const onPlayerEmptied = () => resetProgress();
   const onPlayerError = () => {
-    if (!player.getAttribute("src")) return;
+    if (!audio.getAttribute("src")) return;
     reportPlaybackError();
   };
 
-  player.addEventListener("timeupdate", onPlayerTimeUpdate);
-  player.addEventListener("ended", onPlayerEnded);
-  player.addEventListener("loadedmetadata", onPlayerMetadata);
-  player.addEventListener("durationchange", onPlayerDurationChange);
-  player.addEventListener("waiting", onPlayerWaiting);
-  player.addEventListener("playing", onPlayerPlaying);
-  player.addEventListener("pause", onPlayerPause);
-  player.addEventListener("emptied", onPlayerEmptied);
-  player.addEventListener("error", onPlayerError);
+  audio.addEventListener("timeupdate", onPlayerTimeUpdate);
+  audio.addEventListener("ended", onPlayerEnded);
+  audio.addEventListener("loadedmetadata", onPlayerMetadata);
+  audio.addEventListener("durationchange", onPlayerDurationChange);
+  audio.addEventListener("waiting", onPlayerWaiting);
+  audio.addEventListener("playing", onPlayerPlaying);
+  audio.addEventListener("pause", onPlayerPause);
+  audio.addEventListener("emptied", onPlayerEmptied);
+  audio.addEventListener("error", onPlayerError);
 
   cleanupCurrent = () => {
     disposed = true;
