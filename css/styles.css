@@ -373,6 +373,7 @@ body:not(.home-dashboard) .hard-refresh-btn{display:none}
 .special-day-delete{margin-top:13px;padding:8px 0;background:none;color:#b43c64;font-size:12px;font-weight:700}
 .special-day-delete.hidden{display:none}
 .more-page{max-width:760px;margin:0 auto}
+.more-page.showing-special-days>.more-page-heading,.more-page.showing-special-days>.more-page-actions{display:none}
 .more-page-heading{display:flex;align-items:center;justify-content:space-between;margin:0 0 18px}
 .more-page-heading .eyebrow{margin:0 0 5px}
 .more-page-heading h1{margin:0;color:var(--deep);font-size:clamp(28px,6vw,38px)}
@@ -571,6 +572,12 @@ button:disabled { cursor: not-allowed; opacity: .58; }
   .drawing-tools .colors button { width: 22px; height: 22px; }
   .drawing-custom-color { width: 36px; height: 36px; }
 }
+
+.home-dashboard .today-question .today-link,.home-dashboard .today-challenge .today-link{
+  left:62px;bottom:8px;width:min(225px,calc(100% - 74px));min-height:0;height:auto;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;font-size:0;line-height:0
+}
+.home-dashboard .today-question .today-link img,.home-dashboard .today-challenge .today-link img{display:block;width:100%;height:auto;object-fit:contain}
+@media(max-width:759px){.home-dashboard .today-question .today-link,.home-dashboard .today-challenge .today-link{left:46px;bottom:8px;width:calc(100% - 56px);padding:0}}
 @media (max-height: 520px) and (orientation: landscape) {
   .live-drawing { gap: 4px; }
   .drawing-tools { gap: 3px; padding: 4px 6px; }

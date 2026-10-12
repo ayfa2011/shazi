@@ -64,6 +64,8 @@ function renderPostFeed(el, user, profile) {
   let voiceResolve = null;
   let voiceTarget = null;
   let selectedPostVoice = null;
+  let selectedPhotoPosition = { x: 50, y: 50 };
+  let selectedPhotoPreviewUrl = "";
 
   el.innerHTML = `
     <style>
@@ -174,15 +176,21 @@ function renderPostFeed(el, user, profile) {
         margin: 6px 0;
         line-height: 1.4;
       }
+      .tw-post-photo-frame { width:100%; aspect-ratio:4/3; margin-top:8px; overflow:hidden; border-radius:16px; background:#fff0f6; touch-action:none; cursor:grab; }
+      .tw-post-photo-frame:active { cursor:grabbing; }
       .tw-post-photo {
-        width: 100%;
+        display:block; width:100%; height:100%;
         border-radius: 16px;
-        margin-top: 8px;
-        aspect-ratio: 4 / 3;
-        max-height: 350px;
         object-fit: cover;
         cursor: zoom-in;
       }
+      .tw-post-detail-photo-frame { height:min(65dvh,600px); aspect-ratio:auto; display:grid; place-items:center; background:#fff8fb; cursor:zoom-in; }
+      .tw-post-detail-photo-frame .tw-post-photo { width:auto; height:auto; max-width:100%; max-height:100%; object-fit:contain; }
+      .tw-crop-editor { display:none; position:relative; width:min(100%,360px); aspect-ratio:4/3; margin:10px 0 2px; overflow:hidden; border:1px solid #f0cedd; border-radius:14px; background:#fff0f6; touch-action:none; cursor:grab; }
+      .tw-crop-editor.visible { display:block; }
+      .tw-crop-editor:active { cursor:grabbing; }
+      .tw-crop-editor img { display:block; width:100%; height:100%; object-fit:cover; pointer-events:none; user-select:none; -webkit-user-drag:none; }
+      .tw-crop-hint { position:absolute; right:8px; bottom:8px; left:8px; width:max-content; max-width:calc(100% - 16px); margin:auto; padding:6px 10px; border:1px solid #ffffff80; border-radius:999px; background:#402532a6; color:#fff; font-size:11px; text-align:center; pointer-events:none; }
       .tw-post-voice,.tw-comment-voice { display:flex; align-items:center; gap:10px; width:min(100%,360px); margin-top:9px; padding:10px 12px; border:1px solid #f1dbe5; border-radius:16px; background:linear-gradient(120deg,#fff1f7,#fffafd); color:#713451; }
       .tw-post-voice audio,.tw-comment-voice audio { display:none; }
       .tw-post-voice-label { flex:none; font-size:12px; font-weight:700; }
@@ -278,6 +286,7 @@ function renderPostFeed(el, user, profile) {
         <div class="tw-avatar">${profile.avatar ? `<img src="${esc(profile.avatar)}" alt="">` : esc((profile.name || "U")[0])}</div>
         <div class="tw-composer-input">
           <textarea name="text" rows="3" placeholder="What's happening?"></textarea>
+          <div class="tw-crop-editor" id="tw-crop-editor" aria-label="Drag photo to adjust thumbnail crop"><img id="tw-crop-preview" alt="Post thumbnail crop preview"><span class="tw-crop-hint">Drag photo to show the part you want ♡</span></div>
           <div class="tw-composer-actions">
             <label style="cursor:pointer; color:#d74482; font-weight:600; font-size:14px;">
               📷 Photo
@@ -304,6 +313,50 @@ function renderPostFeed(el, user, profile) {
   const detailModal = $("#tw-post-detail", el);
   const detailBody = $("#tw-detail-body", el);
   const imageViewer = $("#tw-post-image-viewer", el);
+  const cropEditor = $("#tw-crop-editor", el);
+  const cropPreview = $("#tw-crop-preview", el);
+
+  function clampCrop(value) { return Math.max(0, Math.min(100, value)); }
+  function cropPositionStyle(post) {
+    const raw = post.photoPosition;
+    if (typeof raw === "string" && /^\d{1,3}%\s+\d{1,3}%$/.test(raw)) return raw;
+    return "50% 50%";
+  }
+
+  function setPhotoPreview(file) {
+    if (selectedPhotoPreviewUrl) URL.revokeObjectURL(selectedPhotoPreviewUrl);
+    selectedPhotoPreviewUrl = "";
+    if (!file) {
+      cropEditor.classList.remove("visible");
+      cropPreview.removeAttribute("src");
+      selectedPhotoPosition = { x: 50, y: 50 };
+      return;
+    }
+    selectedPhotoPosition = { x: 50, y: 50 };
+    selectedPhotoPreviewUrl = URL.createObjectURL(file);
+    cropPreview.src = selectedPhotoPreviewUrl;
+    cropPreview.style.objectPosition = "50% 50%";
+    cropEditor.classList.add("visible");
+  }
+
+  let cropDrag = null;
+  cropEditor.addEventListener("pointerdown", event => {
+    if (!cropPreview.src) return;
+    event.preventDefault();
+    cropDrag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, x: selectedPhotoPosition.x, y: selectedPhotoPosition.y };
+    cropEditor.setPointerCapture(event.pointerId);
+  });
+  cropEditor.addEventListener("pointermove", event => {
+    if (!cropDrag || cropDrag.pointerId !== event.pointerId) return;
+    const rect = cropEditor.getBoundingClientRect();
+    selectedPhotoPosition = {
+      x: clampCrop(cropDrag.x - (event.clientX - cropDrag.startX) / rect.width * 100),
+      y: clampCrop(cropDrag.y - (event.clientY - cropDrag.startY) / rect.height * 100)
+    };
+    cropPreview.style.objectPosition = `${selectedPhotoPosition.x}% ${selectedPhotoPosition.y}%`;
+  });
+  cropEditor.addEventListener("pointerup", () => { cropDrag = null; });
+  cropEditor.addEventListener("pointercancel", () => { cropDrag = null; });
 
   async function recordVoice(button, target) {
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
@@ -400,7 +453,7 @@ function renderPostFeed(el, user, profile) {
     const post = posts.find(item => item.id === detailPostId);
     if (!post || !detailPostId) return;
     const comments = commentsByPost.get(post.id) || [];
-    const image = post.photoUrl ? `<img src="${esc(post.photoUrl)}" class="tw-post-photo" alt="Post photo" data-post-image>` : post.telegramFileId ? `<img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Post photo" data-post-image>` : "";
+    const image = post.photoUrl ? `<div class="tw-post-photo-frame tw-post-detail-photo-frame"><img src="${esc(post.photoUrl)}" class="tw-post-photo" alt="Post photo" data-post-image></div>` : post.telegramFileId ? `<div class="tw-post-photo-frame tw-post-detail-photo-frame"><img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Post photo" data-post-image></div>` : "";
     const isAuthor = post.authorId === user.uid || post.authorId === profile.id;
     detailBody.innerHTML = `<article><div class="tw-post-header"><strong>${esc(getDisplayName(post.authorId, post.authorName || "Us"))}</strong><time class="tw-post-time">${esc(post.createdAt?.toDate ? post.createdAt.toDate().toLocaleString() : post.createdAt ? new Date(post.createdAt).toLocaleString() : "Just now")}</time></div><p class="tw-post-text">${esc(post.text || "")}</p>${image}${voiceMarkup(post)}<div class="tw-actions-bar"><span>❤️ ${(post.likedBy || []).length} likes</span><span>💬 ${comments.length} comments</span></div>${isAuthor ? `<div class="tw-detail-comment-actions"><button type="button" class="tw-edit-btn" data-id="${esc(post.id)}">✏️ Edit post</button><button type="button" class="tw-del-btn" data-id="${esc(post.id)}">🗑 Delete post</button></div>` : ""}</article><h3>Replies</h3><div class="tw-detail-comments">${comments.map(comment => `<div class="tw-detail-comment" id="tw-comment-${comment.id}"><strong>${esc(getDisplayName(comment.authorId, comment.authorName || "Us"))}</strong><div>${esc(comment.text || "")}</div>${voiceMarkup(comment, "tw-comment-voice")}${comment.authorId === user.uid ? `<div class="tw-detail-comment-actions"><button type="button" class="tw-comment-edit-btn" data-id="${esc(comment.id)}">Edit</button><button type="button" class="tw-comment-del-btn" data-id="${esc(comment.id)}">Delete</button></div>` : ""}</div>`).join("") || `<p style="color:#8c737d">No replies yet. Start the conversation ♡</p>`}</div><form class="tw-detail-reply" id="tw-detail-reply-form"><input name="reply" placeholder="Write a reply…"><button class="tw-post-btn" type="submit">Reply</button></form><button type="button" class="tw-voice-recorder" data-voice-record="comment" aria-label="Record reply voice note">🎙 Record voice note</button><span id="tw-comment-voice-state" class="tw-photo-name"></span>`;
     detailBody.querySelectorAll("img[data-telegram-file-id]").forEach(img => getTelegramMediaUrl(img.dataset.telegramFileId, img.dataset.telegramMime).then(url => { if (img.isConnected) img.src = url; }).catch(() => {}));
@@ -443,7 +496,9 @@ function renderPostFeed(el, user, profile) {
   });
 
   composer.elements.photo.onchange = () => {
-    composer.querySelector(".tw-photo-name").textContent = composer.elements.photo.files[0]?.name || "";
+    const file = composer.elements.photo.files[0] || null;
+    composer.querySelector(".tw-photo-name").textContent = file?.name || "";
+    setPhotoPreview(file);
   };
 
   composer.onsubmit = async (e) => {
@@ -470,12 +525,14 @@ function renderPostFeed(el, user, profile) {
         wallId: APP_CONFIG.coupleId,
         text,
         ...photoMetadata,
+        ...(file ? { photoPosition: `${Math.round(selectedPhotoPosition.x)}% ${Math.round(selectedPhotoPosition.y)}%` } : {}),
         ...(selectedPostVoice ? { telegramAudioFileId: selectedPostVoice.telegramFileId, telegramAudioFileUniqueId: selectedPostVoice.telegramFileUniqueId, telegramAudioMessageId: selectedPostVoice.telegramMessageId, telegramAudioChatId: selectedPostVoice.telegramChatId, voiceMimeType: selectedPostVoice.mimeType, voiceDurationMs: selectedPostVoice.durationMs } : {}),
         createdAt: new Date().toISOString()
       });
       await notifyPartnerSafely(getProfileKey(profile), "post", `${profile.name} shared a new post.`, postRef.id, "gallery");
 
       composer.reset();
+      setPhotoPreview(null);
       selectedPostVoice = null;
       composer.querySelector(".tw-photo-name").textContent = "";
       toast("Posted! ✨");
@@ -547,7 +604,7 @@ function renderPostFeed(el, user, profile) {
             </div>
 
             <p class="tw-post-text" id="post-text-${post.id}">${esc(post.text || '')}</p>
-            ${post.photoUrl ? `<img src="${esc(post.photoUrl)}" class="tw-post-photo" alt="Photo attached to post" data-post-image>` : post.telegramFileId ? `<img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Photo attached to post" data-post-image loading="lazy">` : ''}
+            ${post.photoUrl ? `<div class="tw-post-photo-frame"><img src="${esc(post.photoUrl)}" class="tw-post-photo" alt="Photo attached to post" data-post-image style="object-position:${cropPositionStyle(post)}"></div>` : post.telegramFileId ? `<div class="tw-post-photo-frame"><img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Photo attached to post" data-post-image style="object-position:${cropPositionStyle(post)}" loading="lazy"></div>` : ''}
             ${voiceMarkup(post)}
 
             <div class="tw-actions-bar">
@@ -638,6 +695,8 @@ function renderPostFeed(el, user, profile) {
       voiceRecorder.stop();
       voiceRecorder = null;
     }
+    if (selectedPhotoPreviewUrl) URL.revokeObjectURL(selectedPhotoPreviewUrl);
+    selectedPhotoPreviewUrl = "";
     stopPostFeed?.();
     stopPostFeed = null;
     postCommentStops.forEach((stop) => stop());

@@ -209,6 +209,30 @@ export function renderChallenges(el, user, profile) {
     return Math.max(0, Math.min(8, Number(waterRecordFor(key)?.count || 0)));
   }
 
+  function loadLovePhoto(day, key) {
+    const cacheKey = `${day}:${key}`;
+    if (lovePhotoUrls.has(cacheKey) || lovePhotoMissing.has(cacheKey)) return;
+    lovePhotoUrls.set(cacheKey, "loading");
+    getTelegramLovePhoto(day, key, ownKey).then(blob => {
+      lovePhotoUrls.set(cacheKey, URL.createObjectURL(blob));
+      if (isCurrent()) scheduleRender();
+    }).catch(error => {
+      lovePhotoUrls.delete(cacheKey);
+      if (error.status === 404 && key === ownKey) {
+        lovePhotoMissing.add(cacheKey);
+        if (isCurrent()) scheduleRender();
+        return;
+      }
+      const tries = (loveRetryCounts.get(cacheKey) || 0) + 1;
+      loveRetryCounts.set(cacheKey, tries);
+      if ((error.status === 423 || error.status === 404) && tries <= 6) {
+        setTimeout(() => { if (isCurrent()) scheduleRender(); }, 5000);
+      } else {
+        console.error("Love photo could not be loaded:", error);
+      }
+    });
+  }
+
   function reconcileTodayPoints() {
     if (!assignmentsReady) return;
     const actor = { uid: user.uid, profileKey: ownKey, name: profile.name };
@@ -245,30 +269,11 @@ export function renderChallenges(el, user, profile) {
     const revealed = Boolean(uploads[ownKey]?.dayKey === dayKey && partnerKeys.every(key => uploads[key]?.dayKey === dayKey));
     const getPhotoUrl = key => lovePhotoUrls.get(`${dayKey}:${key}`) || "";
     [ownKey, ...(revealed ? partnerKeys : [])].filter(Boolean).forEach(key => {
-      const cacheKey = `${dayKey}:${key}`;
-      if (uploads[key]?.dayKey !== dayKey || lovePhotoUrls.has(cacheKey) || lovePhotoMissing.has(cacheKey)) return;
-      lovePhotoUrls.set(cacheKey, "loading");
-      getTelegramLovePhoto(dayKey, key, ownKey).then(blob => {
-        lovePhotoUrls.set(cacheKey, URL.createObjectURL(blob));
-        if (isCurrent()) scheduleRender();
-      }).catch(error => {
-        lovePhotoUrls.delete(cacheKey);
-        console.error("Love photo could not be revealed:", error);
-        // Own photo missing on the server (older upload): let the person send it again
-        if (error.status === 404 && key === ownKey) {
-          lovePhotoMissing.add(cacheKey);
-          if (isCurrent()) scheduleRender();
-          return;
-        }
-        // Partner not ready yet (423) or partner is re-sending (404): retry at most 6 times
-        const tries = (loveRetryCounts.get(cacheKey) || 0) + 1;
-        loveRetryCounts.set(cacheKey, tries);
-        if ((error.status === 423 || error.status === 404) && tries <= 6) setTimeout(() => { if (isCurrent()) scheduleRender(); }, 5000);
-      });
+      if (uploads[key]?.dayKey === dayKey) loadLovePhoto(dayKey, key);
     });
     const loveWidget = isLoveChallenge ? `<div class="love-widget">
       ${revealed ? `<p>Our little love notes are here 🌸</p>` : `<p class="love-waiting">${uploads[ownKey]?.dayKey === dayKey ? "A secret photo is waiting! Upload yours to reveal each other's love note today 🌸" : "Share a little something today; it stays hidden until you both upload 🌸"}</p>`}
-      <div class="love-photos">${[ownKey, ...partnerKeys].map(key => { const image = uploads[key]; const person = partnerProfiles[key]; const visiblePhoto = image?.dayKey === dayKey && (revealed || key === ownKey); const photoUrl = getPhotoUrl(key); return visiblePhoto && photoUrl && photoUrl !== "loading" ? `<div class="love-photo-card"><img src="${esc(photoUrl)}" alt="${esc(person?.name || "Partner")}'s love photo"><span class="love-photo-label">${esc(person?.name || "Partner")}</span></div>` : `<div class="love-photo-card" style="display:grid;place-items:center;color:#a76180">${visiblePhoto ? "…" : image?.dayKey === dayKey ? "🔒" : "♡"}<span class="love-photo-label">${esc(person?.name || "Partner")} · ${visiblePhoto ? "revealing" : image?.dayKey === dayKey ? "secret" : "waiting"}</span></div>`; }).join("")}</div>
+      <div class="love-photos">${[ownKey, ...partnerKeys].map(key => { const image = uploads[key]; const person = partnerProfiles[key]; const visiblePhoto = image?.dayKey === dayKey && (revealed || key === ownKey); const photoUrl = getPhotoUrl(key); return visiblePhoto && photoUrl && photoUrl !== "loading" ? `<button type="button" class="love-photo-card love-photo-open" data-love-photo-src="${esc(photoUrl)}" data-love-photo-name="${esc(person?.name || "Partner")}" aria-label="View ${esc(person?.name || "Partner")}'s photo full size"><img src="${esc(photoUrl)}" alt="${esc(person?.name || "Partner")}'s love photo"><span class="love-photo-label">${esc(person?.name || "Partner")} · tap to view</span></button>` : `<div class="love-photo-card" style="display:grid;place-items:center;color:#a76180">${visiblePhoto ? "…" : image?.dayKey === dayKey ? "🔒" : "♡"}<span class="love-photo-label">${esc(person?.name || "Partner")} · ${visiblePhoto ? "revealing" : image?.dayKey === dayKey ? "secret" : "waiting"}</span></div>`; }).join("")}</div>
       ${uploads[ownKey]?.dayKey === dayKey && !lovePhotoMissing.has(`${dayKey}:${ownKey}`) ? `<button class="love-upload" type="button" disabled>✓ Your photo is in</button>` : `<button class="love-upload" type="button" data-action="love-upload" data-id="${esc(assignment.id)}">${uploads[ownKey]?.dayKey === dayKey ? "Send your photo again ♡" : "Add your photo ♡"}</button>`}
       </div>` : "";
     const specialWidget = isSnapChallenge
@@ -303,7 +308,7 @@ export function renderChallenges(el, user, profile) {
       <article class="challenge-card">
         <div class="challenge-card-head"><div>${dateText}<h2>${esc(assignment.title || challenge.title)}</h2></div><span class="challenge-status${badgeClass}">${isSnapChallenge || isWaterChallenge || isLoveChallenge ? (Object.keys(partnerProfiles).every(key => (assignment.completedBy || []).some(done => done.profileKey === key || done.uid === partnerProfiles[key]?.authUid)) ? "Together ✓" : "In today’s routine") : esc(statusLabel(status))}</span></div>
         <p>${esc(assignment.description || challenge.description)}</p>
-        ${(isSnapChallenge || isWaterChallenge || isLoveChallenge) ? `<div class="daily-partner-status">${Object.entries(partnerProfiles).map(([key, person]) => { const complete = (assignment.completedBy || []).some(done => done.profileKey === key || (person.authUid && done.uid === person.authUid)); return `<span>${esc(person.name)} · ${complete ? "✓ Done" : "⏳ Waiting"}</span>`; }).join("")}</div>` : ""}
+        ${(isSnapChallenge || isLoveChallenge) ? `<div class="daily-partner-status">${Object.entries(partnerProfiles).map(([key, person]) => { const complete = (assignment.completedBy || []).some(done => done.profileKey === key || (person.authUid && done.uid === person.authUid)); return `<span>${esc(person.name)} · ${complete ? "✓ Done" : "⏳ Waiting"}</span>`; }).join("")}</div>` : ""}
         ${completion}
         ${specialWidget}
         ${actions}
@@ -352,6 +357,28 @@ export function renderChallenges(el, user, profile) {
         .sort((a, b) => (b.completedAt?.toMillis?.() || new Date(b.completedAt || 0).getTime() || Date.parse(`${b.challengeDate}T12:00:00`)) - (a.completedAt?.toMillis?.() || new Date(a.completedAt || 0).getTime() || Date.parse(`${a.challengeDate}T12:00:00`)));
 
       const standardCards = completed.map(item => challengeCard({ ...item, id: item.id, dayKey: item.challengeDate }, true)).join("");
+      const loveHistory = loveUploads
+        .filter(item => item.dayKey && item.dayKey < dayKey && Object.values(item.uploads || {}).some(upload => upload?.dayKey === item.dayKey))
+        .sort((a, b) => b.dayKey.localeCompare(a.dayKey));
+      const loveHistoryCards = loveHistory.map(record => {
+        const uploads = record.uploads || {};
+        const keys = Object.keys(partnerProfiles);
+        const revealed = keys.length > 1 && keys.every(key => uploads[key]?.dayKey === record.dayKey);
+        const media = keys.map(key => {
+          const upload = uploads[key];
+          const person = partnerProfiles[key];
+          const visible = upload?.dayKey === record.dayKey && (key === ownKey || revealed);
+          const cacheKey = `${record.dayKey}:${key}`;
+          if (visible) loadLovePhoto(record.dayKey, key);
+          const photoUrl = lovePhotoUrls.get(cacheKey) || "";
+          const date = new Date(`${record.dayKey}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+          return visible && photoUrl && photoUrl !== "loading"
+            ? `<button type="button" class="love-photo-card love-photo-open" data-love-photo-src="${esc(photoUrl)}" data-love-photo-name="${esc(person?.name || "Partner")}" aria-label="View ${esc(person?.name || "Partner")}'s photo from ${esc(date)} full size"><img src="${esc(photoUrl)}" alt="${esc(person?.name || "Partner")}'s love photo, ${esc(date)}"><span class="love-photo-label">${esc(person?.name || "Partner")} · tap to view</span></button>`
+            : `<div class="love-photo-card love-history-placeholder" aria-label="${esc(person?.name || "Partner")} photo ${visible ? "loading" : "locked"}">${visible ? "Loading photo…" : upload?.dayKey === record.dayKey ? "🔒 Shared after both upload" : "♡ No photo"}</div>`;
+        }).join("");
+        const date = new Date(`${record.dayKey}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+        return `<article class="challenge-card love-history-card"><div class="challenge-card-head"><div><span class="challenge-date">${esc(date)}</span><h2>Love You Today ♡</h2></div><span class="challenge-status${revealed ? " completed" : ""}">${revealed ? "Together ✓" : "Memories"}</span></div><div class="love-photos">${media}</div></article>`;
+      }).join("");
       const customCompletedCards = customCompletedChallenges.map(item => `
         <article class="challenge-card">
           <div class="challenge-card-head"><div><h2>${esc(item.title || "Custom Challenge")}</h2></div><span class="challenge-status completed">✅ Completed</span></div>
@@ -362,8 +389,8 @@ export function renderChallenges(el, user, profile) {
         </article>
       `);
 
-      list.innerHTML = completed.length || customCompletedCards.length
-      ? `${standardCards ? `<p class="challenge-section-label">Daily challenges · last 30 days</p>${standardCards}` : ""}${customCompletedCards.length ? `<p class="challenge-section-label">Partner challenges · all time</p>${customCompletedCards.join("")}` : ""}`
+      list.innerHTML = completed.length || customCompletedCards.length || loveHistoryCards.length
+      ? `${loveHistoryCards ? `<p class="challenge-section-label">Love You Today photos · recent days</p>${loveHistoryCards}` : ""}${standardCards ? `<p class="challenge-section-label">Daily challenges · last 30 days</p>${standardCards}` : ""}${customCompletedCards.length ? `<p class="challenge-section-label">Partner challenges · all time</p>${customCompletedCards.join("")}` : ""}`
       : `<p class="challenge-empty">Completed challenges will be saved here ♡</p>`;
     }
     hydrateTelegramImages();
@@ -401,6 +428,11 @@ export function renderChallenges(el, user, profile) {
 
   function bindActions() {
     const handleActionClick = async event => {
+      const lovePhoto = event.target.closest?.("[data-love-photo-src]");
+      if (lovePhoto && el.contains(lovePhoto)) {
+        openLovePhotoViewer(lovePhoto.dataset.lovePhotoSrc, lovePhoto.dataset.lovePhotoName || "Love You Today");
+        return;
+      }
       const customButton = event.target.closest?.("[data-custom-action]");
       if (customButton && el.contains(customButton)) {
         const item = customAllChallenges.find(challenge => challenge.id === customButton.dataset.id);
@@ -481,6 +513,13 @@ export function renderChallenges(el, user, profile) {
     };
     el.addEventListener("click", handleActionClick);
     removeActionsListener = () => el.removeEventListener("click", handleActionClick);
+  }
+
+  function openLovePhotoViewer(src, name) {
+    modalRoot.innerHTML = `<div class="love-photo-viewer" role="dialog" aria-modal="true" aria-label="${esc(name)} photo"><button type="button" class="love-viewer-close" aria-label="Close photo">×</button><img src="${esc(src)}" alt="${esc(name)}'s Love You Today photo"><span>${esc(name)} · Love You Today</span></div>`;
+    const viewer = modalRoot.querySelector(".love-photo-viewer");
+    viewer.querySelector(".love-viewer-close").onclick = () => { modalRoot.innerHTML = ""; };
+    viewer.onclick = event => { if (event.target === viewer) modalRoot.innerHTML = ""; };
   }
 
   function openCompletionModal(assignmentId, assignment) {

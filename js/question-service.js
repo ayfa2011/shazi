@@ -1,5 +1,5 @@
 import { db, firebaseReady } from "./firebase.js";
-import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, where, writeBatch, limit, startAfter } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, runTransaction, serverTimestamp, setDoc, updateDoc, where, writeBatch, limit, startAfter } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { QUESTION_BANK_VERSION, QUESTION_CATEGORIES } from "./question-bank.js";
 import { todayKey } from "./utils.js";
@@ -101,6 +101,22 @@ export async function ensureDailyQuestion(dayKey = todayKey()) {
     transaction.set(reference, record);
     return { id: dayKey, ...record };
   });
+}
+
+export async function updateDailyQuestion(dayKey, text) {
+  requireFirebase();
+  const question = String(text || "").trim();
+  if (!question || question.length > 300) throw new Error("Question must be between 1 and 300 characters.");
+  const participants = await getQuestionParticipants(dayKey);
+  if (participants.kebyy || participants.shazy) throw new Error("This question can no longer be changed because an answer has been submitted.");
+  return updateDoc(dailyRef(dayKey), { question });
+}
+
+export function watchDailyQuestion(dayKey, callback, onError) {
+  requireFirebase();
+  return onSnapshot(dailyRef(dayKey), snapshot => {
+    if (snapshot.exists()) callback({ id: snapshot.id, ...snapshot.data() });
+  }, onError);
 }
 
 export function watchQuestionParticipants(dayKey, callback, onError) {

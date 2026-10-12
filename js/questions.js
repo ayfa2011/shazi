@@ -8,10 +8,12 @@ import {
   getQuestionParticipants,
   migrateLegacyQuestionAnswers,
   submitQuestionAnswer,
-  watchQuestionParticipants
+  watchQuestionParticipants,
+  updateDailyQuestion,
+  watchDailyQuestion
 } from "./question-service.js";
 
-let stopParticipants = null, dayRolloverTimer = null, questionRenderToken = 0;
+let stopParticipants = null, stopDailyQuestion = null, dayRolloverTimer = null, questionRenderToken = 0;
 const legacyMigrationPromises = new Map();
 
 function timestamp(value) {
@@ -72,6 +74,19 @@ export function renderQuestions(el, user, profile) {
       .question-category { display:inline-flex; padding:5px 10px; border-radius:999px; background:#fff0f6; color:var(--deep); font-size:12px; font-weight:700; }
       .question-day { color:var(--muted); font-size:11px; }
       .question-prompt { margin:14px 0; padding:16px; border-radius:15px; background:linear-gradient(120deg,#fff0f6,#fff9fb); color:#60283f; font-size:18px; font-weight:700; line-height:1.45; }
+      button.question-prompt { display:block; width:100%; border:0; text-align:left; cursor:pointer; font:inherit; }
+      button.question-prompt::after { content:"✎"; float:right; margin-left:10px; color:#bf5b83; font-size:14px; opacity:.6; }
+      button.question-prompt:hover { box-shadow:inset 0 0 0 1px #f0bfd1; }
+      .question-edit-modal { position:fixed; inset:0; z-index:1300; display:none; align-items:center; justify-content:center; padding:16px; background:#25151dcc; }
+      .question-edit-modal.open { display:flex; }
+      .question-edit-card { width:min(100%,460px); padding:20px; border:1px solid #f0d7e2; border-radius:22px; background:linear-gradient(145deg,#fff,#fff6fa); box-shadow:0 20px 60px #25151d55; }
+      .question-edit-card h2 { margin:0 0 6px; color:#873456; font-size:20px; }
+      .question-edit-card p { margin:0 0 12px; color:#8c737d; font-size:12px; }
+      .question-edit-card textarea { width:100%; min-height:115px; padding:12px; border:1px solid #efd0de; border-radius:13px; background:#fffafd; color:#60283f; font:600 15px/1.45 system-ui,sans-serif; resize:vertical; }
+      .question-edit-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
+      .question-edit-actions button { min-height:39px; padding:8px 14px; border-radius:999px; font-weight:700; }
+      .question-edit-cancel { background:#f6edf1; color:#765a68; }
+      .question-edit-save { background:linear-gradient(135deg,#e85c91,#c73d76); color:#fff; }
       .question-answer-form { display:grid; gap:9px; margin:10px 0; }
       .question-answer-form textarea { width:100%; min-height:86px; resize:vertical; border-color:#f0ccda; }
       .question-submit { justify-self:end; padding:9px 16px; border-radius:999px; }
@@ -116,7 +131,50 @@ export function renderQuestions(el, user, profile) {
         <div class="question-history-list" id="question-history-list"><p class="question-empty">Loading history…</p></div>
       </section>
     </section>
+    <div class="question-edit-modal" id="question-edit-modal" aria-hidden="true"><section class="question-edit-card" role="dialog" aria-modal="true" aria-labelledby="question-edit-title"><h2 id="question-edit-title">Ask your own question ♡</h2><p>This replaces today's default question for both of you.</p><form id="question-edit-form"><textarea name="question" maxlength="300" required aria-label="Today's question"></textarea><div class="question-edit-actions"><button type="button" class="question-edit-cancel" id="question-edit-cancel">Cancel</button><button type="submit" class="question-edit-save">Save question</button></div></form></section></div>
   `;
+
+  const editModal = $("#question-edit-modal", el);
+  const editForm = $("#question-edit-form", el);
+  function closeQuestionEditor() {
+    editModal.classList.remove("open");
+    editModal.setAttribute("aria-hidden", "true");
+  }
+  function openQuestionEditor() {
+    if (participants[ownKey] || participants[partnerKey]) {
+      toast("Today's question is locked after an answer is submitted.");
+      return;
+    }
+    editForm.elements.question.value = question?.question || "";
+    editModal.classList.add("open");
+    editModal.setAttribute("aria-hidden", "false");
+    editForm.elements.question.focus();
+  }
+  $("#question-edit-cancel", el).onclick = closeQuestionEditor;
+  editModal.addEventListener("click", event => { if (event.target === editModal) closeQuestionEditor(); });
+  editForm.onsubmit = async event => {
+    event.preventDefault();
+    const save = editForm.querySelector("[type=submit]");
+    const text = editForm.elements.question.value.trim();
+    if (!text) return toast("Enter a question first.");
+    save.disabled = true;
+    save.textContent = "Saving…";
+    try {
+      await updateDailyQuestion(dayKey, text);
+      question = { ...question, question: text };
+      history = history.map(item => item.id === dayKey ? { ...item, question: text } : item);
+      renderToday();
+      renderHistory();
+      closeQuestionEditor();
+      toast("Today's question updated for both of you ♡");
+    } catch (error) {
+      console.error("Could not update today's question:", error);
+      toast(error.message || "Could not update today's question.");
+    } finally {
+      save.disabled = false;
+      save.textContent = "Save question";
+    }
+  };
 
   function renderToday() {
     const card = $("#today-question-card", el);
@@ -127,7 +185,7 @@ export function renderQuestions(el, user, profile) {
 
     card.innerHTML = `
       <span class="question-category">${esc(question.category)}</span>
-      <p class="question-prompt">${esc(question.question)}</p>
+      <button type="button" class="question-prompt" id="edit-today-question" aria-label="Edit today's question">${esc(question.question)}</button>
       <p class="question-status">${bothAnswered ? "You both answered. Your answers are revealed below." : answeredByMe ? "Your answer is locked. Waiting for your partner to answer." : participants[partnerKey] ? "Your partner has answered. Add yours to reveal both answers." : "Answer privately. Your partner cannot see it until you have both answered."}</p>
       ${answeredByMe ? "" : `
         <form class="question-answer-form" id="question-answer-form">
@@ -159,6 +217,7 @@ export function renderQuestions(el, user, profile) {
       ${bothAnswered ? `<button type="button" class="question-reveal-message" id="question-view-answers">Answered! Click to view both answers ♡</button>` : ""}
     `;
 
+    $("#edit-today-question", card)?.addEventListener("click", openQuestionEditor);
     $("#question-view-answers", card)?.addEventListener("click", () => {
       $(".question-answers", card)?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
@@ -276,6 +335,13 @@ export function renderQuestions(el, user, profile) {
       question = await ensureDailyQuestion(dayKey);
       if (!isCurrent()) return;
       renderToday();
+      stopDailyQuestion = watchDailyQuestion(dayKey, sharedQuestion => {
+        if (!isCurrent()) return;
+        question = sharedQuestion;
+        history = history.map(item => item.id === dayKey ? { ...item, question: sharedQuestion.question } : item);
+        renderToday();
+        renderHistory();
+      }, error => console.error("Today's question sync failed:", error));
       stopParticipants = watchQuestionParticipants(dayKey, status => {
         if (!isCurrent()) return;
         participants = status;
@@ -317,4 +383,6 @@ export function disposeQuestions() {
   dayRolloverTimer = null;
   stopParticipants?.();
   stopParticipants = null;
+  stopDailyQuestion?.();
+  stopDailyQuestion = null;
 }

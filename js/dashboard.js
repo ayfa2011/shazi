@@ -229,7 +229,7 @@ export function renderHome(el, user, profile) {
             <div class="today-card-copy">
               <strong>Today's Question</strong>
               <span class="today-question-category" id="home-question-category"></span>
-              <button type="button" class="today-link" id="home-question-link">Answer Now →</button>
+              <button type="button" class="today-link" id="home-question-link" aria-label="Answer now"><img src="./Asset/today-question-button.png" alt=""></button>
             </div>
           </article>
           <article class="card today-challenge" id="home-daily-challenge" role="link" tabindex="0" aria-label="Open Daily Challenges">
@@ -237,7 +237,7 @@ export function renderHome(el, user, profile) {
             <div class="today-card-copy">
               <strong>Daily Challenge</strong>
               <p><em>${esc(challenge.title)}</em></p>
-              <button type="button" class="today-link" id="home-challenge-link">Take the challenge →</button>
+              <button type="button" class="today-link" id="home-challenge-link" aria-label="Take the challenge"><img src="./Asset/daily-challenge-button.png" alt=""></button>
             </div>
           </article>
         </div>
@@ -346,7 +346,7 @@ export function renderHome(el, user, profile) {
     questionText.textContent = dailyQuestion.question;
     category.textContent = dailyQuestion.category;
     category.hidden = false;
-    button.textContent = questionParticipants[questionProfileKey] ? "View Answers →" : "Answer Now →";
+    button.setAttribute("aria-label", questionParticipants[questionProfileKey] ? "View answers" : "Answer now");
   }
 
   ensureDailyQuestion(todayKey()).then(questionRecord => {

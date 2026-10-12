@@ -331,7 +331,16 @@ service cloud.firestore {
           || questionRecordId.matches('^legacy-[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9]+$'))
         && exists(/databases/$(database)/documents/coupleQuestionBank/$(coupleId)/questions/$(request.resource.data.id))
         && request.resource.data.createdAt == request.time;
-      allow update, delete: if false;
+      allow update: if isQuestionCoupleMember(coupleId)
+        && questionRecordId == resource.data.dayKey
+        && request.resource.data.dayKey == resource.data.dayKey
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['question'])
+        && request.resource.data.question is string
+        && request.resource.data.question.size() > 0
+        && request.resource.data.question.size() <= 300
+        && !exists(/databases/$(database)/documents/coupleDailyQuestions/$(coupleId)/days/$(questionRecordId)/participants/kebyy)
+        && !exists(/databases/$(database)/documents/coupleDailyQuestions/$(coupleId)/days/$(questionRecordId)/participants/shazy);
+      allow delete: if false;
 
       match /participants/{profileKey} {
         allow read: if isQuestionCoupleMember(coupleId);

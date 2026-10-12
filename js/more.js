@@ -36,7 +36,11 @@ export function renderMore(el, user) {
 
   $("[data-more-route='bucket']", el).onclick = () => window.App?.navigate("bucket");
   $("[data-more-route='gallery-library']", el).onclick = () => window.App?.navigate("gallery-library");
-  $("#special-days-card", el).onclick = () => renderSpecialDays($("#more-detail", el), user);
+  $("#special-days-card", el).onclick = () => {
+    const morePage = $(".more-page", el);
+    morePage.classList.add("showing-special-days");
+    renderSpecialDays($("#more-detail", el), user);
+  };
   $(".more-logout", el).onclick = async () => {
     try {
       await logout();
