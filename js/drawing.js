@@ -21,7 +21,6 @@ export function renderDrawing(el, user, profile) {
         <h1>Our Canvas</h1>
         <div class="drawing-presence-pill"><span class="presence-dot"></span><span id="drawing-presence">Connecting…</span></div>
       </div>
-
     </header>
 
     <div class="draw-board">
@@ -102,6 +101,7 @@ export function renderDrawing(el, user, profile) {
 
       <!-- Apple Markup Dock Toolbar -->
       <div class="apple-markup-dock" role="toolbar" aria-label="Apple Markup Drawing Tools">
+        <div class="markup-tool-group" role="group" aria-label="Drawing tools">
         <!-- Pen Tool -->
         <button type="button" class="markup-tool selected" data-tool="pen" aria-label="Pen tool (Solid ink)" title="Pen (1)">
           <svg viewBox="0 0 36 84" class="tool-svg" aria-hidden="true">
@@ -209,15 +209,17 @@ export function renderDrawing(el, user, profile) {
             <ellipse cx="18" cy="14" rx="4" ry="2" fill="#ffffff" opacity="0.45"/>
           </svg>
         </button>
+        </div>
 
         <div class="markup-divider" aria-hidden="true"></div>
-<div class="toolbar-actions">
-  <button type="button" class="tool-button" id="drawing-undo" aria-label="Undo">Undo</button>
-  <button type="button" class="tool-button" id="drawing-redo" aria-label="Redo">Redo</button>
-  <button type="button" class="tool-button" id="drawing-clear" aria-label="Clear">Clear</button>
-  <button type="button" class="tool-button" id="drawing-history-open" aria-label="History">History</button>
-  <button type="button" class="tool-button" id="drawing-save" aria-label="Save">Save</button>
-</div>
+        <div class="toolbar-actions" role="group" aria-label="Canvas actions">
+          <button type="button" class="tool-button" id="drawing-undo" aria-label="Undo">Undo</button>
+          <button type="button" class="tool-button" id="drawing-redo" aria-label="Redo">Redo</button>
+          <button type="button" class="tool-button" id="drawing-clear" aria-label="Clear">Clear</button>
+          <button type="button" class="tool-button" id="drawing-history-open" aria-label="History">History</button>
+          <button type="button" class="tool-button" id="drawing-save" aria-label="Save">Save</button>
+        </div>
+        <div class="markup-divider controls-divider" aria-hidden="true"></div>
 
         <!-- Color Wheel Button -->
         <button type="button" class="markup-color-button" id="markup-color-btn" aria-label="Color Palette" title="Choose color">
@@ -305,6 +307,7 @@ export function renderDrawing(el, user, profile) {
   let lastNonEraserTool = "pen";
   let drawing = false;
   let active = true;
+  let remoteSyncReady = false;
   let last = null;
   let activeStroke = null;
   let strokeIds = new Map();
@@ -674,6 +677,7 @@ export function renderDrawing(el, user, profile) {
 
   // Pointer drawing events on canvas
   canvas.addEventListener("pointerdown", e => {
+    if (!remoteSyncReady) return;
     e.preventDefault();
     if (e.pointerType === "mouse" && e.button !== 0) return;
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
@@ -736,9 +740,9 @@ export function renderDrawing(el, user, profile) {
   canvas.addEventListener("pointercancel", endStroke);
   canvas.addEventListener("lostpointercapture", endStroke);
 
-  // Synchronize remote operations from Firebase Realtime Database
-  unsubs.push(onChildAdded(strokeRef, s => {
-    if (!active) return;
+  // Apply operations from Firebase. Existing operations during startup are replayed silently.
+  function applyRemoteOperation(s, allowPartnerClearPrompt) {
+    if (knownOperationKeys.has(s.key)) return;
     knownOperationKeys.add(s.key);
     const v = s.val();
     if (!v) return;
@@ -754,7 +758,7 @@ export function renderDrawing(el, user, profile) {
         for (const operation of outgoingQueue.getAll()) {
           if (["stroke", "redo", "undo"].includes(operation.type)) outgoingQueue.remove(operation.id);
         }
-        if (history.canRestoreClear && window.confirm("Your partner cleared the shared canvas. Restore your last version?")) {
+        if (allowPartnerClearPrompt && history.canRestoreClear && window.confirm("Your partner cleared the shared canvas. Restore your last version?")) {
           const restoredStrokes = history.restoreClearSnapshot();
           if (restoredStrokes) enqueueWrite({ type: "restore", strokes: restoredStrokes });
           latestRemoteClearKey = null;
@@ -802,7 +806,41 @@ export function renderDrawing(el, user, profile) {
       renderSingleStroke(ctx, v);
       refreshHistoryControls();
     }
+  }
+
+  // Subscribe first so changes cannot slip between the startup snapshot and live updates.
+  let initialSyncComplete = false;
+  const initialEvents = [];
+  unsubs.push(onChildAdded(strokeRef, snapshot => {
+    if (!active) return;
+    if (!initialSyncComplete) {
+      initialEvents.push(snapshot);
+      return;
+    }
+    applyRemoteOperation(snapshot, true);
   }));
+
+  get(strokeRef).then(snapshot => {
+    if (!active) return;
+    snapshot.forEach(operation => applyRemoteOperation(operation, false));
+    initialEvents.sort((a, b) => a.key.localeCompare(b.key));
+    initialEvents.forEach(operation => applyRemoteOperation(operation, false));
+    initialEvents.length = 0;
+    initialSyncComplete = true;
+    remoteSyncReady = true;
+    redrawCanvas();
+    updateSyncStatus();
+  }).catch(error => {
+    if (!active) return;
+    console.warn("Could not load the initial shared canvas snapshot; applying available updates.", error);
+    initialEvents.sort((a, b) => a.key.localeCompare(b.key));
+    initialEvents.forEach(operation => applyRemoteOperation(operation, false));
+    initialEvents.length = 0;
+    initialSyncComplete = true;
+    remoteSyncReady = true;
+    redrawCanvas();
+    updateSyncStatus();
+  });
 
   // Presence tracking
   unsubs.push(onValue(connectedRef, s => {
@@ -1179,24 +1217,48 @@ export function renderDrawing(el, user, profile) {
     btn.disabled = true;
     btn.textContent = "Saving…";
     try {
+      const createdAtMs = Date.now();
+      const timestamp = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(createdAtMs));
+      const artistName = profile.name || user.displayName || "Partner";
       const exportCanvas = document.createElement("canvas");
       exportCanvas.width = canvas.width;
-      exportCanvas.height = canvas.height;
+      const footerScale = exportCanvas.width / 1200;
+      const footerHeight = Math.round(58 * footerScale);
+      exportCanvas.height = canvas.height + footerHeight;
       const exportContext = exportCanvas.getContext("2d");
       if (!exportContext) throw new Error("Drawing preparation failed.");
       exportContext.fillStyle = "#fff";
       exportContext.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
-      exportContext.drawImage(canvas, 0, 0);
-      const photoUrl = exportCanvas.toDataURL("image/jpeg", 0.75);
-      const drawingRef = await addDrawingMessage({ authorId: user.uid, authorName: profile.name, photoUrl, createdAtMs: Date.now() });
+      // Copy the backing bitmap at its native dimensions so export never follows the CSS display size.
+      exportContext.drawImage(canvas, 0, 0, canvas.width, canvas.height);
+      const footerTop = canvas.height;
+      exportContext.fillStyle = "#fff9fc";
+      exportContext.fillRect(0, footerTop, exportCanvas.width, footerHeight);
+      exportContext.strokeStyle = "#f0dfe7";
+      exportContext.lineWidth = Math.max(1, footerScale);
+      exportContext.beginPath();
+      exportContext.moveTo(0, footerTop + 0.5 * footerScale);
+      exportContext.lineTo(exportCanvas.width, footerTop + 0.5 * footerScale);
+      exportContext.stroke();
+      exportContext.fillStyle = "#806b75";
+      exportContext.font = `500 ${Math.round(17 * footerScale)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      exportContext.textBaseline = "middle";
+      exportContext.textAlign = "left";
+      exportContext.fillText(`Drawn by ${artistName} • ${timestamp}`, Math.round(22 * footerScale), footerTop + footerHeight / 2, exportCanvas.width - Math.round(44 * footerScale));
+
+      const imageBlob = await new Promise((resolve, reject) => exportCanvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not prepare drawing image.")), "image/jpeg", 0.86));
+      const photoUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error("Could not prepare drawing image."));
+        reader.readAsDataURL(imageBlob);
+      });
+      const drawingRef = await addDrawingMessage({ authorId: user.uid, authorName: artistName, photoUrl, createdAtMs });
       const profileKey = getProfileKey(profile);
       if (profileKey) {
-        void (async () => {
-          const telegramBlob = await new Promise((resolve, reject) => exportCanvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not prepare drawing for Telegram.")), "image/jpeg", 0.75));
-          const timestamp = new Date().toLocaleString();
-          const telegramFile = new File([telegramBlob], `canvas-drawing-${Date.now()}.jpg`, { type: "image/jpeg" });
-          await sendToTelegram(telegramFile, `New Canvas Drawing 🎨 · ${profile.name} · ${timestamp}`, new Date().toISOString().slice(0, 10), profileKey, { storeForReveal: false });
-        })().catch(error => console.error("Could not forward canvas drawing to Telegram:", error));
+        const telegramFile = new File([imageBlob], `canvas-drawing-${createdAtMs}.jpg`, { type: "image/jpeg" });
+        void sendToTelegram(telegramFile, `New Canvas Drawing 🎨 · ${artistName} · ${timestamp}`, new Date(createdAtMs).toISOString().slice(0, 10), profileKey, { storeForReveal: false })
+          .catch(error => console.error("Could not forward canvas drawing to Telegram:", error));
       }
       await notifyPartnerSafely(getProfileKey(profile), "drawing", `${profile.name} added a new drawing! 🎨`, drawingRef.id, "drawing");
 
