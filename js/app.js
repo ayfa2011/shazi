@@ -768,6 +768,25 @@ initAuth(
 
 // Event Listeners setup
 document.addEventListener("DOMContentLoaded", () => {
+  const hardRefreshButton = $("#hard-refresh-btn");
+  hardRefreshButton?.addEventListener("click", async () => {
+    hardRefreshButton.disabled = true;
+    toast("Refreshing latest version…");
+
+    const cleanupTasks = [];
+    if ("caches" in window) {
+      cleanupTasks.push(caches.keys().then(keys => Promise.all(keys.map(key => caches.delete(key)))));
+    }
+    if ("serviceWorker" in navigator) {
+      cleanupTasks.push(navigator.serviceWorker.getRegistrations().then(registrations => Promise.all(registrations.map(registration => registration.unregister()))));
+    }
+    await Promise.allSettled(cleanupTasks);
+
+    const refreshUrl = new URL(window.location.href);
+    refreshUrl.searchParams.set("v", Date.now().toString());
+    window.location.replace(refreshUrl.toString());
+  });
+
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register(new URL("../sw.js", import.meta.url), {
       scope: new URL("../", import.meta.url).pathname
