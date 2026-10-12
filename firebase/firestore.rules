@@ -18,6 +18,12 @@ service cloud.firestore {
       return request.auth.token.email == 'akabeeram@gmail.com' ? 'kebyy' : 'shazy';
     }
 
+    function isLetterRecipient(data) {
+      return data.get('recipient', '') == ownNotificationProfileKey()
+        || (ownNotificationProfileKey() == 'kebyy' && data.get('recipient', '') == 'Keby')
+        || (ownNotificationProfileKey() == 'shazy' && data.get('recipient', '') == 'Shazy');
+    }
+
     function isValidNotification(data, notificationId) {
       return data.keys().hasAll(['recipientKey', 'actorKey', 'type', 'title', 'message', 'route', 'sourceId', 'createdAt', 'readAt'])
         && data.keys().hasOnly(['recipientKey', 'actorKey', 'type', 'title', 'message', 'route', 'sourceId', 'createdAt', 'readAt'])
@@ -157,6 +163,14 @@ service cloud.firestore {
         && !(collectionName == 'settings' && documentId == 'profiles')
         && resource.data.get('type', '') != 'answer'
         && (
+          (collectionName == 'items'
+            && resource.data.get('type', '') == 'letter'
+            && resource.data.get('author', '') != request.auth.uid
+            && isLetterRecipient(resource.data)
+            && resource.data.get('readAt', null) == null
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt'])
+            && request.resource.data.readAt == request.time)
+          ||
           (collectionName == 'items'
             && resource.data.get('type', '') != 'customChallenge'
             && resource.data.get('type', '') != 'loveYouChallenge'

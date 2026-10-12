@@ -38,6 +38,11 @@ export async function addLetter(data) {
   return reference;
 }
 
+export async function markLetterRead(letterId) {
+  if (!firebaseReady) throw new Error("Connect Firebase before updating the letter receipt.");
+  return updateDoc(doc(root(), letterId), { readAt: serverTimestamp() });
+}
+
 export async function getScheduledLetterBody(letterId) {
   if (!firebaseReady) throw new Error("Connect Firebase before opening letters.");
   const snapshot = await getDoc(doc(db, ...couplePath(), "scheduledLetterContents", letterId));
