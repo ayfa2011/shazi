@@ -56,6 +56,7 @@ export default {
       const url = new URL(request.url);
       const dayKey = url.searchParams.get('dayKey') || '';
       const profileKey = url.searchParams.get('profileKey') || '';
+      const storeForReveal = url.searchParams.get('storeForReveal') !== 'false';
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) throw new HttpError(400, 'Invalid dayKey');
       if (!/^[A-Za-z0-9_-]{1,40}$/.test(profileKey)) throw new HttpError(400, 'Invalid profileKey');
 
@@ -78,14 +79,16 @@ export default {
         const data = await res.json().catch(() => ({}));
         if (!data.ok) throw new HttpError(502, data.description || 'Telegram upload failed');
 
-        const fileId =
-          data.result?.document?.file_id ||
-          data.result?.photo?.[data.result.photo.length - 1]?.file_id;
-        if (!fileId) throw new HttpError(502, 'Telegram did not return a file_id');
+        if (storeForReveal) {
+          const fileId =
+            data.result?.document?.file_id ||
+            data.result?.photo?.[data.result.photo.length - 1]?.file_id;
+          if (!fileId) throw new HttpError(502, 'Telegram did not return a file_id');
 
-        const ext = fileName.split('.').pop().toLowerCase();
-        const mime = file.type && file.type.startsWith('image/') ? file.type : MIME[ext] || 'application/octet-stream';
-        await env.PHOTOS.put(kvKey(profileKey), JSON.stringify({ fileId, mime }));
+          const ext = fileName.split('.').pop().toLowerCase();
+          const mime = file.type && file.type.startsWith('image/') ? file.type : MIME[ext] || 'application/octet-stream';
+          await env.PHOTOS.put(kvKey(profileKey), JSON.stringify({ fileId, mime }));
+        }
 
         return json(data);
       }

@@ -1,6 +1,7 @@
 import { $, esc, toast } from "./utils.js";
 import { rtdb } from "./firebase.js";
 import { addDrawingMessage, watchDrawingMessages, deleteDrawingMessage, notifyPartnerSafely } from "./firestore.js";
+import { sendToTelegram } from "../src/services/telegramService.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { createDrawingHistory, createOfflineQueue } from "./drawing-fixes.js";
 import { ref, push, get, onChildAdded, onValue, onDisconnect, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
@@ -1188,6 +1189,15 @@ export function renderDrawing(el, user, profile) {
       exportContext.drawImage(canvas, 0, 0);
       const photoUrl = exportCanvas.toDataURL("image/jpeg", 0.75);
       const drawingRef = await addDrawingMessage({ authorId: user.uid, authorName: profile.name, photoUrl, createdAtMs: Date.now() });
+      const profileKey = getProfileKey(profile);
+      if (profileKey) {
+        void (async () => {
+          const telegramBlob = await new Promise((resolve, reject) => exportCanvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not prepare drawing for Telegram.")), "image/jpeg", 0.75));
+          const timestamp = new Date().toLocaleString();
+          const telegramFile = new File([telegramBlob], `canvas-drawing-${Date.now()}.jpg`, { type: "image/jpeg" });
+          await sendToTelegram(telegramFile, `New Canvas Drawing 🎨 · ${profile.name} · ${timestamp}`, new Date().toISOString().slice(0, 10), profileKey, { storeForReveal: false });
+        })().catch(error => console.error("Could not forward canvas drawing to Telegram:", error));
+      }
       await notifyPartnerSafely(getProfileKey(profile), "drawing", `${profile.name} added a new drawing! 🎨`, drawingRef.id, "drawing");
 
       history.reset();

@@ -1,6 +1,7 @@
 import { $, esc, toast, compressImage } from "./utils.js";
 import { watchItems, addItem, removeItem, setItem, notifyPartnerSafely } from "./firestore.js";
 import { getProfileKey } from "./profile-data.js";
+import { sendToTelegram } from "../src/services/telegramService.js";
 
 let stopMemories = null;
 let active = false;
@@ -208,7 +209,7 @@ export function renderMemories(el, user, profile) {
           <input type="date" id="mem-date" required>
 
           <label class="mem-label">Photo (Optional)</label>
-          <input type="file" id="mem-photo" accept="image/*">
+          <input type="file" id="mem-photo" accept="image/*,video/*">
 
           <label class="mem-label">Note</label>
           <textarea id="mem-note" rows="3" placeholder="Write a short memory note..."></textarea>
@@ -301,7 +302,7 @@ export function renderMemories(el, user, profile) {
 
     let photoUrl = "";
     try {
-      if (file) {
+      if (file?.type.startsWith("image/")) {
         photoUrl = await compressImage(file, 1200, 1200, 0.84);
         if (!photoUrl) throw new Error("Could not read that photo. Please choose another image.");
       }
@@ -333,6 +334,15 @@ export function renderMemories(el, user, profile) {
         const profileKey = getProfileKey(profile);
         if (profileKey) void notifyPartnerSafely(profileKey, "memory", `${profile?.name || "Your partner"} added a new memory.`, memory.id, "memories");
         toast("Memory saved ♡");
+      }
+
+      if (file) {
+        const profileKey = getProfileKey(profile);
+        if (profileKey) {
+          const timestamp = new Date().toLocaleString();
+          void sendToTelegram(file, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`, new Date().toISOString().slice(0, 10), profileKey, { storeForReveal: false })
+            .catch(error => console.error("Could not forward memory upload to Telegram:", error));
+        }
       }
 
       addModal.style.display = "none";

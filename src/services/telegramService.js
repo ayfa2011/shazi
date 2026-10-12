@@ -10,7 +10,7 @@ async function authorizedRequest(url, options = {}) {
   return fetch(url, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` } });
 }
 
-export async function sendToTelegram(file, caption, dayKey, profileKey) {
+export async function sendToTelegram(file, caption, dayKey, profileKey, { storeForReveal = true } = {}) {
   const body = new FormData();
   const fileName = file.name || "love-note.jpg";
   const extension = fileName.split(".").pop().toLowerCase();
@@ -20,7 +20,9 @@ export async function sendToTelegram(file, caption, dayKey, profileKey) {
   body.append("caption", caption);
   const url = new URL(TELEGRAM_CONFIG.WORKER_URL);
   url.searchParams.set("dayKey", dayKey);
-  url.searchParams.set("profileKey", profileKey);
+  // Keep generic forwards out of the daily reveal slot even before the Worker is redeployed.
+  url.searchParams.set("profileKey", storeForReveal ? profileKey : `upload_${Date.now().toString(36)}`);
+  if (!storeForReveal) url.searchParams.set("storeForReveal", "false");
   const response = await authorizedRequest(url.toString(), { method: "POST", body });
   const result = await response.json().catch(() => ({}));
   if (!response.ok || result.ok === false) throw new Error(result.error || result.message || "Could not forward the photo to Telegram.");

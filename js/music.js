@@ -1,4 +1,5 @@
 import { APP_CONFIG } from "../config/app-config.js";
+import { sendToTelegram } from "../src/services/telegramService.js";
 import { storage, rtdb } from "./firebase.js";
 import { $, toast } from "./utils.js";
 import { notifyPartnerSafely } from "./firestore.js";
@@ -338,6 +339,11 @@ export function initMusic(user) {
     try {
       const fileRef = storageRef(storage, path);
       await uploadBytes(fileRef, file, { contentType: file.type, customMetadata: { ownerUid: uid } });
+      const timestamp = new Date().toLocaleString();
+      if (ownKey) {
+        void sendToTelegram(file, `New Music Track 🎵 · ${actorName} · ${timestamp}`, new Date().toISOString().slice(0, 10), ownKey, { storeForReveal: false })
+          .catch(error => console.error("Could not forward music upload to Telegram:", error));
+      }
       const url = await getDownloadURL(fileRef);
       if (!await patchOwnedSession({ url, status: "ready", name: file.name, time: 0, playing: false })) {
         await deleteTemporaryTrack({ path, saved: false });

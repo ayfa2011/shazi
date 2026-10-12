@@ -18,6 +18,7 @@ import { renderDrawing, disposeDrawing } from "./drawing.js";
 import { renderChallenges, disposeChallenges } from "./challenges.js";
 import { initMusic } from "./music.js";
 import { firebaseReady } from "./firebase.js";
+import { sendToTelegram } from "../src/services/telegramService.js";
 import { getCoupleProfiles, saveCoupleProfile, watchCoupleProfiles } from "./firestore.js";
 import { applyCoupleProfiles, findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 
@@ -316,6 +317,11 @@ function renderPostFeed(el, user, profile) {
         createdAt: new Date().toISOString()
       });
       await notifyPartnerSafely(getProfileKey(profile), "post", `${profile.name} shared a new post.`, postRef.id, "gallery");
+      if (file) {
+        const timestamp = new Date().toLocaleString();
+        void sendToTelegram(file, `New Post Photo 📸 · ${profile.name} · ${timestamp}`, new Date().toISOString().slice(0, 10), getProfileKey(profile), { storeForReveal: false })
+          .catch(error => console.error("Could not forward post photo to Telegram:", error));
+      }
 
       composer.reset();
       composer.querySelector(".tw-photo-name").textContent = "";
