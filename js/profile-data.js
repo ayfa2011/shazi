@@ -1,4 +1,5 @@
 import { APP_CONFIG } from "../config/app-config.js";
+import { getTelegramMediaUrl } from "../src/services/telegramService.js";
 
 export function getProfileKey(profile) {
   return Object.entries(APP_CONFIG.profiles).find(([, candidate]) =>
@@ -13,12 +14,16 @@ export function applyCoupleProfiles(data = {}) {
     const profile = APP_CONFIG.profiles[key];
     if (!profile || !saved || typeof saved !== "object") continue;
 
-    for (const field of ["name", "bio", "avatar", "driveFileId", "authUid"]) {
+    for (const field of ["name", "bio", "avatar", "driveFileId", "authUid", "avatarTelegramFileId", "avatarMimeType"]) {
       if (typeof saved[field] !== "string") continue;
       if (field === "bio" && !saved.bio && saved.bioConfigured !== true && profile.bio) continue;
       if (field === "avatar" && !saved.avatar && profile.avatar) continue;
       if (profile[field] !== saved[field]) changed = true;
       profile[field] = saved[field];
+    }
+    if (saved.avatarTelegramFileId && !saved.avatar && profile._loadedAvatarTelegramFileId !== saved.avatarTelegramFileId) {
+      if (profile.avatar) changed = true;
+      profile.avatar = "";
     }
     if (saved.bioConfigured === true) profile.bioConfigured = true;
 
@@ -30,6 +35,18 @@ export function applyCoupleProfiles(data = {}) {
   }
 
   return changed;
+}
+
+export async function hydrateCoupleProfileAvatars() {
+  const results = await Promise.allSettled(Object.values(APP_CONFIG.profiles).map(async profile => {
+    const fileId = profile.avatarTelegramFileId;
+    if (!fileId || profile._loadedAvatarTelegramFileId === fileId) return false;
+    const url = await getTelegramMediaUrl(fileId, profile.avatarMimeType || "image/jpeg");
+    profile.avatar = url;
+    profile._loadedAvatarTelegramFileId = fileId;
+    return true;
+  }));
+  return results.some(result => result.status === "fulfilled" && result.value);
 }
 
 export function findProfileForAuthor(authorId, fallbackName = "") {

@@ -1,9 +1,7 @@
-import { $, esc, toast, compressImage } from "./utils.js";
+import { $, esc, toast } from "./utils.js";
 import { watchItems, addItem, removeItem, setItem, addMemoryMedia, notifyPartnerSafely } from "./firestore.js";
 import { getProfileKey } from "./profile-data.js";
-import { sendToTelegram } from "../src/services/telegramService.js";
-import { storage } from "./firebase.js";
-import { getDownloadURL, ref as storageRef, uploadBytes } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-storage.js";
+import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
 
 let stopMemories = null;
 let active = false;
@@ -348,15 +346,15 @@ export function renderMemories(el, user, profile) {
     const fileInput = $("#mem-photo", el);
     const file = fileInput.files?.[0];
 
-    let photoUrl = "";
     let isVideo = false;
     try {
-      if (file?.type.startsWith("image/")) {
-        photoUrl = await compressImage(file, 1200, 1200, 0.84);
-        if (!photoUrl) throw new Error("Could not read that photo. Please choose another image.");
-      } else if (file?.type.startsWith("video/")) {
-        isVideo = true;
-        photoUrl = await createVideoThumbnail(file);
+      let mediaMetadata = {};
+      if (file) {
+        isVideo = file.type.startsWith("video/");
+        const profileKey = getProfileKey(profile);
+        const timestamp = new Date().toLocaleString();
+        const result = await sendToTelegram(file, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`, new Date().toISOString().slice(0, 10), profileKey, { storeForReveal: false });
+        mediaMetadata = { ...telegramMediaReferences(result), photoMimeType: telegramUploadMimeType(file) };
       }
 
       let formattedDate = "";
@@ -376,8 +374,9 @@ export function renderMemories(el, user, profile) {
         note
       };
 
-      if (photoUrl) payload.photoUrl = photoUrl;
       if (file) payload.mediaType = isVideo ? "video" : "image";
+      if (file) payload.photoUrl = "";
+      Object.assign(payload, mediaMetadata);
 
       if (editId) {
         await setItem(editId, payload);
@@ -387,15 +386,6 @@ export function renderMemories(el, user, profile) {
         const profileKey = getProfileKey(profile);
         if (profileKey) void notifyPartnerSafely(profileKey, "memory", `${profile?.name || "Your partner"} added a new memory.`, memory.id, "memories");
         toast("Memory saved ♡");
-      }
-
-      if (file) {
-        const profileKey = getProfileKey(profile);
-        if (profileKey) {
-          const timestamp = new Date().toLocaleString();
-          void sendToTelegram(file, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`, new Date().toISOString().slice(0, 10), profileKey, { storeForReveal: false })
-            .catch(error => console.error("Could not forward memory upload to Telegram:", error));
-        }
       }
 
       addModal.style.display = "none";
@@ -444,21 +434,26 @@ export function renderMemories(el, user, profile) {
       event.preventDefault();
       openImageLightbox(image);
     };
-    const url = selected?.type === "video" ? selected.thumbnailUrl : (selected?.url || memory.photoUrl);
+    const isVideo = selected?.type === "video" || (!selected && memory.mediaType === "video");
+    const mediaUrl = selected?.url || memory.photoUrl || "";
+    const fileId = selected?.telegramFileId || (!selected ? memory.telegramFileId : "");
+    const mimeType = selected?.mimeType || memory.photoMimeType || "application/octet-stream";
     imgWrap.querySelectorAll(".memory-view-main,.memory-view-placeholder").forEach(node => node.remove());
-    if (selected?.type === "video" && selected.url) {
+    if (isVideo && (mediaUrl || fileId)) {
       const video = document.createElement("video");
       video.className = "memory-view-main";
-      video.src = selected.url;
+      if (mediaUrl) video.src = mediaUrl;
+      else getTelegramMediaUrl(fileId, mimeType).then(url => { if (video.isConnected) video.src = url; }).catch(error => console.error("Memory video could not load:", error));
       video.controls = true;
       video.playsInline = true;
       video.preload = "metadata";
       video.setAttribute("aria-label", selected.name || "Memory video");
       imgWrap.prepend(video);
-    } else if (url) {
+    } else if (mediaUrl || fileId) {
       const image = document.createElement("img");
       image.className = "memory-view-main";
-      image.src = url;
+      if (mediaUrl) image.src = mediaUrl;
+      else getTelegramMediaUrl(fileId, mimeType).then(url => { if (image.isConnected) image.src = url; }).catch(error => console.error("Memory photo could not load:", error));
       image.alt = memory.title || "A shared memory";
       image.tabIndex = 0;
       image.setAttribute("role", "button");
@@ -479,19 +474,34 @@ export function renderMemories(el, user, profile) {
   function renderMemoryGallery(memory) {
     const media = Array.isArray(memory.mediaItems) ? memory.mediaItems : [];
     const primaryIsVideo = memory.mediaType === "video";
-    const photos = media.filter(item => item.type !== "video").length + (memory.photoUrl && !primaryIsVideo ? 1 : 0);
-    const videos = media.filter(item => item.type === "video").length + (primaryIsVideo ? 1 : 0);
+    const hasPrimaryMedia = Boolean(memory.photoUrl || memory.telegramFileId);
+    const photos = media.filter(item => item.type !== "video").length + (hasPrimaryMedia && !primaryIsVideo ? 1 : 0);
+    const videos = media.filter(item => item.type === "video").length + (hasPrimaryMedia && primaryIsVideo ? 1 : 0);
     $("#memory-gallery-count", el).textContent = `${photos} ${photos === 1 ? "photo" : "photos"} and ${videos} ${videos === 1 ? "video" : "videos"}`;
     mediaGrid.innerHTML = media.map((item, index) => {
       const thumbnail = item.thumbnailUrl || item.url;
-      if (!thumbnail) return "";
-      return `<button class="memory-gallery-item" type="button" data-media-index="${index}" aria-label="View ${item.type === "video" ? "video" : "photo"}${item.name ? `: ${esc(item.name)}` : ""}"><img src="${esc(thumbnail)}" alt="" loading="lazy" decoding="async">${item.type === "video" ? `<span class="memory-video-indicator" aria-hidden="true">▶</span>` : ""}</button>`;
+      if (!thumbnail && !item.telegramFileId) return "";
+      return `<button class="memory-gallery-item" type="button" data-media-index="${index}" aria-label="View ${item.type === "video" ? "video" : "photo"}${item.name ? `: ${esc(item.name)}` : ""}"><img ${thumbnail ? `src="${esc(thumbnail)}"` : `data-memory-file-id="${esc(item.telegramFileId)}" data-memory-mime="${esc(item.mimeType || "application/octet-stream")}" data-memory-kind="${esc(item.type || "photo")}"`} alt="" loading="lazy" decoding="async">${item.type === "video" ? `<span class="memory-video-indicator" aria-hidden="true">▶</span>` : ""}</button>`;
     }).join("");
     mediaGrid.querySelectorAll("[data-media-index]").forEach(button => {
       button.onclick = () => {
         selectedGalleryMedia = media[Number(button.dataset.mediaIndex)] || null;
         if (selectedGalleryMedia) renderMemoryHero(memory, selectedGalleryMedia);
       };
+    });
+    hydrateMemoryThumbnails(mediaGrid);
+  }
+
+  function hydrateMemoryThumbnails(container) {
+    container.querySelectorAll("img[data-memory-file-id]").forEach(async image => {
+      try {
+        const source = await getTelegramMediaUrl(image.dataset.memoryFileId, image.dataset.memoryMime);
+        if (!image.isConnected) return;
+        if (image.dataset.memoryKind === "video") {
+          const blob = await (await fetch(source)).blob();
+          image.src = await createVideoThumbnail(blob);
+        } else image.src = source;
+      } catch (error) { console.error("Memory thumbnail could not load:", error); }
     });
   }
 
@@ -505,25 +515,16 @@ export function renderMemories(el, user, profile) {
     const memory = activeMemoryForView;
     mediaInput.value = "";
     if (!memory || !files.length) return;
-    if (!storage) return toast("Connect Firebase Storage before adding media.");
     const addButton = $("#memory-add-photos", el);
     addButton.disabled = true;
     addButton.textContent = "Uploading…";
     try {
-      const uploadedMedia = await Promise.all(files.map(async (file, index) => {
+      const uploadedMedia = await Promise.all(files.map(async file => {
         const type = file.type.startsWith("video/") ? "video" : "photo";
-        const safeName = (file.name || `memory-${type}`).replace(/[^a-zA-Z0-9._-]/g, "-").slice(-90);
-        const path = `couples/${APP_CONFIG.coupleId}/memories/${memory.id}/${Date.now()}-${index}-${safeName}`;
-        const fileRef = storageRef(storage, path);
-        await uploadBytes(fileRef, file, { contentType: file.type || "application/octet-stream", customMetadata: { ownerUid: user.uid, memoryId: memory.id } });
-        const url = await getDownloadURL(fileRef);
-        if (type !== "video") return { type, url, thumbnailUrl: url, name: file.name || "Photo", createdAtMs: Date.now() };
-
-        const thumbnailData = await createVideoThumbnail(file);
-        const thumbnailBlob = await (await fetch(thumbnailData)).blob();
-        const thumbnailRef = storageRef(storage, `${path}.jpg`);
-        await uploadBytes(thumbnailRef, thumbnailBlob, { contentType: "image/jpeg", customMetadata: { ownerUid: user.uid, memoryId: memory.id } });
-        return { type, url, thumbnailUrl: await getDownloadURL(thumbnailRef), name: file.name || "Video", createdAtMs: Date.now() };
+        const createdAtMs = Date.now();
+        const timestamp = new Date(createdAtMs).toLocaleString();
+        const result = await sendToTelegram(file, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`, new Date(createdAtMs).toISOString().slice(0, 10), getProfileKey(profile), { storeForReveal: false });
+        return { ...telegramMediaReferences(result), type, mimeType: telegramUploadMimeType(file), name: file.name || (type === "video" ? "Video" : "Photo"), createdAtMs };
       }));
       const current = allMemories.find(item => item.id === memory.id) || memory;
       await addMemoryMedia(memory.id, uploadedMedia);
@@ -536,7 +537,7 @@ export function renderMemories(el, user, profile) {
       renderMemoryGallery(activeMemoryForView);
     } catch (error) {
       console.error("Could not add memory media:", error);
-      toast("Could not upload media. Check your Firebase Storage rules and try again.");
+      toast(error.message || "Could not upload media to Telegram. Please try again.");
     } finally {
       addButton.disabled = false;
       addButton.textContent = "＋ Add Photos";
@@ -555,7 +556,7 @@ export function renderMemories(el, user, profile) {
       video.muted = true;
       video.playsInline = true;
       video.onloadeddata = () => {
-        const scale = Math.min(1, 480 / Math.max(video.videoWidth, video.videoHeight));
+        const scale = Math.min(1, 1280 / Math.max(video.videoWidth, video.videoHeight));
         const width = Math.max(1, Math.round(video.videoWidth * scale));
         const height = Math.max(1, Math.round(video.videoHeight * scale));
         const thumbnail = document.createElement("canvas");
@@ -576,6 +577,8 @@ export function renderMemories(el, user, profile) {
   function memoryCardHtml(item, index) {
     const photo = item.photoUrl
       ? `<img src="${esc(item.photoUrl)}" alt="" loading="lazy" decoding="async">`
+      : item.telegramFileId
+        ? `<img data-memory-file-id="${esc(item.telegramFileId)}" data-memory-mime="${esc(item.photoMimeType || "application/octet-stream")}" data-memory-kind="${esc(item.mediaType || "image")}" alt="" loading="lazy" decoding="async">`
       : `💖`;
     return `
       <button class="memory-item${index === 0 ? " is-hero" : ""}" type="button" data-id="${esc(item.id)}" style="--i:${index}" aria-label="Open memory: ${esc(item.title || "Our Memory")}${item.mediaType === "video" ? ", video" : ""}">
@@ -635,6 +638,7 @@ export function renderMemories(el, user, profile) {
         }
       };
     });
+    hydrateMemoryThumbnails(container);
   }
 
   $("#view-mem-edit-btn", el).onclick = () => {

@@ -1,7 +1,7 @@
 import { $, esc, toast } from "./utils.js";
 import { rtdb } from "./firebase.js";
 import { addDrawingMessage, watchDrawingMessages, deleteDrawingMessage, notifyPartnerSafely } from "./firestore.js";
-import { sendToTelegram } from "../src/services/telegramService.js";
+import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences } from "../src/services/telegramService.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { createDrawingHistory, createOfflineQueue } from "./drawing-fixes.js";
 import { ref, push, get, onChildAdded, onValue, onDisconnect, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
@@ -378,7 +378,13 @@ export function renderDrawing(el, user, profile) {
     $("#preview-meta-author", el).textContent = `By ${authorName}`;
     $("#preview-meta-date", el).textContent = dateStr;
     const imgEl = $("#preview-modal-img", el);
-    if (imgEl) imgEl.src = photoUrl;
+    if (imgEl) {
+      if (photoUrl) imgEl.src = photoUrl;
+      else imgEl.removeAttribute("src");
+      if (!photoUrl && message.telegramFileId) getTelegramMediaUrl(message.telegramFileId, message.mimeType || "image/jpeg")
+        .then(url => { if (imgEl.isConnected && currentPreviewMessage === message) imgEl.src = url; })
+        .catch(error => console.error("Saved drawing could not load from Telegram:", error));
+    }
 
     previewOverlay?.classList.remove("hidden");
   }
@@ -391,11 +397,12 @@ export function renderDrawing(el, user, profile) {
   $("#preview-close-btn", el).onclick = closePreviewModal;
   $("#preview-backdrop", el).onclick = closePreviewModal;
 
-  $("#preview-restore-btn", el).onclick = () => {
+  $("#preview-restore-btn", el).onclick = async () => {
     if (!currentPreviewMessage) return;
-    const photoUrl = currentPreviewMessage.photoUrl || (currentPreviewMessage.driveFileId
+    let photoUrl = currentPreviewMessage.photoUrl || (currentPreviewMessage.driveFileId
       ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(currentPreviewMessage.driveFileId)}&sz=w1200`
       : currentPreviewMessage.thumbnailUrl || "");
+    if (!photoUrl && currentPreviewMessage.telegramFileId) photoUrl = await getTelegramMediaUrl(currentPreviewMessage.telegramFileId, currentPreviewMessage.mimeType || "image/jpeg");
     if (!photoUrl) {
       toast("Could not open this drawing.");
       return;
@@ -418,13 +425,14 @@ export function renderDrawing(el, user, profile) {
     }
   };
 
-  $("#history-restore-selected", el).onclick = () => {
+  $("#history-restore-selected", el).onclick = async () => {
     if (!selectedDrawingId) return;
     const message = cachedMessages.find(m => m.id === selectedDrawingId);
     if (!message) return;
-    const photoUrl = message.photoUrl || (message.driveFileId
+    let photoUrl = message.photoUrl || (message.driveFileId
       ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(message.driveFileId)}&sz=w1200`
       : message.thumbnailUrl || "");
+    if (!photoUrl && message.telegramFileId) photoUrl = await getTelegramMediaUrl(message.telegramFileId, message.mimeType || "image/jpeg");
     if (!photoUrl) return;
     loadSaved(photoUrl);
     closeHistory();
@@ -1264,20 +1272,19 @@ export function renderDrawing(el, user, profile) {
       const footerPadding = Math.round(12 * footerScale);
       exportContext.fillText(`Drawn by ${artistName} • ${timestamp}`, footerPadding, footerTop + footerHeight / 2, exportCanvas.width - footerPadding * 2);
 
-      const imageBlob = await new Promise((resolve, reject) => exportCanvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not prepare drawing image.")), "image/jpeg", 0.86));
-      const photoUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error("Could not prepare drawing image."));
-        reader.readAsDataURL(imageBlob);
-      });
-      const drawingRef = await addDrawingMessage({ authorId: user.uid, authorName: artistName, photoUrl, createdAtMs });
+      // Canvas artwork benefits from near-lossless output, especially fine pen strokes.
+      const imageBlob = await new Promise((resolve, reject) => exportCanvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not prepare drawing image.")), "image/jpeg", 0.96));
       const profileKey = getProfileKey(profile);
-      if (profileKey) {
-        const telegramFile = new File([imageBlob], `canvas-drawing-${createdAtMs}.jpg`, { type: "image/jpeg" });
-        void sendToTelegram(telegramFile, `New Canvas Drawing 🎨 · ${artistName} · ${timestamp}`, new Date(createdAtMs).toISOString().slice(0, 10), profileKey, { storeForReveal: false })
-          .catch(error => console.error("Could not forward canvas drawing to Telegram:", error));
-      }
+      if (!profileKey) throw new Error("Could not identify your profile for Telegram upload.");
+      const telegramFile = new File([imageBlob], `canvas-drawing-${createdAtMs}.jpg`, { type: "image/jpeg" });
+      const telegramResult = await sendToTelegram(telegramFile, `New Canvas Drawing 🎨 · ${artistName} · ${timestamp}`, new Date(createdAtMs).toISOString().slice(0, 10), profileKey, { storeForReveal: false });
+      const drawingRef = await addDrawingMessage({
+        authorId: user.uid,
+        authorName: artistName,
+        ...telegramMediaReferences(telegramResult),
+        mimeType: "image/jpeg",
+        createdAtMs
+      });
       await notifyPartnerSafely(getProfileKey(profile), "drawing", `${profile.name} added a new drawing! 🎨`, drawingRef.id, "drawing");
 
       history.reset();
@@ -1340,11 +1347,12 @@ export function renderDrawing(el, user, profile) {
       const photoUrl = m.photoUrl || (m.driveFileId
         ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(m.driveFileId)}&sz=w512`
         : m.thumbnailUrl || "");
+      const telegramImage = !photoUrl && m.telegramFileId;
 
       return `
         <article class="drawing-grid-card ${isSelected ? "selected" : ""}" style="--card-bg: ${cardBg};" data-card-id="${esc(m.id)}">
           <button type="button" class="drawing-card-thumb-btn" data-open-preview="${esc(m.id)}" aria-label="View actual size preview of drawing by ${esc(authorName)}">
-            ${photoUrl ? `<img src="${esc(photoUrl)}" alt="Drawing by ${esc(authorName)}" loading="lazy">` : `<span style="font-size:32px;">🎨</span>`}
+            ${photoUrl ? `<img src="${esc(photoUrl)}" alt="Drawing by ${esc(authorName)}" loading="lazy">` : telegramImage ? `<img data-drawing-file-id="${esc(m.telegramFileId)}" data-drawing-mime="${esc(m.mimeType || "image/jpeg")}" alt="Drawing by ${esc(authorName)}" loading="lazy">` : `<span style="font-size:32px;">🎨</span>`}
           </button>
           <button type="button" class="drawing-select-circle-btn" data-select-id="${esc(m.id)}" aria-label="Select drawing by ${esc(authorName)}" title="Select drawing">
             <span class="selection-circle ${isSelected ? "checked" : ""}"></span>
@@ -1359,6 +1367,12 @@ export function renderDrawing(el, user, profile) {
         </article>
       `;
     }).join("");
+
+    historyList.querySelectorAll("img[data-drawing-file-id]").forEach(image => {
+      getTelegramMediaUrl(image.dataset.drawingFileId, image.dataset.drawingMime)
+        .then(url => { if (image.isConnected) image.src = url; })
+        .catch(error => console.error("Drawing preview could not load from Telegram:", error));
+    });
 
     // Bind full-size preview clicks
     el.querySelectorAll("[data-open-preview]").forEach(btn => {

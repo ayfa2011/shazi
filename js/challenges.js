@@ -1,4 +1,4 @@
-import { $, esc, toast, todayKey, compressImage, scheduleDubaiDayRollover } from "./utils.js";
+import { $, esc, toast, todayKey, scheduleDubaiDayRollover } from "./utils.js";
 import {
   ensureChallengeAssignment,
   watchChallengeAssignments,
@@ -15,7 +15,7 @@ import {
 import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getProfileKey } from "./profile-data.js";
 import { challengeDays } from "./challenge-bank.js";
-import { sendToTelegram, getTelegramLovePhoto } from "../src/services/telegramService.js";
+import { getTelegramMediaUrl, sendToTelegram, getTelegramLovePhoto, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
 
 let stopChallenges = null, stopLoveChallenges = null, stopCustomChallenges = null, stopWaterChallenges = null, dayRolloverTimer = null, challengeRenderToken = 0;
 let customCompletedChallenges = [], customAllChallenges = [], waterTrackers = [], waterTrackersReady = false, loveUploads = [];
@@ -290,11 +290,11 @@ export function renderChallenges(el, user, profile) {
       ? (assignment.completedBy || []).map(person => `
         <div class="challenge-completion-entry">
           <p class="challenge-completed-by">Completed by ${esc(person.name || "Us")}${person.completedAt ? ` · ${esc(new Date(person.completedAt).toLocaleString())}` : ""}</p>
-          ${person.photoUrl ? `<img class="challenge-completion-photo" src="${esc(person.photoUrl)}" alt="${esc(person.name || "Partner")} completion photo">` : ""}
+          ${person.photoUrl ? `<img class="challenge-completion-photo" src="${esc(person.photoUrl)}" alt="${esc(person.name || "Partner")} completion photo">` : person.telegramFileId ? `<img class="challenge-completion-photo" data-telegram-file-id="${esc(person.telegramFileId)}" data-telegram-mime="${esc(person.photoMimeType || "image/jpeg")}" alt="${esc(person.name || "Partner")} completion photo">` : ""}
           ${person.note ? `<p class="challenge-completed-note">${esc(person.note)}</p>` : ""}
         </div>
       `).join("") || `
-        ${assignment.photoUrl ? `<img class="challenge-completion-photo" src="${esc(assignment.photoUrl)}" alt="Challenge completion">` : ""}
+        ${assignment.photoUrl ? `<img class="challenge-completion-photo" src="${esc(assignment.photoUrl)}" alt="Challenge completion">` : assignment.telegramFileId ? `<img class="challenge-completion-photo" data-telegram-file-id="${esc(assignment.telegramFileId)}" data-telegram-mime="${esc(assignment.photoMimeType || "image/jpeg")}" alt="Challenge completion">` : ""}
         ${assignment.note ? `<p class="challenge-completed-note">${esc(assignment.note)}</p>` : ""}
         <p class="challenge-completed-by">Completed by ${(assignment.completedBy || []).map(person => esc(person.name)).join(" &amp; ")}</p>
       `
@@ -356,7 +356,7 @@ export function renderChallenges(el, user, profile) {
         <article class="challenge-card">
           <div class="challenge-card-head"><div><h2>${esc(item.title || "Custom Challenge")}</h2></div><span class="challenge-status completed">✅ Completed</span></div>
           ${item.description ? `<p>${esc(item.description)}</p>` : ""}
-          ${item.photoUrl ? `<img class="challenge-completion-photo" src="${esc(item.photoUrl)}" alt="Custom challenge completion">` : ""}
+          ${item.photoUrl ? `<img class="challenge-completion-photo" src="${esc(item.photoUrl)}" alt="Custom challenge completion">` : item.telegramFileId ? `<img class="challenge-completion-photo" data-telegram-file-id="${esc(item.telegramFileId)}" data-telegram-mime="${esc(item.photoMimeType || "image/jpeg")}" alt="Custom challenge completion">` : ""}
           ${item.note ? `<p class="challenge-completed-note">${esc(item.note)}</p>` : ""}
           <p class="challenge-completed-by">${esc(findProfileForAuthor(item.completedBy || item.author, item.completedByName || item.authorName || "")?.name || item.completedByName || item.authorName || "Us")} · ${esc(friendlyDate(item.completedAtMs ? new Date(item.completedAtMs).toISOString().slice(0,10) : item.sentDate || dayKey))}</p>
         </article>
@@ -366,7 +366,15 @@ export function renderChallenges(el, user, profile) {
       ? `${standardCards ? `<p class="challenge-section-label">Daily challenges · last 30 days</p>${standardCards}` : ""}${customCompletedCards.length ? `<p class="challenge-section-label">Partner challenges · all time</p>${customCompletedCards.join("")}` : ""}`
       : `<p class="challenge-empty">Completed challenges will be saved here ♡</p>`;
     }
+    hydrateTelegramImages();
+  }
 
+  function hydrateTelegramImages() {
+    el.querySelectorAll("img[data-telegram-file-id]").forEach(image => {
+      getTelegramMediaUrl(image.dataset.telegramFileId, image.dataset.telegramMime || "image/jpeg")
+        .then(url => { if (image.isConnected) image.src = url; })
+        .catch(error => console.error("Challenge photo could not load from Telegram:", error));
+    });
   }
 
   function scheduleRender() {
@@ -382,7 +390,12 @@ export function renderChallenges(el, user, profile) {
     return `<div class="challenge-list">${items.sort((a,b) => Number(b.sentAtMs || b.createdAtMs || 0) - Number(a.sentAtMs || a.createdAtMs || 0)).map(item => {
       const date = Number(item.sentAtMs || item.assignedAtMs || item.createdAtMs || 0);
       const status = item.status === "in-progress" ? "Accepted" : item.status === "completed" ? "Completed" : item.status === "declined" ? "Declined" : "Pending";
-      return `<article class="challenge-card"><div class="challenge-card-head"><div><span class="challenge-date">${received ? "Assigned" : "Sent"} ${date ? esc(new Date(date).toLocaleDateString("en-GB", {day:"numeric",month:"short",year:"numeric"})) : ""}</span><h2>${esc(item.title || "Custom Challenge")}</h2></div><span class="challenge-status${status === "Completed" ? " completed" : ""}">${status}</span></div>${item.description ? `<p>${esc(item.description)}</p>` : ""}${item.note ? `<p class="challenge-completed-note">${esc(item.note)}</p>` : ""}${item.photoUrl ? `<img class="challenge-completion-photo" src="${esc(item.photoUrl)}" alt="Challenge completion">` : ""}${received && item.status === "upcoming" ? `<div class="challenge-actions"><button class="challenge-secondary" data-custom-action="decline" data-id="${esc(item.id)}">Decline</button><button class="challenge-main" data-custom-action="accept" data-id="${esc(item.id)}">Accept</button></div>` : ""}${received && item.status === "in-progress" ? `<div class="challenge-actions"><button class="challenge-main" data-custom-action="complete" data-id="${esc(item.id)}">Mark Complete</button></div>` : ""}${!received && item.status !== "completed" ? `<div class="challenge-actions">${["upcoming", "in-progress"].includes(item.status) ? `<button class="challenge-secondary" data-custom-action="edit" data-id="${esc(item.id)}">Edit</button>` : ""}<button class="challenge-secondary" data-custom-action="delete" data-id="${esc(item.id)}">Delete</button></div>` : ""}</article>`;
+      const image = item.photoUrl
+        ? `<img class="challenge-completion-photo" src="${esc(item.photoUrl)}" alt="Challenge completion">`
+        : item.telegramFileId
+          ? `<img class="challenge-completion-photo" data-telegram-file-id="${esc(item.telegramFileId)}" data-telegram-mime="${esc(item.photoMimeType || "image/jpeg")}" alt="Challenge completion">`
+          : "";
+      return `<article class="challenge-card"><div class="challenge-card-head"><div><span class="challenge-date">${received ? "Assigned" : "Sent"} ${date ? esc(new Date(date).toLocaleDateString("en-GB", {day:"numeric",month:"short",year:"numeric"})) : ""}</span><h2>${esc(item.title || "Custom Challenge")}</h2></div><span class="challenge-status${status === "Completed" ? " completed" : ""}">${status}</span></div>${item.description ? `<p>${esc(item.description)}</p>` : ""}${item.note ? `<p class="challenge-completed-note">${esc(item.note)}</p>` : ""}${image}${received && item.status === "upcoming" ? `<div class="challenge-actions"><button class="challenge-secondary" data-custom-action="decline" data-id="${esc(item.id)}">Decline</button><button class="challenge-main" data-custom-action="accept" data-id="${esc(item.id)}">Accept</button></div>` : ""}${received && item.status === "in-progress" ? `<div class="challenge-actions"><button class="challenge-main" data-custom-action="complete" data-id="${esc(item.id)}">Mark Complete</button></div>` : ""}${!received && item.status !== "completed" ? `<div class="challenge-actions">${["upcoming", "in-progress"].includes(item.status) ? `<button class="challenge-secondary" data-custom-action="edit" data-id="${esc(item.id)}">Edit</button>` : ""}<button class="challenge-secondary" data-custom-action="delete" data-id="${esc(item.id)}">Delete</button></div>` : ""}</article>`;
     }).join("")}</div>`;
   }
 
@@ -515,10 +528,14 @@ export function renderChallenges(el, user, profile) {
       submit.disabled = true;
       submit.textContent = "Saving…";
       try {
-        const photoUrl = selectedPhoto ? await compressImage(selectedPhoto) : "";
-        if (selectedPhoto && !photoUrl) throw new Error("Could not read that photo. Choose another image.");
+        let photoMetadata = {};
+        if (selectedPhoto) {
+          const timestamp = new Date().toLocaleString();
+          const result = await sendToTelegram(selectedPhoto, `New Challenge Photo 📸 · ${profile.name} · ${timestamp}`, new Date().toISOString().slice(0, 10), ownKey, { storeForReveal: false });
+          photoMetadata = { ...telegramMediaReferences(result), photoMimeType: telegramUploadMimeType(selectedPhoto), photoUrl: "" };
+        }
 
-        await transitionCustomChallenge(assignmentId, { uid: user.uid, profileKey: ownKey, name: profile.name }, "complete", { note: form.elements.note?.value?.trim() || "", photoUrl });
+        await transitionCustomChallenge(assignmentId, { uid: user.uid, profileKey: ownKey, name: profile.name }, "complete", { note: form.elements.note?.value?.trim() || "", ...photoMetadata });
         void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed your challenge.`, `${assignmentId}-completed`, "challenges");
 
         triggerCompletionSplash();

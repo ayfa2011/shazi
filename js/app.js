@@ -1,5 +1,5 @@
 import { initAuth, logout } from "./auth.js";
-import { $,$$, esc, toast, compressImage } from "./utils.js";
+import { $,$$, esc, toast } from "./utils.js";
 import { initPresence, watchAllPresence } from "./presence.js";
 import { renderHome, disposeHome } from "./dashboard.js";
 import { renderMemories, disposeMemories } from "./memories.js";
@@ -11,6 +11,7 @@ import { APP_CONFIG } from "../config/app-config.js";
 import { renderBucket, disposeBucket } from "./bucket-list.js";
 import { renderActivities } from "./activities.js";
 import { renderMore } from "./more.js";
+import { renderSharedGallery, disposeSharedGallery } from "./gallery.js";
 import { renderProfile } from "./profile.js";
 import { disposeSpecialDays } from "./special-days.js";
 import { disposeNotificationCenter, initNotificationCenter } from "./notification-center.js";
@@ -18,9 +19,9 @@ import { renderDrawing, disposeDrawing } from "./drawing.js";
 import { renderChallenges, disposeChallenges } from "./challenges.js";
 import { initMusic } from "./music.js";
 import { firebaseReady } from "./firebase.js";
-import { sendToTelegram } from "../src/services/telegramService.js";
+import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
 import { getCoupleProfiles, saveCoupleProfile, watchCoupleProfiles } from "./firestore.js";
-import { applyCoupleProfiles, findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
+import { applyCoupleProfiles, findProfileForAuthor, getDisplayName, getProfileKey, hydrateCoupleProfileAvatars } from "./profile-data.js";
 
 let currentUser = null, currentProfile = null, disposeMusic = null, stopPresence = null;
 let currentRoute = "home", stopCoupleProfiles = null;
@@ -305,23 +306,22 @@ function renderPostFeed(el, user, profile) {
     submitButton.disabled = true;
 
     try {
-      const photoUrl = file ? await compressImage(file) : "";
-      if (file && !photoUrl) return toast("Could not read that photo. Please choose another image.");
+      let photoMetadata = {};
+      if (file) {
+        const timestamp = new Date().toLocaleString();
+        const result = await sendToTelegram(file, `New Post Photo 📸 · ${profile.name} · ${timestamp}`, new Date().toISOString().slice(0, 10), getProfileKey(profile), { storeForReveal: false });
+        photoMetadata = { ...telegramMediaReferences(result), photoMimeType: telegramUploadMimeType(file) };
+      }
 
       const postRef = await addDiaryPost({
         authorId: user.uid,
         authorName: profile.name,
         wallId: APP_CONFIG.coupleId,
         text,
-        photoUrl,
+        ...photoMetadata,
         createdAt: new Date().toISOString()
       });
       await notifyPartnerSafely(getProfileKey(profile), "post", `${profile.name} shared a new post.`, postRef.id, "gallery");
-      if (file) {
-        const timestamp = new Date().toLocaleString();
-        void sendToTelegram(file, `New Post Photo 📸 · ${profile.name} · ${timestamp}`, new Date().toISOString().slice(0, 10), getProfileKey(profile), { storeForReveal: false })
-          .catch(error => console.error("Could not forward post photo to Telegram:", error));
-      }
 
       composer.reset();
       composer.querySelector(".tw-photo-name").textContent = "";
@@ -457,7 +457,7 @@ function renderPostFeed(el, user, profile) {
             </div>
 
             <p class="tw-post-text" id="post-text-${post.id}">${esc(post.text || '')}</p>
-            ${post.photoUrl ? `<img src="${esc(post.photoUrl)}" class="tw-post-photo">` : ''}
+            ${post.photoUrl ? `<img src="${esc(post.photoUrl)}" class="tw-post-photo">` : post.telegramFileId ? `<img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Photo attached to post" loading="lazy">` : ''}
 
             <div class="tw-actions-bar">
               <button class="tw-action-btn tw-reply-btn" data-id="${post.id}">💬 Reply</button>
@@ -478,6 +478,12 @@ function renderPostFeed(el, user, profile) {
         </div>
       `;
     }).join("");
+
+    feed.querySelectorAll("img[data-telegram-file-id]").forEach(image => {
+      getTelegramMediaUrl(image.dataset.telegramFileId, image.dataset.telegramMime || "image/jpeg")
+        .then(url => { if (image.isConnected) image.src = url; })
+        .catch(error => { console.error("Post photo could not load from Telegram:", error); });
+    });
 
     visiblePosts.forEach((post) => {
       const likeBtn = feed.querySelector(`.tw-like-btn[data-id="${post.id}"]`);
@@ -519,7 +525,7 @@ function renderPostFeed(el, user, profile) {
         editBtn.onclick = async () => {
           const newText = prompt("Edit your post:", post.text);
           if (newText !== null && newText.trim() !== (post.text || "")) {
-            if (!newText.trim() && !post.photoUrl) return toast("A post needs text or a photo.");
+            if (!newText.trim() && !post.photoUrl && !post.telegramFileId) return toast("A post needs text or a photo.");
             try {
               await updateDiaryPost(post.id, { text: newText.trim() });
               toast("Post updated!");
@@ -580,6 +586,7 @@ const titles = {
   memories: "Memories",
   games: "Games",
   gallery: "Our Posts",
+  "gallery-library": "Our Gallery",
   letters: "Letters",
   questions: "Today's Question",
   bucket: "Our Bucket List",
@@ -595,6 +602,7 @@ const routes = {
   memories: renderMemories,
   games: renderGames,
   gallery: renderGallery,
+  "gallery-library": renderSharedGallery,
   letters: renderLetters,
   questions: renderQuestions,
   bucket: renderBucket,
@@ -622,6 +630,7 @@ export function navigate(route = "home") {
   if (route !== "challenges") disposeChallenges?.();
   if (route !== "games") disposeGames?.();
   if (route !== "bucket") disposeBucket?.();
+  if (route !== "gallery-library") disposeSharedGallery();
   if (route !== "more") disposeSpecialDays();
   if (route !== "gallery") {
     disposePostFeed?.();
@@ -662,6 +671,11 @@ initAuth(
     }
     if (currentUser?.uid !== user.uid) return;
     currentProfile = Object.values(APP_CONFIG.profiles).find(person => person.email === user.email) || profile;
+    void hydrateCoupleProfileAvatars().then(() => {
+      if (currentUser?.uid !== user.uid) return;
+      updateProfileAvatar(currentProfile);
+      window.dispatchEvent(new CustomEvent("couple-profiles-updated"));
+    }).catch(error => console.error("Telegram profile photos could not load:", error));
 
     const profileKey = getProfileKey(currentProfile);
     if (profileKey && currentProfile.authUid !== user.uid) {
@@ -682,6 +696,11 @@ initAuth(
         updateProfileAvatar(currentProfile);
         if (currentRoute === "profile") $("#main-content")?.dispatchEvent(new Event("couple-profile-settings-changed"));
       }
+      void hydrateCoupleProfileAvatars().then(changed => {
+        if (!changed || currentUser?.uid !== user.uid) return;
+        updateProfileAvatar(currentProfile);
+        window.dispatchEvent(new CustomEvent("couple-profiles-updated"));
+      }).catch(error => console.error("Telegram profile photos could not load:", error));
     }, error => {
       console.error("Shared profile updates failed:", error);
       toast("Profile updates could not be synced.");

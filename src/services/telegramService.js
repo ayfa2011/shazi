@@ -2,7 +2,18 @@
 import { auth } from "../../js/firebase.js";
 import { TELEGRAM_CONFIG } from "../../config/telegram-config.js";
 
-const photoMimeTypes = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", heic: "image/heic", heif: "image/heif", webp: "image/webp", avif: "image/avif", gif: "image/gif", tif: "image/tiff", tiff: "image/tiff", bmp: "image/bmp" };
+const mimeTypesByExtension = {
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", heic: "image/heic", heif: "image/heif", webp: "image/webp", avif: "image/avif", gif: "image/gif", tif: "image/tiff", tiff: "image/tiff", bmp: "image/bmp",
+  mp4: "video/mp4", m4v: "video/mp4", mov: "video/quicktime", webm: "video/webm", mkv: "video/x-matroska", avi: "video/x-msvideo", "3gp": "video/3gpp",
+  mp3: "audio/mpeg", m4a: "audio/mp4", aac: "audio/aac", wav: "audio/wav", ogg: "audio/ogg", opus: "audio/ogg", flac: "audio/flac"
+};
+const mediaUrlCache = new Map();
+
+export function telegramUploadMimeType(file) {
+  if (file?.type) return file.type;
+  const extension = String(file?.name || "").split(".").pop().toLowerCase();
+  return mimeTypesByExtension[extension] || "application/octet-stream";
+}
 
 async function authorizedRequest(url, options = {}) {
   const token = await auth?.currentUser?.getIdToken();
@@ -14,8 +25,8 @@ export async function sendToTelegram(file, caption, dayKey, profileKey, { storeF
   const body = new FormData();
   const fileName = file.name || "love-note.jpg";
   const extension = fileName.split(".").pop().toLowerCase();
-  const inferredType = photoMimeTypes[extension];
-  const uploadFile = file.type?.startsWith("image/") ? file : new File([file], fileName, { type: inferredType || "application/octet-stream" });
+  const inferredType = mimeTypesByExtension[extension];
+  const uploadFile = file.type ? file : new File([file], fileName, { type: inferredType || "application/octet-stream" });
   body.append("file", uploadFile, fileName);
   body.append("caption", caption);
   const url = new URL(TELEGRAM_CONFIG.WORKER_URL);
@@ -42,4 +53,52 @@ export async function getTelegramLovePhoto(dayKey, profileKey, viewerKey) {
     throw error;
   }
   return response.blob();
+}
+
+/** Load Gallery media through the authenticated Worker; the Telegram bot token stays server-side. */
+export async function getTelegramMediaBlob(fileId, mimeType = "application/octet-stream") {
+  const url = new URL(TELEGRAM_CONFIG.WORKER_URL);
+  url.searchParams.set("fileId", fileId);
+  url.searchParams.set("mimeType", mimeType);
+  const response = await authorizedRequest(url.toString());
+  if (!response.ok) throw new Error("Could not load this Telegram media.");
+  return response.blob();
+}
+
+export const getTelegramGalleryMedia = getTelegramMediaBlob;
+
+export function telegramMediaReferences(result) {
+  const message = result?.result || result || {};
+  const media = message.document || message.video || message.audio || message.animation || message.photo?.at(-1);
+  if (!media?.file_id) throw new Error("Telegram did not return a media reference.");
+  return {
+    telegramFileId: media.file_id,
+    telegramFileUniqueId: media.file_unique_id || "",
+    telegramMessageId: message.message_id || null,
+    telegramChatId: message.chat?.id || null,
+  };
+}
+
+/** Return a local URL backed by an authenticated Telegram Worker response. */
+export function getTelegramMediaUrl(fileId, mimeType = "application/octet-stream") {
+  if (!fileId) return Promise.reject(new Error("Telegram media reference is missing."));
+  if (!mediaUrlCache.has(fileId)) {
+    const request = getTelegramMediaBlob(fileId, mimeType).then(blob => URL.createObjectURL(blob)).catch(error => {
+      mediaUrlCache.delete(fileId);
+      throw error;
+    });
+    mediaUrlCache.set(fileId, request);
+  }
+  return mediaUrlCache.get(fileId);
+}
+
+/** Ask Telegram to remove a Gallery message when its server-side retention rules allow it. */
+export async function deleteTelegramGalleryMessage(chatId, messageId) {
+  const url = new URL(TELEGRAM_CONFIG.WORKER_URL);
+  url.searchParams.set("galleryChatId", chatId);
+  url.searchParams.set("galleryMessageId", messageId);
+  const response = await authorizedRequest(url.toString(), { method: "DELETE" });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.ok === false) throw new Error(result.error || "Telegram could not delete this media.");
+  return result;
 }

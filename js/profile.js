@@ -1,7 +1,7 @@
 import { $, esc, toast } from "./utils.js";
 import { saveCoupleProfile } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
-import { applyCoupleProfiles, getProfileKey } from "./profile-data.js";
+import { applyCoupleProfiles, getProfileKey, hydrateCoupleProfileAvatars } from "./profile-data.js";
 import { uploadProfilePhoto } from "./drive.js";
 
 export function renderProfile(el, user, profile) {
@@ -104,18 +104,23 @@ export function renderProfile(el, user, profile) {
           name,
           bio,
           bioConfigured: true,
-          avatar: person.avatar || "",
+          avatar: person.avatarTelegramFileId ? "" : (person.avatar || ""),
+          avatarTelegramFileId: person.avatarTelegramFileId || "",
+          avatarMimeType: person.avatarMimeType || "image/jpeg",
           authUid: person.authUid || (key === ownProfileKey ? user.uid : ""),
           previousNames
         };
 
         if (selectedPhoto) {
-          const uploaded = await uploadProfilePhoto(selectedPhoto);
-          savedProfile.avatar = uploaded.avatar;
+          const uploaded = await uploadProfilePhoto(selectedPhoto, name);
+          savedProfile.avatar = "";
+          Object.assign(savedProfile, uploaded);
         }
 
         await saveCoupleProfile(key, savedProfile);
         applyCoupleProfiles({ [key]: savedProfile });
+        void hydrateCoupleProfileAvatars().then(() => window.dispatchEvent(new CustomEvent("couple-profiles-updated")))
+          .catch(error => console.error("Telegram profile photo could not load:", error));
         selectedPhoto = null;
         photoInput.value = "";
         window.dispatchEvent(new CustomEvent("couple-profiles-updated"));

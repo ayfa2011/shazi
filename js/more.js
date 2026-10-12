@@ -19,6 +19,11 @@ export function renderMore(el, user) {
           <span><strong>Our Bucket List</strong><small>Our future dreams together</small></span>
           <span class="more-action-arrow" aria-hidden="true">›</span>
         </button>
+        <button type="button" class="more-action card" data-more-route="gallery-library">
+          <span class="more-action-icon" aria-hidden="true">🖼️</span>
+          <span><strong>Gallery</strong><small>Our photos and videos, kept together</small></span>
+          <span class="more-action-arrow" aria-hidden="true">›</span>
+        </button>
         <button type="button" class="more-action card" id="special-days-card">
           <span class="more-action-icon" aria-hidden="true">♡</span>
           <span><strong>Special Days</strong><small>Birthdays, anniversaries and celebrations</small></span>
@@ -30,6 +35,7 @@ export function renderMore(el, user) {
   `;
 
   $("[data-more-route='bucket']", el).onclick = () => window.App?.navigate("bucket");
+  $("[data-more-route='gallery-library']", el).onclick = () => window.App?.navigate("gallery-library");
   $("#special-days-card", el).onclick = () => renderSpecialDays($("#more-detail", el), user);
   $(".more-logout", el).onclick = async () => {
     try {

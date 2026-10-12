@@ -68,7 +68,7 @@ export async function setItem(id, data, customCollection = null) {
 
 export async function addMemoryMedia(memoryId, mediaItems) {
   if (!firebaseReady) throw new Error("Connect Firebase before adding memory media.");
-  const items = Array.isArray(mediaItems) ? mediaItems.filter(item => item && typeof item.url === "string") : [];
+  const items = Array.isArray(mediaItems) ? mediaItems.filter(item => item && (typeof item.telegramFileId === "string" || typeof item.url === "string")) : [];
   if (!items.length) return;
   return updateDoc(doc(root(), memoryId), { mediaItems: arrayUnion(...items) });
 }
@@ -518,7 +518,7 @@ export async function transitionCustomChallenge(id, actor, action, extra = {}) {
     }
     if (action === "complete") {
       if (current.status !== "in-progress") throw new Error("Accept this challenge before completing it.");
-      transaction.update(reference, { status: "completed", note: extra.note || "", photoUrl: extra.photoUrl || "", completedBy: actor.uid, completedByKey: actor.profileKey, completedAtMs: Date.now(), actions: [...actions.filter(item => item.profileKey !== actor.profileKey), { ...actor, status: "completed", updatedAtMs: Date.now() }] });
+      transaction.update(reference, { status: "completed", note: extra.note || "", ...(extra.photoUrl !== undefined ? { photoUrl: extra.photoUrl } : {}), ...(extra.telegramFileId ? { telegramFileId: extra.telegramFileId, telegramFileUniqueId: extra.telegramFileUniqueId || "", telegramMessageId: extra.telegramMessageId || null, telegramChatId: extra.telegramChatId || null, photoMimeType: extra.photoMimeType || "image/jpeg" } : {}), completedBy: actor.uid, completedByKey: actor.profileKey, completedAtMs: Date.now(), actions: [...actions.filter(item => item.profileKey !== actor.profileKey), { ...actor, status: "completed", updatedAtMs: Date.now() }] });
     }
   });
 }

@@ -1,14 +1,8 @@
 import { APP_CONFIG } from "../config/app-config.js";
-import { sendToTelegram } from "../src/services/telegramService.js";
-import { storage, rtdb } from "./firebase.js";
+import { deleteTelegramGalleryMessage, getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
+import { rtdb } from "./firebase.js";
 import { $, toast } from "./utils.js";
-import { notifyPartnerSafely } from "./firestore.js";
-import {
-  deleteObject,
-  getDownloadURL,
-  ref as storageRef,
-  uploadBytes
-} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-storage.js";
+import { addItem, notifyPartnerSafely, removeItem, watchItems } from "./firestore.js";
 import {
   onChildAdded,
   onDisconnect,
@@ -55,20 +49,22 @@ export function initMusic(user) {
   const player = $("#audio-player");
   const uploadInput = $("#music-upload");
   const sessionRef = dbRef(rtdb, `${ROOT}/session`);
-  const libraryRef = dbRef(rtdb, `${ROOT}/library`);
+  const legacyLibraryRef = dbRef(rtdb, `${ROOT}/library`);
   const chatRef = dbRef(rtdb, `${ROOT}/chat`);
   const presenceRef = dbRef(rtdb, `${ROOT}/presence`);
   const uid = user.uid;
   const profile = Object.values(APP_CONFIG.profiles).find(item => item.email.toLowerCase() === user.email?.toLowerCase());
   const name = profile?.name || user.displayName || "Partner";
   let session = null;
-  let currentLibrary = {};
+  let currentLibrary = [];
+  let legacyLibrary = {};
   let presence = {};
   let connectionRef = null;
   let siteActive = false;
   let disposed = false;
   let lastTimeWrite = 0;
   let lastRenderedUrl = "";
+  let trackLoadGeneration = 0;
   let pendingSeek = null;
   let lastLibraryLock = "";
   let emptyPresenceTimer = null;
@@ -80,14 +76,21 @@ export function initMusic(user) {
     toast(message);
   }
 
+  const trackKey = track => track?.telegramFileId || track?.url || "";
+  const trackUrl = track => track?.telegramFileId
+    ? getTelegramMediaUrl(track.telegramFileId, track.mimeType || "audio/mpeg")
+    : Promise.resolve(track?.url || "");
+  const combinedLibrary = () => [
+    ...currentLibrary,
+    ...Object.entries(legacyLibrary).map(([id, song]) => ({ ...song, id, __legacyRealtimeDatabase: true }))
+  ];
+
   async function deleteTemporaryTrack(track) {
-    if (!track?.path || track.saved) return;
+    if (!track?.telegramMessageId || !track.telegramChatId || track.saved) return;
     try {
-      await deleteObject(storageRef(storage, track.path));
+      await deleteTelegramGalleryMessage(track.telegramChatId, track.telegramMessageId);
     } catch (error) {
-      if (error.code !== "storage/object-not-found") {
-        console.error("Temporary music could not be removed from Firebase Storage:", error);
-      }
+      console.error("Temporary Telegram music message could not be removed:", error);
     }
   }
 
@@ -124,21 +127,21 @@ export function initMusic(user) {
     const uploadButton = $("#music-upload");
     const listenButton = $("#listen-music");
     if (trackName) trackName.textContent = value?.name || "No song selected";
-    if (playButton) playButton.disabled = !isOwner || !value?.url || value.status === "uploading";
+    if (playButton) playButton.disabled = !isOwner || !trackKey(value) || value.status === "uploading";
     if (pauseButton) pauseButton.disabled = !isOwner || !value?.playing;
-    if (saveButton) saveButton.disabled = !isOwner || !value?.path || value.saved;
+    if (saveButton) saveButton.disabled = !isOwner || !trackKey(value) || value.saved;
     if (uploadButton) uploadButton.disabled = locked;
     uploadButton?.closest(".upload-btn")?.classList.toggle("disabled", locked);
     if (listenButton) listenButton.disabled = !value?.playing;
-    const libraryLock = `${value?.ownerUid || ""}:${value?.path || ""}`;
+    const libraryLock = `${value?.ownerUid || ""}:${trackKey(value)}`;
     if (libraryLock !== lastLibraryLock) {
       lastLibraryLock = libraryLock;
-      renderLibrary(currentLibrary);
+      renderLibrary(combinedLibrary());
     }
 
     if (value?.status === "uploading") {
       setStatus(`${value.ownerName || "Your partner"} is uploading a song…`);
-    } else if (value?.url) {
+    } else if (trackKey(value)) {
       setStatus(value.playing
         ? `Playing · controlled by ${value.ownerName || "your partner"}`
         : `Ready · controlled by ${value.ownerName || "your partner"}`);
@@ -146,7 +149,9 @@ export function initMusic(user) {
       setStatus(locked ? `${value.ownerName || "Your partner"} is choosing a song…` : "Upload a song or choose a saved favorite.");
     }
 
-    if (!value?.url) {
+    const nextTrackKey = trackKey(value);
+    if (!nextTrackKey) {
+      trackLoadGeneration++;
       pendingSeek = null;
       if (player.src) player.removeAttribute("src");
       player.load();
@@ -157,11 +162,18 @@ export function initMusic(user) {
       player.pause();
       return;
     }
-    if (lastRenderedUrl !== value.url) {
-      player.src = value.url;
-      lastRenderedUrl = value.url;
+    if (lastRenderedUrl !== nextTrackKey) {
+      lastRenderedUrl = nextTrackKey;
+      const generation = ++trackLoadGeneration;
       pendingSeek = null;
       audioErrorShown = false;
+      trackUrl(value).then(url => {
+        if (disposed || generation !== trackLoadGeneration || !url) return;
+        player.src = url;
+        player.load();
+        renderSession(value);
+      }).catch(error => reportError(error, "This Telegram track could not be loaded."));
+      return;
     }
     if (typeof value.time === "number" && Math.abs(player.currentTime - value.time) > 2.5) {
       if (player.readyState >= 1) player.currentTime = value.time;
@@ -185,8 +197,10 @@ export function initMusic(user) {
   function renderLibrary(library) {
     const list = $("#music-library");
     if (!list) return;
-    const songs = Object.entries(library || {});
-    currentLibrary = library || {};
+    const songs = Array.isArray(library)
+      ? library.map(song => [song.id, song])
+      : Object.entries(library || {});
+    currentLibrary = Array.isArray(library) ? library : [];
     if (!songs.length) {
       list.innerHTML = '<p class="muted music-library-empty">No saved songs yet.</p>';
       return;
@@ -210,7 +224,7 @@ export function initMusic(user) {
       removeButton.type = "button";
       removeButton.textContent = "×";
       removeButton.title = "Remove from saved music";
-      removeButton.disabled = session?.path === song.path;
+      removeButton.disabled = trackKey(session) === trackKey(song);
       removeButton.addEventListener("click", () => removeSavedSong(id, song));
       actions.append(play, removeButton);
       row.append(title, actions);
@@ -236,10 +250,15 @@ export function initMusic(user) {
   }
 
   async function startSavedSong(id, song) {
-    if (!siteActive || session?.ownerUid || !song?.url) return;
+    if (!siteActive || session?.ownerUid || !trackKey(song)) return;
     const claimed = await claimSession({
       url: song.url,
       path: song.path,
+      telegramFileId: song.telegramFileId || "",
+      telegramFileUniqueId: song.telegramFileUniqueId || "",
+      mimeType: song.mimeType || "audio/mpeg",
+      telegramMessageId: song.telegramMessageId || null,
+      telegramChatId: song.telegramChatId || null,
       name: song.name,
       saved: true,
       playing: false,
@@ -259,17 +278,11 @@ export function initMusic(user) {
   async function removeSavedSong(id, song) {
     if (!window.confirm(`Remove “${song.name || "this song"}” from saved music?`)) return;
     try {
-      await remove(dbRef(rtdb, `${ROOT}/library/${id}`));
-      if (song.path) {
-        try {
-          await deleteObject(storageRef(storage, song.path));
-        } catch (error) {
-          if (error.code !== "storage/object-not-found") {
-            console.error("Saved music was removed from the library, but its Storage file could not be deleted:", error);
-            toast("Removed from saved music, but the file could not be deleted.");
-            return;
-          }
-        }
+      if (song.__legacyRealtimeDatabase) await remove(dbRef(rtdb, `${ROOT}/library/${id}`));
+      else await removeItem(id);
+      if (song.telegramChatId && song.telegramMessageId) {
+        try { await deleteTelegramGalleryMessage(song.telegramChatId, song.telegramMessageId); }
+        catch (error) { console.warn("Saved music was removed from the library, but Telegram kept its copy:", error); }
       }
       toast("Removed from saved music.");
     } catch (error) {
@@ -278,25 +291,28 @@ export function initMusic(user) {
   }
 
   async function saveCurrentSong() {
-    if (!session || session.ownerUid !== uid || !session.path || session.saved) return;
+    if (!session || session.ownerUid !== uid || !trackKey(session) || session.saved) return;
     try {
-      const libraryItemRef = push(libraryRef);
-      await set(libraryItemRef, {
-        url: session.url,
-        path: session.path,
+      const libraryItemRef = await addItem("musicTrack", {
+        telegramFileId: session.telegramFileId || "",
+        telegramFileUniqueId: session.telegramFileUniqueId || "",
+        mimeType: session.mimeType || "audio/mpeg",
+        telegramMessageId: session.telegramMessageId || null,
+        telegramChatId: session.telegramChatId || null,
         name: session.name,
         savedBy: uid,
-        savedAt: serverTimestamp()
+        savedAtMs: Date.now(),
+        author: uid
       });
       try {
-        if (!await patchOwnedSession({ saved: true, libraryId: libraryItemRef.key })) {
+        if (!await patchOwnedSession({ saved: true, libraryId: libraryItemRef.id })) {
           throw new Error("The music session ended before the song could be saved.");
         }
       } catch (error) {
-        await remove(libraryItemRef);
+        await removeItem(libraryItemRef.id);
         throw error;
       }
-      if (ownKey) void notifyPartnerSafely(ownKey, "music", `${actorName} saved a song to your music.`, libraryItemRef.key, "home");
+      if (ownKey) void notifyPartnerSafely(ownKey, "music", `${actorName} saved a song to your music.`, libraryItemRef.id, "home");
       toast("Saved to our music ♫");
     } catch (error) {
       reportError(error, "This song could not be saved to your music.");
@@ -321,11 +337,8 @@ export function initMusic(user) {
       return;
     }
 
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-").slice(-100) || "our-song";
-    const path = `${ROOT}/${uid}/${Date.now()}-${safeName}`;
     const claimed = await claimSession({
       name: file.name,
-      path,
       saved: false,
       status: "uploading",
       playing: false,
@@ -337,22 +350,17 @@ export function initMusic(user) {
     }
 
     try {
-      const fileRef = storageRef(storage, path);
-      await uploadBytes(fileRef, file, { contentType: file.type, customMetadata: { ownerUid: uid } });
       const timestamp = new Date().toLocaleString();
-      if (ownKey) {
-        void sendToTelegram(file, `New Music Track 🎵 · ${actorName} · ${timestamp}`, new Date().toISOString().slice(0, 10), ownKey, { storeForReveal: false })
-          .catch(error => console.error("Could not forward music upload to Telegram:", error));
-      }
-      const url = await getDownloadURL(fileRef);
-      if (!await patchOwnedSession({ url, status: "ready", name: file.name, time: 0, playing: false })) {
-        await deleteTemporaryTrack({ path, saved: false });
+      const result = await sendToTelegram(file, `New Music Track 🎵 · ${actorName} · ${timestamp}`, new Date().toISOString().slice(0, 10), ownKey, { storeForReveal: false });
+      const refs = telegramMediaReferences(result);
+      if (!await patchOwnedSession({ ...refs, mimeType: telegramUploadMimeType(file), status: "ready", name: file.name, time: 0, playing: false })) {
+        await deleteTemporaryTrack({ ...refs, saved: false });
         return;
       }
       toast("Song uploaded. Press Play when you're ready ♫");
     } catch (error) {
       console.error("Music upload failed:", error);
-      toast("Upload failed. Check that Firebase Storage is enabled and its rules are deployed.");
+      toast(error.message || "Telegram music upload failed. Please try again.");
       await clearSession(uid);
     } finally {
       uploadInput.value = "";
@@ -360,7 +368,7 @@ export function initMusic(user) {
   }
 
   async function playSharedSong() {
-    if (!session?.url || session.ownerUid !== uid) return;
+    if (!trackKey(session) || session.ownerUid !== uid) return;
     try {
       await player.play();
       if (!await patchOwnedSession({ playing: true, time: player.currentTime, status: "ready" })) {
@@ -440,9 +448,16 @@ export function initMusic(user) {
   unsubscribers.push(onValue(sessionRef, snapshot => renderSession(snapshot.val()), error => {
     reportError(error, "Shared music updates could not be received.");
   }));
-  unsubscribers.push(onValue(libraryRef, snapshot => renderLibrary(snapshot.val()), error => {
+  unsubscribers.push(watchItems("musicTrack", items => {
+    currentLibrary = items.map(item => ({ ...item, __legacyRealtimeDatabase: false }));
+    renderLibrary(combinedLibrary());
+  }, error => {
     reportError(error, "Saved music could not be loaded.");
   }));
+  unsubscribers.push(onValue(legacyLibraryRef, snapshot => {
+    legacyLibrary = snapshot.val() || {};
+    renderLibrary(combinedLibrary());
+  }, error => reportError(error, "Older saved music could not be loaded.")));
   unsubscribers.push(onValue(presenceRef, snapshot => {
     presence = snapshot.val() || {};
     cleanupWhenUsersLeave();
