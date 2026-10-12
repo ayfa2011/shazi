@@ -22,10 +22,11 @@ export function renderProfile(el, user, profile) {
       .profile-topbar { display:flex; align-items:center; gap:16px; min-height:54px; padding:8px 16px; border-bottom:1px solid #f1dbe5; }
       .profile-topbar h2 { margin:0; font:700 18px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:#34242c; }
       .profile-back { width:34px; height:34px; border-radius:50%; background:transparent; color:#8f315d; font-size:20px; }
-      .profile-cover { height:108px; background:linear-gradient(125deg,#f6c3d7,#fff0f6 56%,#e99dbb); }
-      .profile-edit-card { position:relative; padding:0 16px 18px; }
-      .profile-photo-preview { width:88px; height:88px; display:grid; place-items:center; overflow:hidden; border:4px solid #fff; border-radius:50%; background:#ffe4ef; color:#8f315d; font-size:30px; font-weight:700; margin-top:-44px; }
-      .profile-photo-preview img { width:100%; height:100%; object-fit:cover; }
+      .profile-cover { height:132px; background:linear-gradient(125deg,#f6c3d7,#fff0f6 56%,#e99dbb); }
+      .profile-edit-card { position:relative; padding:0 20px 18px; }
+      .profile-photo-preview { position:relative; width:124px; height:124px; display:grid; place-items:center; overflow:hidden; border:5px solid #fff; border-radius:50%; background:linear-gradient(145deg,#ffe9f1,#ffd4e4); color:#8f315d; font-size:42px; font-weight:700; margin-top:-62px; box-shadow:0 0 0 3px #f8c9db,0 9px 24px #a43f6c26; }
+      .profile-photo-preview::after { content:"♡"; position:absolute; right:1px; bottom:4px; width:29px; height:29px; display:grid; place-items:center; border:2px solid #fff; border-radius:50%; background:#e65391; color:#fff; font-size:17px; line-height:1; box-shadow:0 3px 9px #a43f6c30; pointer-events:none; }
+      .profile-photo-preview img { width:100%; height:100%; object-fit:cover; border-radius:50%; }
       .profile-form-fields { min-width:0; }
       .profile-form-fields form { margin:12px 0 0; gap:12px; }
       .profile-form-fields label { font-size:12px; color:#795364; }
@@ -35,7 +36,7 @@ export function renderProfile(el, user, profile) {
       .profile-photo-picker input { padding:7px; font-size:11px; }
       .profile-handle { margin:5px 0 14px; color:#8c737d; font-size:13px; }
       .profile-save { justify-self:end; padding:9px 16px; border-radius:999px; }
-      @media(max-width:420px) { .profile-cover { height:88px; } .profile-photo-preview { width:76px; height:76px; margin-top:-38px; } }
+      @media(max-width:420px) { .profile-cover { height:116px; } .profile-edit-card { padding-right:16px; padding-left:16px; } .profile-photo-preview { width:112px; height:112px; margin-top:-56px; font-size:38px; } }
     </style>
     <section class="profile-settings">
       <header class="profile-topbar"><button type="button" class="profile-back" aria-label="Back">←</button><h2>Profile</h2></header>

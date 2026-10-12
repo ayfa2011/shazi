@@ -66,6 +66,13 @@ export async function setItem(id, data, customCollection = null) {
   return setDoc(doc(root(), id), data, { merge: true });
 }
 
+export async function addMemoryMedia(memoryId, mediaItems) {
+  if (!firebaseReady) throw new Error("Connect Firebase before adding memory media.");
+  const items = Array.isArray(mediaItems) ? mediaItems.filter(item => item && typeof item.url === "string") : [];
+  if (!items.length) return;
+  return updateDoc(doc(root(), memoryId), { mediaItems: arrayUnion(...items) });
+}
+
 export async function removeItem(id) {
   return deleteDoc(doc(root(), id));
 }

@@ -1,7 +1,9 @@
 import { $, esc, toast, compressImage } from "./utils.js";
-import { watchItems, addItem, removeItem, setItem, notifyPartnerSafely } from "./firestore.js";
+import { watchItems, addItem, removeItem, setItem, addMemoryMedia, notifyPartnerSafely } from "./firestore.js";
 import { getProfileKey } from "./profile-data.js";
 import { sendToTelegram } from "../src/services/telegramService.js";
+import { storage } from "./firebase.js";
+import { getDownloadURL, ref as storageRef, uploadBytes } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-storage.js";
 
 let stopMemories = null;
 let active = false;
@@ -58,31 +60,27 @@ export function renderMemories(el, user, profile) {
 
       /* ───────── Keepsake wall ───────── */
       .memories-shelf { position: relative; padding: 0; }
-      .memories-grid { display: flex; flex-direction: column; gap: 20px; padding-top: 10px; }
+      .memories-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: 12px; padding-top: 10px; }
       .memories-grid > * { min-width: 0; }
-      .mem-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
-      .mem-col { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
-      .mem-col:nth-child(2) { padding-top: 34px; }
-
-      .memory-item { position: relative; display: block; width: 100%; min-width: 0; padding: 8px 8px 11px; border: 1px solid #f6e6ec; border-radius: 16px; background: linear-gradient(180deg, #fff 0%, #fffafc 100%); box-shadow: 0 10px 26px #6d3a5014, 0 2px 6px #6d3a500a; color: inherit; font-family: inherit; text-align: left; cursor: pointer; appearance: none; transform: rotate(var(--tilt, 0deg)); transition: transform .3s cubic-bezier(.2, .8, .2, 1), box-shadow .3s ease; animation: mem-rise .6s cubic-bezier(.2, .8, .2, 1) backwards; animation-delay: calc(var(--i, 0) * 80ms); }
-      .memory-item:hover, .memory-item:focus-visible { transform: translateY(-5px) rotate(0deg) scale(1.025); box-shadow: 0 20px 40px #a54c7428, 0 0 0 3px #fde6ee; z-index: 2; }
-      .memory-item:active { transform: scale(.98) rotate(0deg); }
+      .memory-item { position: relative; display: block; width: 100%; min-width: 0; aspect-ratio: 3 / 4; padding: 0; overflow: hidden; border: 1px solid #f6e6ec; border-radius: 18px; background: linear-gradient(135deg, #fff1f6 0%, #f9dde8 50%, #f7e8da 100%); box-shadow: 0 8px 20px #6d3a5018, 0 2px 6px #6d3a500a; color: inherit; font-family: inherit; text-align: left; cursor: pointer; appearance: none; transition: transform .22s ease, box-shadow .22s ease; animation: mem-rise .45s ease backwards; animation-delay: calc(var(--i, 0) * 45ms); }
+      .memory-item:hover, .memory-item:focus-visible { transform: translateY(-3px); box-shadow: 0 14px 28px #a54c7428, 0 0 0 3px #fde6ee; z-index: 2; }
+      .memory-item:active { transform: scale(.98); }
       .memory-item:focus-visible { outline: 2px solid #cc7093; outline-offset: 3px; }
-      .memory-tape { position: absolute; top: -9px; left: 50%; z-index: 3; width: 56px; height: 18px; border-radius: 3px; background: repeating-linear-gradient(45deg, #ffd6e4d9 0 6px, #ffe9f1d9 6px 12px); box-shadow: 0 1px 4px #00000014; transform: translateX(-50%) rotate(-3deg); pointer-events: none; }
-      .mem-col .memory-item:nth-child(3n+2) .memory-tape { background: repeating-linear-gradient(45deg, #ffe3c9d9 0 6px, #fff0e0d9 6px 12px); transform: translateX(-50%) rotate(2.5deg); }
-      .mem-col .memory-item:nth-child(3n+3) .memory-tape { background: repeating-linear-gradient(45deg, #e6d8ffd9 0 6px, #f3ecffd9 6px 12px); transform: translateX(-50%) rotate(-1.5deg); }
-      .memory-thumb-box { position: relative; display: grid; width: 100%; place-items: center; overflow: hidden; border-radius: 11px; background: linear-gradient(135deg, #fff1f6 0%, #f9dde8 50%, #f7e8da 100%); color: #d9789b; font-size: 32px; box-shadow: inset 0 0 0 1px #00000008; }
-      .memory-thumb-box img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center 40%; transition: transform .7s ease; }
-      .memory-item:hover .memory-thumb-box img { transform: scale(1.06); }
-      .memory-thumb-box::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(180deg, transparent 62%, #3a1b2a22 100%); pointer-events: none; }
+      .memory-tape { display:none; }
+      .memory-thumb-box { position: absolute; inset: 0; display: grid; width: 100%; height: 100%; place-items: center; overflow: hidden; background: linear-gradient(135deg, #fff1f6 0%, #f9dde8 50%, #f7e8da 100%); color: #d9789b; font-size: 32px; }
+      .memory-thumb-box img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; transition: transform .45s ease; }
+      .memory-item:hover .memory-thumb-box img { transform: scale(1.04); }
+      .memory-thumb-box::after { content: ""; position: absolute; inset: 35% 0 0; background: linear-gradient(to top, rgba(0,0,0,.72), rgba(0,0,0,0)); pointer-events: none; }
       .memory-badge { position: absolute; top: 9px; left: 9px; z-index: 2; padding: 4px 10px; border-radius: 999px; background: #ffffffd9; color: #b04b72; font-size: 10px; font-weight: 700; letter-spacing: .05em; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 4px 12px #0000001a; }
-      .memory-meta { display: block; overflow: hidden; margin: 10px 4px 0; color: #6b3d52; font-family: var(--hand); font-size: 22px; font-weight: 700; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
-      .memory-item small { display: flex; align-items: center; gap: 5px; margin: 4px 4px 0; color: #b08b9b; font-size: 10.5px; font-weight: 600; letter-spacing: .05em; }
-      .memory-item small i { color: #ec7ea0; font-style: normal; font-size: 10px; }
-      .memory-item.is-hero { padding: 10px 10px 13px; border-radius: 20px; }
-      .memory-item.is-hero .memory-thumb-box { border-radius: 14px; }
-      .memory-item.is-hero .memory-meta { margin-top: 12px; font-size: 28px; }
-      .memory-item.is-hero small { font-size: 11px; }
+      .memory-meta { position: absolute; right: 12px; bottom: 29px; left: 12px; z-index: 2; display: block; overflow: hidden; margin: 0; color: #fff; font-family: inherit; font-size: 15px; font-weight: 800; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 3px #0008; }
+      .memory-item small { position: absolute; right: 12px; bottom: 11px; left: 12px; z-index: 2; display: block; overflow: hidden; margin: 0; color: #ffffffd9; font-size: 10px; font-weight: 600; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 3px #0008; }
+      .memory-item small i { display:none; }
+      .memory-video-indicator { position:absolute; top:10px; right:10px; z-index:2; display:grid; width:30px; height:30px; place-items:center; border:1px solid #ffffff80; border-radius:50%; background:#24131a7d; color:#fff; font-size:12px; backdrop-filter:blur(5px); }
+      #load-more-memories { grid-column: 1 / -1; }
+      .memory-item.is-hero { padding: 0; border-radius: 18px; }
+      .memory-item.is-hero .memory-thumb-box { border-radius: 0; }
+      .memory-item.is-hero .memory-meta { margin:0; font-size:15px; }
+      .memory-item.is-hero small { font-size:10px; }
 
       .memory-soft-btn { padding: 10px 16px; border: 1px solid #f0d5e0; border-radius: 999px; background: #fff8fb; color: #8f4263; font-size: 12px; font-weight: 700; cursor: pointer; transition: transform .18s ease, background .18s ease; }
       .memory-soft-btn:hover { transform: translateY(-1px); background: #ffedf4; }
@@ -116,17 +114,28 @@ export function renderMemories(el, user, profile) {
       .memory-view-card { position: relative; width: min(560px, 100%); max-height: min(94dvh, 860px); overflow-y: auto; padding: 10px 10px 8px; border: 1px solid #f6e6ec; border-radius: 30px; background: linear-gradient(165deg, #fff 0%, #fffafc 60%, #fff7f1 100%); box-shadow: 0 30px 110px #22121d66; animation: memory-view-arrive .3s cubic-bezier(.2, .8, .2, 1); }
       @keyframes memory-view-arrive { from { opacity: 0; transform: translateY(14px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
       .memory-view-close { position: absolute; top: 20px; right: 20px; z-index: 5; width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid #ffffff80; border-radius: 50%; background: #382631a8; color: #fff; font-size: 22px; line-height: 1; cursor: pointer; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
-      .memory-view-photo { position: relative; display: grid; min-height: 160px; max-height: 54dvh; overflow: hidden; place-items: center; border-radius: 22px; background: radial-gradient(ellipse at center, #fff 0%, #f6edf1 100%); }
-      .memory-view-bg { position: absolute; inset: -24px; width: calc(100% + 48px); height: calc(100% + 48px); max-height: none; object-fit: cover; filter: blur(24px) saturate(1.25); opacity: .6; transform: scale(1.1); }
-      .memory-view-main { position: relative; z-index: 1; display: block; width: 100%; max-height: 54dvh; object-fit: contain; }
-      .memory-view-placeholder { position: relative; z-index: 1; padding: 50px; color: #e0799c; font-size: 52px; }
-      .memory-view-copy { position: relative; padding: 18px clamp(10px, 4vw, 30px) 8px; text-align: center; }
-      .memory-view-date { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 6px; padding: 6px 13px; border-radius: 999px; background: #fff0f5; color: #a85475; font-size: 10.5px; font-weight: 700; letter-spacing: .05em; }
-      .memory-view-title { margin: 0; color: #6b3d52; font-family: var(--hand); font-size: clamp(32px, 9vw, 42px); font-weight: 700; line-height: 1.1; overflow-wrap: anywhere; }
-      .memory-view-title::after { content: "✿  ♡  ✿"; display: block; margin: 8px 0 0; color: #efb0c6; font-family: sans-serif; font-size: 11px; letter-spacing: .3em; }
-      .memory-quote { max-width: 500px; margin: 10px auto 0; color: #5f4a56; font-family: var(--serif); font-size: clamp(15px, 4vw, 18px); font-style: italic; font-weight: 500; line-height: 1.85; overflow-wrap: anywhere; white-space: pre-wrap; }
-      .memory-quote-mark { display: block; height: 24px; color: #df9ab3; font-family: Georgia, serif; font-size: 40px; line-height: 1; }
+      .memory-view-photo { position: relative; display: grid; width:100%; aspect-ratio: 16 / 10; min-height: 170px; max-height: 40dvh; overflow: hidden; place-items: center; border-radius: 22px; background: linear-gradient(145deg,#ffe8f0,#f8dce7); }
+      .memory-view-main { display:block; width:100%; height:100%; object-fit:cover; }
+      video.memory-view-main { background:#21151b; }
+      .memory-view-date { position:absolute; bottom:12px; left:12px; z-index:3; display:inline-flex; align-items:center; gap:6px; margin:0; padding:7px 12px; border:1px solid #ffffff80; border-radius:999px; background:#fffaf2e8; color:#923f65; font-size:11px; font-weight:700; box-shadow:0 3px 12px #35172420; backdrop-filter:blur(8px); }
+      .memory-view-placeholder { color: #e0799c; font-size: 52px; }
+      .memory-view-copy { position: relative; padding: 16px 12px 10px; text-align: left; }
+      .memory-view-title { margin: 0; color: #6b3d52; font-family: var(--serif); font-size: clamp(24px, 6vw, 32px); font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
+      .memory-view-title::after { content: ""; }
+      .memory-quote { max-width: 500px; margin: 8px 0 0; color: #705b66; font-family: inherit; font-size: 14px; font-style: normal; font-weight: 400; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
+      .memory-quote-mark { display:none; }
       .memory-quote-empty { color: #a18b96; font-size: 14px; }
+      .memory-gallery { padding:12px; border:1px solid #f5dce6; border-radius:20px; background:#fff8fb; }
+      .memory-gallery-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:11px; }
+      .memory-gallery-title { min-width:0; margin:0; color:#75445b; font-size:15px; font-weight:800; }
+      .memory-gallery-count { display:block; margin-top:3px; color:#a78090; font-size:10px; font-weight:500; }
+      .memory-add-photos { flex:none; padding:8px 12px; border:1px solid #f0ccda; border-radius:999px; background:#fff; color:#a5446b; font-size:11px; font-weight:700; cursor:pointer; }
+      .memory-add-photos:disabled { opacity:.6; }
+      .memory-media-input { display:none; }
+      .memory-gallery-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+      .memory-gallery-item { position:relative; display:block; width:100%; aspect-ratio:1; padding:0; overflow:hidden; border:1px solid #f2dce5; border-radius:13px; background:#f9e8ef; cursor:pointer; }
+      .memory-gallery-item img { display:block; width:100%; height:100%; object-fit:cover; }
+      .memory-gallery-item .memory-video-indicator { top:auto; right:auto; left:50%; bottom:50%; transform:translate(-50%,50%); }
       .memory-view-edit { display: inline-flex; margin: 16px auto 2px; padding: 6px 14px; border: 1px solid #f3dce5; border-radius: 999px; background: transparent; color: #a48794; font-size: 10.5px; font-weight: 700; cursor: pointer; transition: background .2s ease, color .2s ease; }
       .memory-view-edit:hover, .memory-view-edit:focus-visible { background: #fff0f5; color: #8f4263; }
       .memory-view-nav { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 8px 8px 6px; padding-top: 12px; border-top: 1px dashed #f0d9e3; }
@@ -145,16 +154,15 @@ export function renderMemories(el, user, profile) {
         .memories-heading { gap: 8px; }
         .add-memory-btn { gap: 6px; padding: 9px 13px 9px 9px; font-size: 11px; }
         .add-memory-icon { width: 20px; height: 20px; font-size: 14px; }
-        .mem-cols { gap: 12px; }
-        .memory-item { padding: 6px 6px 9px; border-radius: 14px; }
-        .memory-thumb-box { border-radius: 10px; }
-        .memory-meta { font-size: 20px; }
-        .memory-tape { width: 46px; height: 15px; top: -8px; }
+        .memories-grid { gap: 10px; }
+        .memory-item { border-radius: 15px; }
+        .memory-meta { right: 9px; bottom: 27px; left: 9px; font-size: 13px; }
+        .memory-item small { right: 9px; bottom: 10px; left: 9px; font-size: 9px; }
         .mem-add-overlay { align-items: flex-end; padding: 0; }
         .mem-add-overlay .mem-modal-box { width: 100%; max-height: 94dvh; border-radius: 26px 26px 0 0; }
         .memory-view-card { padding: 8px 8px 6px; border-radius: 26px; }
         .memory-view-close { top: 16px; right: 16px; width: 32px; height: 32px; }
-        .memory-view-photo, .memory-view-main { max-height: 46dvh; }
+        .memory-view-photo { max-height: 36dvh; }
         .memory-view-copy { padding-top: 14px; }
         .memory-view-nav { margin: 5px 3px 4px; gap: 7px; }
         .memory-nav-btn { min-width: 0; padding: 9px 11px; font-size: 10px; }
@@ -164,7 +172,7 @@ export function renderMemories(el, user, profile) {
         .memories-heading h1 { font-size: 24px; }
         .memories-eyebrow { font-size: 8px; }
         .add-memory-btn { padding: 8px 10px 8px 8px; }
-        .memory-meta { font-size: 18px; }
+        .memory-meta { font-size: 12px; }
       }
       @media (prefers-reduced-motion: reduce) {
         .memories-page *, .memory-view-card, .mem-modal-box { animation: none !important; transition: none !important; }
@@ -229,14 +237,24 @@ export function renderMemories(el, user, profile) {
     <div id="view-mem-modal" class="mem-modal-overlay mem-view-overlay" style="display: none;">
       <article class="memory-view-card" role="dialog" aria-modal="true" aria-labelledby="view-mem-title">
         <button id="close-view-modal" class="memory-view-close" type="button" aria-label="Close memory">×</button>
-        <div id="view-mem-img-wrap" class="memory-view-photo"></div>
-        <div class="memory-view-copy">
+        <div id="view-mem-img-wrap" class="memory-view-photo">
+          <div class="memory-view-placeholder" aria-hidden="true">♡</div>
           <p id="view-mem-date" class="memory-view-date"></p>
+        </div>
+        <div class="memory-view-copy">
           <h2 id="view-mem-title" class="memory-view-title">Memory</h2>
           <span class="memory-quote-mark" aria-hidden="true">“</span>
           <p id="view-mem-note" class="memory-quote"></p>
           <button id="view-mem-edit-btn" class="memory-view-edit" type="button">Edit memory</button>
         </div>
+        <section class="memory-gallery" aria-labelledby="memory-gallery-heading">
+          <header class="memory-gallery-head">
+            <h3 class="memory-gallery-title" id="memory-gallery-heading">Photos and videos<span class="memory-gallery-count" id="memory-gallery-count">0 photos and 0 videos</span></h3>
+            <button class="memory-add-photos" id="memory-add-photos" type="button">＋ Add Photos</button>
+            <input class="memory-media-input" id="memory-media-input" type="file" accept="image/*,video/*" multiple aria-label="Add photos or videos to this memory">
+          </header>
+          <div class="memory-gallery-grid" id="memory-gallery-grid"></div>
+        </section>
         <nav class="memory-view-nav" aria-label="Memory navigation">
           <button id="memory-prev-btn" class="memory-nav-btn" type="button" aria-label="Previous memory">← Previous</button>
           <span id="memory-nav-position" class="memory-nav-position" aria-live="polite"></span>
@@ -249,7 +267,10 @@ export function renderMemories(el, user, profile) {
   const addModal = $("#add-mem-modal", el);
   const viewModal = $("#view-mem-modal", el);
   const form = $("#add-mem-form", el);
+  const mediaInput = $("#memory-media-input", el);
+  const mediaGrid = $("#memory-gallery-grid", el);
   let activeMemoryForView = null;
+  let selectedGalleryMedia = null;
 
   function openAddModal(item = null) {
     form.reset();
@@ -301,10 +322,14 @@ export function renderMemories(el, user, profile) {
     const file = fileInput.files?.[0];
 
     let photoUrl = "";
+    let isVideo = false;
     try {
       if (file?.type.startsWith("image/")) {
         photoUrl = await compressImage(file, 1200, 1200, 0.84);
         if (!photoUrl) throw new Error("Could not read that photo. Please choose another image.");
+      } else if (file?.type.startsWith("video/")) {
+        isVideo = true;
+        photoUrl = await createVideoThumbnail(file);
       }
 
       let formattedDate = "";
@@ -325,6 +350,7 @@ export function renderMemories(el, user, profile) {
       };
 
       if (photoUrl) payload.photoUrl = photoUrl;
+      if (file) payload.mediaType = isVideo ? "video" : "image";
 
       if (editId) {
         await setItem(editId, payload);
@@ -366,12 +392,9 @@ export function renderMemories(el, user, profile) {
     activeMemoryForView = mem;
     $("#view-mem-title", el).textContent = mem.title || "Our Memory";
 
-    const imgWrap = $("#view-mem-img-wrap", el);
-    imgWrap.innerHTML = mem.photoUrl
-      ? `<img class="memory-view-bg" src="${esc(mem.photoUrl)}" alt="" aria-hidden="true" decoding="async"><img class="memory-view-main" src="${esc(mem.photoUrl)}" alt="${esc(mem.title || "A shared memory")}" decoding="async">`
-      : `<div class="memory-view-placeholder" aria-hidden="true">♡</div>`;
-
-    $("#view-mem-date", el).textContent = mem.date ? `♡  ${mem.date}` : "A moment to remember";
+    selectedGalleryMedia = null;
+    renderMemoryHero(mem);
+    renderMemoryGallery(mem);
     const note = $("#view-mem-note", el);
     note.textContent = mem.note || "A little moment, kept close.";
     note.classList.toggle("memory-quote-empty", !mem.note);
@@ -381,24 +404,142 @@ export function renderMemories(el, user, profile) {
     viewModal.style.display = "flex";
   }
 
+  function renderMemoryHero(memory, selected = null) {
+    const imgWrap = $("#view-mem-img-wrap", el);
+    const url = selected?.type === "video" ? selected.thumbnailUrl : (selected?.url || memory.photoUrl);
+    imgWrap.querySelectorAll(".memory-view-main,.memory-view-placeholder").forEach(node => node.remove());
+    if (selected?.type === "video" && selected.url) {
+      const video = document.createElement("video");
+      video.className = "memory-view-main";
+      video.src = selected.url;
+      video.controls = true;
+      video.playsInline = true;
+      video.preload = "metadata";
+      video.setAttribute("aria-label", selected.name || "Memory video");
+      imgWrap.prepend(video);
+    } else if (url) {
+      const image = document.createElement("img");
+      image.className = "memory-view-main";
+      image.src = url;
+      image.alt = memory.title || "A shared memory";
+      image.decoding = "async";
+      imgWrap.prepend(image);
+    } else {
+      const placeholder = document.createElement("div");
+      placeholder.className = "memory-view-placeholder";
+      placeholder.setAttribute("aria-hidden", "true");
+      placeholder.textContent = "♡";
+      imgWrap.prepend(placeholder);
+    }
+    const dateBadge = $("#view-mem-date", el);
+    dateBadge.textContent = memory.date ? `♡  ${memory.date}` : "A moment to remember";
+  }
+
+  function renderMemoryGallery(memory) {
+    const media = Array.isArray(memory.mediaItems) ? memory.mediaItems : [];
+    const primaryIsVideo = memory.mediaType === "video";
+    const photos = media.filter(item => item.type !== "video").length + (memory.photoUrl && !primaryIsVideo ? 1 : 0);
+    const videos = media.filter(item => item.type === "video").length + (primaryIsVideo ? 1 : 0);
+    $("#memory-gallery-count", el).textContent = `${photos} ${photos === 1 ? "photo" : "photos"} and ${videos} ${videos === 1 ? "video" : "videos"}`;
+    mediaGrid.innerHTML = media.map((item, index) => {
+      const thumbnail = item.thumbnailUrl || item.url;
+      if (!thumbnail) return "";
+      return `<button class="memory-gallery-item" type="button" data-media-index="${index}" aria-label="View ${item.type === "video" ? "video" : "photo"}${item.name ? `: ${esc(item.name)}` : ""}"><img src="${esc(thumbnail)}" alt="" loading="lazy" decoding="async">${item.type === "video" ? `<span class="memory-video-indicator" aria-hidden="true">▶</span>` : ""}</button>`;
+    }).join("");
+    mediaGrid.querySelectorAll("[data-media-index]").forEach(button => {
+      button.onclick = () => {
+        selectedGalleryMedia = media[Number(button.dataset.mediaIndex)] || null;
+        if (selectedGalleryMedia) renderMemoryHero(memory, selectedGalleryMedia);
+      };
+    });
+  }
+
+  $("#memory-add-photos", el).onclick = () => {
+    if (!activeMemoryForView) return;
+    mediaInput.click();
+  };
+
+  mediaInput.onchange = async () => {
+    const files = [...(mediaInput.files || [])];
+    const memory = activeMemoryForView;
+    mediaInput.value = "";
+    if (!memory || !files.length) return;
+    if (!storage) return toast("Connect Firebase Storage before adding media.");
+    const addButton = $("#memory-add-photos", el);
+    addButton.disabled = true;
+    addButton.textContent = "Uploading…";
+    try {
+      const uploadedMedia = await Promise.all(files.map(async (file, index) => {
+        const type = file.type.startsWith("video/") ? "video" : "photo";
+        const safeName = (file.name || `memory-${type}`).replace(/[^a-zA-Z0-9._-]/g, "-").slice(-90);
+        const path = `couples/${APP_CONFIG.coupleId}/memories/${memory.id}/${Date.now()}-${index}-${safeName}`;
+        const fileRef = storageRef(storage, path);
+        await uploadBytes(fileRef, file, { contentType: file.type || "application/octet-stream", customMetadata: { ownerUid: user.uid, memoryId: memory.id } });
+        const url = await getDownloadURL(fileRef);
+        if (type !== "video") return { type, url, thumbnailUrl: url, name: file.name || "Photo", createdAtMs: Date.now() };
+
+        const thumbnailData = await createVideoThumbnail(file);
+        const thumbnailBlob = await (await fetch(thumbnailData)).blob();
+        const thumbnailRef = storageRef(storage, `${path}.jpg`);
+        await uploadBytes(thumbnailRef, thumbnailBlob, { contentType: "image/jpeg", customMetadata: { ownerUid: user.uid, memoryId: memory.id } });
+        return { type, url, thumbnailUrl: await getDownloadURL(thumbnailRef), name: file.name || "Video", createdAtMs: Date.now() };
+      }));
+      const current = allMemories.find(item => item.id === memory.id) || memory;
+      await addMemoryMedia(memory.id, uploadedMedia);
+      const mediaItems = [...(current.mediaItems || []), ...uploadedMedia];
+      const updateMemory = item => item.id === memory.id ? { ...item, mediaItems } : item;
+      allMemories = allMemories.map(updateMemory);
+      sortedMemories = sortedMemories.map(updateMemory);
+      activeMemoryForView = { ...current, mediaItems };
+      toast(`${uploadedMedia.length} item${uploadedMedia.length === 1 ? "" : "s"} added to this memory ♡`);
+      renderMemoryGallery(activeMemoryForView);
+    } catch (error) {
+      console.error("Could not add memory media:", error);
+      toast("Could not upload media. Check your Firebase Storage rules and try again.");
+    } finally {
+      addButton.disabled = false;
+      addButton.textContent = "＋ Add Photos";
+    }
+  };
+
   $("#memory-prev-btn", el).onclick = () => showMemoryAt(activeMemoryIndex - 1);
   $("#memory-next-btn", el).onclick = () => showMemoryAt(activeMemoryIndex + 1);
 
-  // Polaroid layout helpers (visual only)
-  const CARD_RATIOS = ["4 / 5", "1 / 1", "5 / 6", "6 / 7", "1 / 1", "4 / 5"];
-  const CARD_TILTS = [-1.6, 1.3, -0.9, 1.7, -1.2, 0.8];
+  function createVideoThumbnail(file) {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement("video");
+      const objectUrl = URL.createObjectURL(file);
+      const cleanup = () => { video.removeAttribute("src"); video.load(); URL.revokeObjectURL(objectUrl); };
+      video.preload = "metadata";
+      video.muted = true;
+      video.playsInline = true;
+      video.onloadeddata = () => {
+        const scale = Math.min(1, 480 / Math.max(video.videoWidth, video.videoHeight));
+        const width = Math.max(1, Math.round(video.videoWidth * scale));
+        const height = Math.max(1, Math.round(video.videoHeight * scale));
+        const thumbnail = document.createElement("canvas");
+        thumbnail.width = width;
+        thumbnail.height = height;
+        const context = thumbnail.getContext("2d");
+        if (!context) { cleanup(); reject(new Error("Could not create a video thumbnail.")); return; }
+        context.drawImage(video, 0, 0, width, height);
+        const dataUrl = thumbnail.toDataURL("image/jpeg", 0.64);
+        cleanup();
+        resolve(dataUrl);
+      };
+      video.onerror = () => { cleanup(); reject(new Error("Could not read this video. Choose another file.")); };
+      video.src = objectUrl;
+    });
+  }
 
-  function memoryCardHtml(item, index, hero) {
-    const n = hero ? 0 : index - 1;
-    const ratio = hero ? "5 / 4" : CARD_RATIOS[n % CARD_RATIOS.length];
-    const tilt = hero ? 0 : CARD_TILTS[n % CARD_TILTS.length];
+  function memoryCardHtml(item, index) {
     const photo = item.photoUrl
       ? `<img src="${esc(item.photoUrl)}" alt="" loading="lazy" decoding="async">`
       : `💖`;
     return `
-      <button class="memory-item${hero ? " is-hero" : ""}" type="button" data-id="${esc(item.id)}" style="--i:${index}; --tilt:${tilt}deg" aria-label="Open memory: ${esc(item.title || "Our Memory")}">
+      <button class="memory-item${index === 0 ? " is-hero" : ""}" type="button" data-id="${esc(item.id)}" style="--i:${index}" aria-label="Open memory: ${esc(item.title || "Our Memory")}${item.mediaType === "video" ? ", video" : ""}">
         <span class="memory-tape" aria-hidden="true"></span>
-        <div class="memory-thumb-box" style="aspect-ratio:${ratio}">${hero ? `<span class="memory-badge">✧ Latest</span>` : ""}${photo}</div>
+        <div class="memory-thumb-box">${index === 0 ? `<span class="memory-badge">✧ Latest</span>` : ""}${photo}${item.mediaType === "video" ? `<span class="memory-video-indicator" aria-label="Video">▶</span>` : ""}</div>
         <div class="memory-meta"><span>${esc(item.title || "Memory")}</span></div>
         ${item.date ? `<small><i>♡</i>${esc(item.date)}</small>` : ""}
       </button>`;
@@ -430,21 +571,11 @@ export function renderMemories(el, user, profile) {
       since.textContent = oldest?.date && allMemories.length !== currentLimit ? `✿ since ${oldest.date}` : "";
     }
 
-    const left = [];
-    const right = [];
-    sortedMemories.slice(1).forEach((item, i) => {
-      (i % 2 === 0 ? left : right).push(memoryCardHtml(item, i + 1, false));
-    });
-
-    const heroHtml = memoryCardHtml(sortedMemories[0], 0, true);
-    const colsHtml = sortedMemories.length > 1
-      ? `<div class="mem-cols"><div class="mem-col">${left.join("")}</div><div class="mem-col">${right.join("")}</div></div>`
-      : "";
     const moreHtml = allMemories.length === currentLimit
       ? `<button type="button" id="load-more-memories" class="memory-soft-btn">Load More</button>`
       : "";
 
-    container.innerHTML = heroHtml + colsHtml + moreHtml;
+    container.innerHTML = sortedMemories.map((item, index) => memoryCardHtml(item, index)).join("") + moreHtml;
 
     const loadMore = $("#load-more-memories", el);
     if (loadMore) {
