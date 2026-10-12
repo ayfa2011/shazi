@@ -83,68 +83,6 @@ function formatClock(seconds) {
       uploadAndAddTrack(file);
     }
   }
-
-/** Support both the promise and the legacy callback form of decodeAudioData. */
-function encodeWav(audioBuffer, channelCount) {
-  const frames = audioBuffer.length;
-  const bytesPerSample = 2;
-  const blockAlign = channelCount * bytesPerSample;
-  const dataSize = frames * blockAlign;
-  const view = new DataView(new ArrayBuffer(44 + dataSize));
-  const writeText = (offset, text) => {
-    for (let index = 0; index < text.length; index += 1) view.setUint8(offset + index, text.charCodeAt(index));
-  };
-
-  writeText(0, "RIFF");
-  view.setUint32(4, 36 + dataSize, true);
-  writeText(8, "WAVE");
-  writeText(12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, channelCount, true);
-  view.setUint32(24, audioBuffer.sampleRate, true);
-  view.setUint32(28, audioBuffer.sampleRate * blockAlign, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, 8 * bytesPerSample, true);
-  writeText(36, "data");
-  view.setUint32(40, dataSize, true);
-
-  const channels = [];
-  for (let channel = 0; channel < channelCount; channel += 1) channels.push(audioBuffer.getChannelData(channel));
-
-  let offset = 44;
-  for (let frame = 0; frame < frames; frame += 1) {
-    for (let channel = 0; channel < channelCount; channel += 1) {
-      const sample = Math.max(-1, Math.min(1, channels[channel][frame]));
-      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-      offset += bytesPerSample;
-    }
-  }
-  return new Blob([view.buffer], { type: "audio/wav" });
-}
-
-/**
- * Pull the audio track out of a picked video file entirely on-device. The decoded
- * samples are written to a lossless WAV so Telegram and the Worker only ever move
- * the original sound, never a re-compressed copy.
- */
-async function extractAudioTrack(file) {
-  const AudioCtx = window.AudioContext || window.webkitAudioContext;
-  if (!AudioCtx) throw new Error("This browser cannot extract audio from video.");
-  const context = new AudioCtx();
-  try {
-    const decoded = await decodeAudio(context, await file.arrayBuffer());
-    const channelCount = Math.min(2, decoded.numberOfChannels);
-    if (decoded.length * channelCount * 2 > MAX_FILE_SIZE) {
-      throw new Error(`This clip's audio runs about ${formatClock(decoded.duration)}, which is too large to store. Pick a shorter clip.`);
-    }
-    const baseName = String(file.name || "song").replace(/\.[^.]+$/, "").trim() || "song";
-    return new File([encodeWav(decoded, channelCount)], `${baseName}.wav`, { type: "audio/wav" });
-  } finally {
-    context.close?.().catch(() => {});
-  }
-}
-
 let cleanupCurrent = null;
 
 function setStatus(message) {
@@ -173,6 +111,7 @@ export function initMusic(user) {
   const actorName = APP_CONFIG.profiles[ownKey]?.name || "Your partner";
 
   const player = $("#audio-player");
+  const audio = player;
   const uploadInput = $("#music-upload");
   const progressInput = $("#music-progress");
   const elapsedLabel = $("#music-elapsed");
@@ -249,8 +188,8 @@ export function initMusic(user) {
 
   /** Mirror the <audio> element's clock and seek bar into the drawer. */
   function renderProgress() {
-    const duration = Number.isFinite(player.duration) ? player.duration : 0;
-    const position = Number.isFinite(player.currentTime) ? player.currentTime : 0;
+    const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+    const position = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
     if (elapsedLabel) elapsedLabel.textContent = formatClock(position);
     if (durationLabel) durationLabel.textContent = duration > 0 ? formatClock(duration) : "0:00";
     if (progressInput && !seeking) {
@@ -279,10 +218,10 @@ export function initMusic(user) {
 
   /** Surface a hard playback failure instead of leaving the UI silently frozen. */
   function reportPlaybackError() {
-    const code = player.error?.code;
-    const reason = code === player.error?.MEDIA_ERR_NETWORK ? "The song could not be streamed from Telegram. Check your connection and try again."
-      : code === player.error?.MEDIA_ERR_DECODE ? "This device cannot decode that audio format."
-        : code === player.error?.MEDIA_ERR_SRC_NOT_SUPPORTED ? "This device cannot play that audio format."
+    const code = audio.error?.code;
+    const reason = code === audio.error?.MEDIA_ERR_NETWORK ? "The song could not be streamed from Telegram. Check your connection and try again."
+      : code === audio.error?.MEDIA_ERR_DECODE ? "This device cannot decode that audio format."
+        : code === audio.error?.MEDIA_ERR_SRC_NOT_SUPPORTED ? "This device cannot play that audio format."
           : "This song could not be played.";
     audioErrorShown = true;
     setStatus(reason);
@@ -318,14 +257,14 @@ export function initMusic(user) {
       pendingSeek = null;
       audioErrorShown = false;
       releaseTrackUrl();
-      if (player.getAttribute("src")) player.removeAttribute("src");
-      player.load();
+      if (audio.getAttribute("src")) audio.removeAttribute("src");
+      audio.load();
       resetProgress();
       setStatus(locked ? `${value.ownerName || "Your partner"} is choosing a song…` : "Upload a song or choose a saved favorite.");
       return;
     }
     if (!siteActive) {
-      player.pause();
+      audio.pause();
       setStatus("Open the music room to hear this song.");
       return;
     }
@@ -425,7 +364,7 @@ export function initMusic(user) {
         return { ...value, ownerUid: uid, ownerName: name, status: value.status || "ready" };
       }, { applyLocally: false });
       if (!result.committed) {
-        toast("Your partner is already using the music player.");
+        toast("Your partner is already using the music audio.");
         return false;
       }
       return true;
@@ -520,7 +459,7 @@ export function initMusic(user) {
       return;
     }
     if (!siteActive || session?.ownerUid) {
-      toast("Your partner is already using the music player.");
+      toast("Your partner is already using the music audio.");
       uploadInput.value = "";
       return;
     }
@@ -562,9 +501,9 @@ export function initMusic(user) {
   async function playSharedSong() {
     if (!trackKey(session) || session.ownerUid !== uid) return;
     try {
-      await player.play();
-      if (!await patchOwnedSession({ playing: true, time: player.currentTime, status: "ready" })) {
-        player.pause();
+      await audio.play();
+      if (!await patchOwnedSession({ playing: true, time: audio.currentTime, status: "ready" })) {
+        audio.pause();
         toast("The music session has ended.");
       }
     } catch (error) {
@@ -574,9 +513,9 @@ export function initMusic(user) {
 
   async function pauseSharedSong() {
     if (session?.ownerUid !== uid) return;
-    player.pause();
+    audio.pause();
     try {
-      if (!await patchOwnedSession({ playing: false, time: player.currentTime })) {
+      if (!await patchOwnedSession({ playing: false, time: audio.currentTime })) {
         toast("The music session has ended.");
       }
     } catch (error) {
@@ -672,14 +611,14 @@ export function initMusic(user) {
     if (!session?.playing) return;
     audioErrorShown = false;
     try {
-      await player.play();
+      await audio.play();
       renderSession(session);
     } catch (error) {
       reportError(error, "This device could not start audio playback.");
     }
   };
   $("#music-volume").oninput = event => {
-    player.volume = Number(event.target.value);
+    audio.volume = Number(event.target.value);
   };
   uploadInput.onchange = event => uploadSong(event.target.files?.[0]);
   $("#music-chat-form").onsubmit = sendChat;
@@ -688,11 +627,11 @@ export function initMusic(user) {
   const onSeekStart = () => { seeking = true; };
   const onSeekEnd = () => { seeking = false; };
   const onSeekInput = () => {
-    const duration = Number.isFinite(player.duration) ? player.duration : 0;
+    const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
     if (duration <= 0) return;
     const target = (Number(progressInput.value) / 1000) * duration;
     if (elapsedLabel) elapsedLabel.textContent = formatClock(target);
-    if (player.readyState >= 1) player.currentTime = target;
+    if (audio.readyState >= 1) audio.currentTime = target;
     else pendingSeek = target;
     if (session?.ownerUid === uid) {
       patchOwnedSession({ time: target }).catch(error => {
@@ -761,20 +700,20 @@ export function initMusic(user) {
       remove(departingRef).catch(error => console.error("Music-room presence cleanup failed:", error));
       onDisconnect(departingRef).cancel().catch(error => console.error("Music-room disconnect cleanup failed:", error));
     }
-    player.pause();
-    if (player.getAttribute("src")) player.removeAttribute("src");
-    player.load();
+    audio.pause();
+    if (audio.getAttribute("src")) audio.removeAttribute("src");
+    audio.load();
     releaseTrackUrl();
     resetProgress();
-    player.removeEventListener("timeupdate", onPlayerTimeUpdate);
-    player.removeEventListener("ended", onPlayerEnded);
-    player.removeEventListener("loadedmetadata", onPlayerMetadata);
-    player.removeEventListener("durationchange", onPlayerDurationChange);
-    player.removeEventListener("waiting", onPlayerWaiting);
-    player.removeEventListener("playing", onPlayerPlaying);
-    player.removeEventListener("pause", onPlayerPause);
-    player.removeEventListener("emptied", onPlayerEmptied);
-    player.removeEventListener("error", onPlayerError);
+    audio.removeEventListener("timeupdate", onPlayerTimeUpdate);
+    audio.removeEventListener("ended", onPlayerEnded);
+    audio.removeEventListener("loadedmetadata", onPlayerMetadata);
+    audio.removeEventListener("durationchange", onPlayerDurationChange);
+    audio.removeEventListener("waiting", onPlayerWaiting);
+    audio.removeEventListener("playing", onPlayerPlaying);
+    audio.removeEventListener("pause", onPlayerPause);
+    audio.removeEventListener("emptied", onPlayerEmptied);
+    audio.removeEventListener("error", onPlayerError);
     if (progressInput) {
       progressInput.removeEventListener("pointerdown", onSeekStart);
       progressInput.removeEventListener("pointerup", onSeekEnd);
