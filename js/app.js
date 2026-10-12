@@ -57,6 +57,13 @@ function renderPostFeed(el, user, profile) {
   disposePostFeed?.();
   let active = true, selectedProfile = "all", posts = [];
   const commentsByPost = new Map();
+  let detailPostId = "";
+  let voiceRecorder = null;
+  let voiceChunks = [];
+  let voicePromise = null;
+  let voiceResolve = null;
+  let voiceTarget = null;
+  let selectedPostVoice = null;
 
   el.innerHTML = `
     <style>
@@ -171,9 +178,40 @@ function renderPostFeed(el, user, profile) {
         width: 100%;
         border-radius: 16px;
         margin-top: 8px;
+        aspect-ratio: 4 / 3;
         max-height: 350px;
         object-fit: cover;
+        cursor: zoom-in;
       }
+      .tw-post-voice,.tw-comment-voice { display:flex; align-items:center; gap:10px; width:min(100%,360px); margin-top:9px; padding:10px 12px; border:1px solid #f1dbe5; border-radius:16px; background:linear-gradient(120deg,#fff1f7,#fffafd); color:#713451; }
+      .tw-post-voice audio,.tw-comment-voice audio { display:none; }
+      .tw-post-voice-label { flex:none; font-size:12px; font-weight:700; }
+      .tw-audio-play { flex:none; width:34px; height:34px; border-radius:50%; background:#e95f97; color:white; cursor:pointer; }
+      .tw-audio-wave { display:flex; flex:1; height:26px; align-items:center; justify-content:center; gap:3px; overflow:hidden; }
+      .tw-audio-wave i { width:3px; min-height:4px; border-radius:4px; background:#dc7ba2; opacity:.72; }
+      .tw-audio-wave.playing i { animation:tw-wave .65s ease-in-out infinite alternate; }
+      .tw-audio-wave.playing i:nth-child(3n) { animation-delay:.2s; }
+      .tw-audio-wave.playing i:nth-child(2n) { animation-delay:.35s; }
+      @keyframes tw-wave { to { transform:scaleY(.45); opacity:.4; } }
+      .tw-voice-duration { flex:none; color:#896678; font-size:11px; font-variant-numeric:tabular-nums; }
+      .tw-voice-recorder { min-height:36px; padding:7px 11px; border-radius:999px; background:#fff0f6; color:#a33d68; font-weight:700; cursor:pointer; }
+      .tw-voice-recorder.recording { background:#a33d68; color:white; animation:tw-record-pulse 1s infinite alternate; }
+      @keyframes tw-record-pulse { to { opacity:.65; } }
+      .tw-detail-backdrop,.tw-image-backdrop { position:fixed; inset:0; z-index:1400; display:none; align-items:center; justify-content:center; padding:16px; background:#21131bc9; }
+      .tw-detail-backdrop.open,.tw-image-backdrop.open { display:flex; }
+      .tw-detail-modal { width:min(100%,650px); max-height:min(88dvh,900px); overflow:auto; border-radius:22px; background:#fffafd; box-shadow:0 20px 70px #16071155; }
+      .tw-detail-head { position:sticky; top:0; z-index:2; display:flex; align-items:center; justify-content:space-between; padding:13px 16px; border-bottom:1px solid #f4e2e9; background:#fffafd; }
+      .tw-detail-head strong { color:#793752; }
+      .tw-detail-close { width:36px; height:36px; border-radius:50%; background:#fff0f6; color:#8f315d; font-size:21px; cursor:pointer; }
+      .tw-detail-body { padding:16px; }
+      .tw-detail-comments { display:grid; gap:10px; margin-top:15px; }
+      .tw-detail-comment { padding:11px 12px; border:1px solid #f2e1e8; border-radius:15px; background:white; color:#483640; font-size:13px; line-height:1.45; overflow-wrap:anywhere; }
+      .tw-detail-comment strong { color:#8f315d; }
+      .tw-detail-comment-actions { display:flex; gap:8px; margin-top:7px; }
+      .tw-detail-reply { display:flex; gap:8px; margin-top:12px; }
+      .tw-detail-reply input { min-width:0; flex:1; border:1px solid #efdce5; border-radius:999px; padding:10px 13px; outline:none; }
+      .tw-image-backdrop { z-index:1450; }
+      .tw-image-backdrop img { max-width:100%; max-height:90dvh; object-fit:contain; border-radius:12px; }
       .tw-actions-bar {
         display: flex;
         justify-content: space-between;
@@ -197,28 +235,6 @@ function renderPostFeed(el, user, profile) {
       }
       .tw-action-btn.liked {
         color: #f91880;
-      }
-      .tw-comments-section {
-        margin-top: 10px;
-        padding-left: 10px;
-        border-left: 2px solid #eff3f4;
-      }
-      .tw-comment-item {
-        font-size: 13px;
-        margin-bottom: 6px;
-      }
-      .tw-comment-form {
-        display: flex;
-        gap: 8px;
-        margin-top: 8px;
-      }
-      .tw-comment-form input {
-        flex: 1;
-        border: 1px solid #eff3f4;
-        border-radius: 16px;
-        padding: 6px 12px;
-        font-size: 13px;
-        outline: none;
       }
       .tw-profile-picker { display:flex; gap:0; overflow-x:auto; padding:8px 12px; background:#fff; border-bottom:1px solid #f3e2e9; }
       .tw-profile-card { flex:0 0 auto; display:flex; align-items:center; gap:9px; min-width:104px; padding:8px 10px; border:0; border-bottom:2px solid transparent; background:#fff; color:#60283f; text-align:left; cursor:pointer; }
@@ -267,6 +283,7 @@ function renderPostFeed(el, user, profile) {
               📷 Photo
               <input type="file" name="photo" accept="image/*" style="display:none;">
             </label>
+            <button type="button" class="tw-voice-recorder" data-voice-record="post" aria-label="Record voice note">🎙 Record voice note</button>
             <span class="tw-photo-name" style="font-size:12px; color:#8b7180;"></span>
             <button type="submit" class="tw-post-btn">Post</button>
           </div>
@@ -276,12 +293,146 @@ function renderPostFeed(el, user, profile) {
       <div id="tw-posts-feed">
         <p style="padding:20px; text-align:center; color:#8b7180;">Loading posts...</p>
       </div>
+      <div class="tw-detail-backdrop" id="tw-post-detail" aria-hidden="true"><section class="tw-detail-modal" role="dialog" aria-modal="true" aria-label="Post details"><header class="tw-detail-head"><strong>Post & replies</strong><button type="button" class="tw-detail-close" id="tw-detail-close" aria-label="Close">×</button></header><div class="tw-detail-body" id="tw-detail-body"></div></section></div>
+      <div class="tw-image-backdrop" id="tw-post-image-viewer" aria-hidden="true"><img alt="Full size post photo"></div>
     </div>
   `;
 
   const feed = $("#tw-posts-feed", el);
   const composer = $("#tw-main-composer", el);
   const profileView = $("#tw-profile-view", el);
+  const detailModal = $("#tw-post-detail", el);
+  const detailBody = $("#tw-detail-body", el);
+  const imageViewer = $("#tw-post-image-viewer", el);
+
+  async function recordVoice(button, target) {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      toast("Voice recording is not supported in this browser.");
+      return null;
+    }
+    if (voiceRecorder) {
+      if (voiceTarget?.kind !== target.kind || voiceTarget?.postId !== target.postId) { toast("Finish the current voice recording first."); return null; }
+      voiceRecorder.stop();
+      button.classList.remove("recording");
+      button.textContent = "🎙 Record voice note";
+      return voicePromise;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"].find(type => MediaRecorder.isTypeSupported?.(type)) || "";
+      voiceRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      voiceChunks = [];
+      voiceTarget = target;
+      voicePromise = new Promise(resolve => { voiceResolve = resolve; });
+      voiceRecorder.ondataavailable = event => { if (event.data.size) voiceChunks.push(event.data); };
+      voiceRecorder.onstop = async () => {
+        stream.getTracks().forEach(track => track.stop());
+        const durationMs = Math.max(0, Date.now() - (voiceTarget?.startedAt || Date.now()));
+        const blob = new Blob(voiceChunks, { type: voiceRecorder.mimeType || "audio/webm" });
+        voiceRecorder = null;
+        voiceChunks = [];
+        button.classList.remove("recording");
+        button.textContent = "🎙 Record voice note";
+        try {
+          const extension = blob.type.includes("mp4") ? "m4a" : "webm";
+          const file = new File([blob], `voice-note-${Date.now()}.${extension}`, { type: blob.type });
+          const result = await sendToTelegram(file, `Post voice note · ${profile.name} · ${new Date().toLocaleString()}`, new Date().toISOString().slice(0, 10), getProfileKey(profile), { storeForReveal: false });
+          voiceResolve?.({ ...telegramMediaReferences(result), mimeType: telegramUploadMimeType(file), durationMs });
+        } catch (error) {
+          console.error("Voice note upload failed:", error);
+          toast(error.message || "Voice note could not be uploaded.");
+          voiceResolve?.(null);
+        } finally { voiceResolve = null; voiceTarget = null; voicePromise = null; }
+      };
+      voiceTarget = { ...target, startedAt: Date.now() };
+      voiceRecorder.start();
+      button.classList.add("recording");
+      button.textContent = "● Stop recording";
+      toast("Recording voice note… Tap again to finish.");
+      return null;
+    } catch (error) {
+      console.error("Could not start voice recording:", error);
+      toast("Allow microphone access to record a voice note.");
+      return null;
+    }
+  }
+
+  function hydrateVoicePlayers(root) {
+    root.querySelectorAll("audio[data-telegram-audio-id]").forEach(audio => {
+      getTelegramMediaUrl(audio.dataset.telegramAudioId, audio.dataset.telegramMime || "audio/webm")
+        .then(url => { if (audio.isConnected) audio.src = url; })
+        .catch(error => console.error("Post voice note could not load:", error));
+      const card = audio.closest(".tw-post-voice,.tw-comment-voice");
+      const button = card?.querySelector(".tw-audio-play");
+      const wave = card?.querySelector(".tw-audio-wave");
+      button?.addEventListener("click", async () => {
+        if (audio.paused) { try { await audio.play(); } catch (error) { toast("Voice note is still loading."); } }
+        else audio.pause();
+      });
+      audio.addEventListener("play", () => { wave?.classList.add("playing"); if (button) button.textContent = "Ⅱ"; });
+      audio.addEventListener("pause", () => { wave?.classList.remove("playing"); if (button) button.textContent = "▶"; });
+      audio.addEventListener("ended", () => { wave?.classList.remove("playing"); if (button) button.textContent = "▶"; });
+    });
+  }
+
+  function voiceMarkup(item, className = "tw-post-voice") {
+    if (!item?.telegramAudioFileId) return "";
+    const seconds = Math.max(0, Math.round((Number(item.voiceDurationMs) || 0) / 1000));
+    const duration = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+    const bars = [8,14,20,12,24,16,9,19,25,13,18,10,22,15,7,17,23,12,19,8];
+    return `<div class="${className}"><button type="button" class="tw-audio-play" aria-label="Play voice note">▶</button><span class="tw-audio-wave" aria-hidden="true">${bars.map((height, index) => `<i style="height:${height}px;animation-delay:${index * 35}ms"></i>`).join("")}</span><span class="tw-voice-duration">${duration}</span><audio preload="none" data-telegram-audio-id="${esc(item.telegramAudioFileId)}" data-telegram-mime="${esc(item.voiceMimeType || "audio/webm")}"></audio></div>`;
+  }
+
+  function openPostDetail(postId) {
+    detailPostId = postId;
+    detailModal.classList.add("open");
+    detailModal.setAttribute("aria-hidden", "false");
+    renderPostDetail();
+  }
+
+  function closePostDetail() {
+    detailPostId = "";
+    detailModal.classList.remove("open");
+    detailModal.setAttribute("aria-hidden", "true");
+  }
+
+  function renderPostDetail() {
+    const post = posts.find(item => item.id === detailPostId);
+    if (!post || !detailPostId) return;
+    const comments = commentsByPost.get(post.id) || [];
+    const image = post.photoUrl ? `<img src="${esc(post.photoUrl)}" class="tw-post-photo" alt="Post photo" data-post-image>` : post.telegramFileId ? `<img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Post photo" data-post-image>` : "";
+    const isAuthor = post.authorId === user.uid || post.authorId === profile.id;
+    detailBody.innerHTML = `<article><div class="tw-post-header"><strong>${esc(getDisplayName(post.authorId, post.authorName || "Us"))}</strong><time class="tw-post-time">${esc(post.createdAt?.toDate ? post.createdAt.toDate().toLocaleString() : post.createdAt ? new Date(post.createdAt).toLocaleString() : "Just now")}</time></div><p class="tw-post-text">${esc(post.text || "")}</p>${image}${voiceMarkup(post)}<div class="tw-actions-bar"><span>❤️ ${(post.likedBy || []).length} likes</span><span>💬 ${comments.length} comments</span></div>${isAuthor ? `<div class="tw-detail-comment-actions"><button type="button" class="tw-edit-btn" data-id="${esc(post.id)}">✏️ Edit post</button><button type="button" class="tw-del-btn" data-id="${esc(post.id)}">🗑 Delete post</button></div>` : ""}</article><h3>Replies</h3><div class="tw-detail-comments">${comments.map(comment => `<div class="tw-detail-comment" id="tw-comment-${comment.id}"><strong>${esc(getDisplayName(comment.authorId, comment.authorName || "Us"))}</strong><div>${esc(comment.text || "")}</div>${voiceMarkup(comment, "tw-comment-voice")}${comment.authorId === user.uid ? `<div class="tw-detail-comment-actions"><button type="button" class="tw-comment-edit-btn" data-id="${esc(comment.id)}">Edit</button><button type="button" class="tw-comment-del-btn" data-id="${esc(comment.id)}">Delete</button></div>` : ""}</div>`).join("") || `<p style="color:#8c737d">No replies yet. Start the conversation ♡</p>`}</div><form class="tw-detail-reply" id="tw-detail-reply-form"><input name="reply" placeholder="Write a reply…"><button class="tw-post-btn" type="submit">Reply</button></form><button type="button" class="tw-voice-recorder" data-voice-record="comment" aria-label="Record reply voice note">🎙 Record voice note</button><span id="tw-comment-voice-state" class="tw-photo-name"></span>`;
+    detailBody.querySelectorAll("img[data-telegram-file-id]").forEach(img => getTelegramMediaUrl(img.dataset.telegramFileId, img.dataset.telegramMime).then(url => { if (img.isConnected) img.src = url; }).catch(() => {}));
+    hydrateVoicePlayers(detailBody);
+    detailBody.querySelector("#tw-detail-reply-form").onsubmit = async event => {
+      event.preventDefault();
+      const input = event.currentTarget.elements.reply;
+      const text = input.value.trim();
+      const voice = selectedCommentVoice;
+      if (!text && !voice) return toast("Write a reply or record a voice note.");
+      try {
+        const comment = await addDiaryComment(post.id, { authorId: user.uid, authorName: profile.name, text, ...(voice ? { telegramAudioFileId: voice.telegramFileId, telegramAudioFileUniqueId: voice.telegramFileUniqueId, telegramAudioMessageId: voice.telegramMessageId, telegramAudioChatId: voice.telegramChatId, voiceMimeType: voice.mimeType, voiceDurationMs: voice.durationMs } : {}) });
+        selectedCommentVoice = null;
+        void notifyPartnerSafely(getProfileKey(profile), "comment", `${profile.name} replied to a post.`, comment.id, "gallery");
+        input.value = "";
+        toast("Reply sent!");
+      } catch (error) { console.error(error); toast("Could not send reply."); }
+    };
+    detailBody.querySelectorAll(".tw-comment-del-btn").forEach(button => button.onclick = async () => { if (confirm("Delete this comment?")) await deleteDiaryComment(post.id, button.dataset.id); });
+    detailBody.querySelectorAll(".tw-comment-edit-btn").forEach(button => button.onclick = async () => { const item = comments.find(comment => comment.id === button.dataset.id); const text = prompt("Edit comment:", item?.text || ""); if (text?.trim()) await updateDiaryComment(post.id, item.id, { text: text.trim() }); });
+    detailBody.querySelector(".tw-del-btn")?.addEventListener("click", async () => { if (!confirm("Delete this post?")) return; try { await deleteDiaryPost(post.id); closePostDetail(); toast("Deleted post"); } catch (error) { console.error(error); toast("Could not delete post."); } });
+    detailBody.querySelector(".tw-edit-btn")?.addEventListener("click", async () => { const text = prompt("Edit your post:", post.text || ""); if (text === null || text.trim() === (post.text || "")) return; if (!text.trim() && !post.photoUrl && !post.telegramFileId && !post.telegramAudioFileId) return toast("A post needs text or media."); try { await updateDiaryPost(post.id, { text: text.trim() }); toast("Post updated!"); } catch (error) { console.error(error); toast("Could not update post."); } });
+  }
+  let selectedCommentVoice = null;
+  detailBody.addEventListener("click", event => {
+    const image = event.target.closest("[data-post-image]");
+    if (!image) return;
+    const viewerImage = imageViewer.querySelector("img");
+    viewerImage.src = image.currentSrc || image.src;
+    imageViewer.classList.add("open");
+    imageViewer.setAttribute("aria-hidden", "false");
+  });
 
   el.querySelectorAll(".tw-profile-card").forEach(button => {
     button.onclick = () => {
@@ -300,7 +451,7 @@ function renderPostFeed(el, user, profile) {
     const text = composer.elements.text.value.trim();
     const file = composer.elements.photo.files[0];
 
-    if (!text && !file) return toast("Write something first!");
+    if (!text && !file && !selectedPostVoice) return toast("Write something first or add a voice note.");
     const submitButton = composer.querySelector('[type="submit"]');
     if (submitButton.disabled) return;
     submitButton.disabled = true;
@@ -319,11 +470,13 @@ function renderPostFeed(el, user, profile) {
         wallId: APP_CONFIG.coupleId,
         text,
         ...photoMetadata,
+        ...(selectedPostVoice ? { telegramAudioFileId: selectedPostVoice.telegramFileId, telegramAudioFileUniqueId: selectedPostVoice.telegramFileUniqueId, telegramAudioMessageId: selectedPostVoice.telegramMessageId, telegramAudioChatId: selectedPostVoice.telegramChatId, voiceMimeType: selectedPostVoice.mimeType, voiceDurationMs: selectedPostVoice.durationMs } : {}),
         createdAt: new Date().toISOString()
       });
       await notifyPartnerSafely(getProfileKey(profile), "post", `${profile.name} shared a new post.`, postRef.id, "gallery");
 
       composer.reset();
+      selectedPostVoice = null;
       composer.querySelector(".tw-photo-name").textContent = "";
       toast("Posted! ✨");
     } catch (err) {
@@ -339,62 +492,6 @@ function renderPostFeed(el, user, profile) {
     posts = items || [];
     render();
   });
-
-  function renderComments(postId, comments) {
-    const target = feed.querySelector(`#comments-${postId}`);
-    if (!target) return;
-    target.innerHTML = comments.map(c => {
-      const isAuthor = c.authorId === user.uid;
-      return `
-        <div class="tw-comment-item" id="tw-comment-${c.id}">
-          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-            <div>
-              <strong>${esc(getDisplayName(c.authorId, c.authorName || "Us"))}:</strong>
-              <span id="tw-comment-text-${c.id}">${esc(c.text || '')}</span>
-            </div>
-            ${isAuthor ? `
-              <div style="display:flex; gap:8px; margin-left:8px; flex-shrink:0;">
-                <button class="tw-comment-edit-btn" data-id="${c.id}" style="border:0; background:none; padding:0; cursor:pointer; font-size:12px;">✏️</button>
-                <button class="tw-comment-del-btn" data-id="${c.id}" style="border:0; background:none; padding:0; cursor:pointer; font-size:12px;">🗑️</button>
-              </div>
-            ` : ""}
-          </div>
-        </div>
-      `;
-    }).join("");
-
-    target.querySelectorAll(".tw-comment-del-btn").forEach(btn => {
-      btn.onclick = async () => {
-        if (confirm("Delete this comment?")) {
-          try {
-            await deleteDiaryComment(postId, btn.dataset.id);
-            toast("Comment deleted!");
-          } catch (err) {
-            console.error(err);
-            toast("Could not delete comment.");
-          }
-        }
-      };
-    });
-
-    target.querySelectorAll(".tw-comment-edit-btn").forEach(btn => {
-      btn.onclick = async () => {
-        const commentId = btn.dataset.id;
-        const textEl = target.querySelector(`#tw-comment-text-${commentId}`);
-        const oldText = textEl.textContent;
-        const newText = prompt("Edit comment:", oldText);
-        if (newText !== null && newText.trim() !== "" && newText.trim() !== oldText) {
-          try {
-            await updateDiaryComment(postId, commentId, { text: newText.trim() });
-            toast("Comment updated!");
-          } catch (err) {
-            console.error(err);
-            toast("Could not update comment.");
-          }
-        }
-      };
-    });
-  }
 
   function render() {
     const visiblePosts = selectedProfile === "all"
@@ -427,7 +524,6 @@ function renderPostFeed(el, user, profile) {
     }
 
     feed.innerHTML = visiblePosts.map((post) => {
-      const own = post.authorId === user.uid || post.authorId === profile.id;
       const isLiked = (post.likedBy || []).includes(user.uid);
       const likeCount = (post.likedBy || []).length;
       const authorName = getDisplayName(post.authorId, post.authorName || "Us");
@@ -448,32 +544,18 @@ function renderPostFeed(el, user, profile) {
                 <span class="tw-user-handle">${handle}</span>
                 <time class="tw-post-time">${timeStr}</time>
               </div>
-              ${own ? `
-                <div style="display:flex; gap:8px;">
-                  <button class="tw-action-btn tw-edit-btn" data-id="${post.id}">✏️ Edit</button>
-                  <button class="tw-action-btn tw-del-btn" data-id="${post.id}" style="color:#f4212e;">🗑️ Delete</button>
-                </div>
-              ` : ''}
             </div>
 
             <p class="tw-post-text" id="post-text-${post.id}">${esc(post.text || '')}</p>
-            ${post.photoUrl ? `<img src="${esc(post.photoUrl)}" class="tw-post-photo">` : post.telegramFileId ? `<img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Photo attached to post" loading="lazy">` : ''}
+            ${post.photoUrl ? `<img src="${esc(post.photoUrl)}" class="tw-post-photo" alt="Photo attached to post" data-post-image>` : post.telegramFileId ? `<img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Photo attached to post" data-post-image loading="lazy">` : ''}
+            ${voiceMarkup(post)}
 
             <div class="tw-actions-bar">
-              <button class="tw-action-btn tw-reply-btn" data-id="${post.id}">💬 Reply</button>
+              <button class="tw-action-btn tw-reply-btn" data-id="${post.id}">💬 ${(commentsByPost.get(post.id) || []).length} comments</button>
               <button class="tw-action-btn ${isLiked ? 'liked' : ''} tw-like-btn" data-id="${post.id}">
                 ${isLiked ? '❤️' : '🤍'} ${likeCount}
               </button>
             </div>
-
-            <div class="tw-comments-section" id="comments-${post.id}">
-              <!-- Comments load here -->
-            </div>
-
-            <form class="tw-comment-form" data-post-id="${post.id}">
-              <input name="reply" placeholder="Tweet your reply..." required>
-              <button type="submit" class="tw-post-btn" style="padding:4px 12px; font-size:12px;">Reply</button>
-            </form>
           </div>
         </div>
       `;
@@ -484,6 +566,7 @@ function renderPostFeed(el, user, profile) {
         .then(url => { if (image.isConnected) image.src = url; })
         .catch(error => { console.error("Post photo could not load from Telegram:", error); });
     });
+    hydrateVoicePlayers(feed);
 
     visiblePosts.forEach((post) => {
       const likeBtn = feed.querySelector(`.tw-like-btn[data-id="${post.id}"]`);
@@ -502,77 +585,59 @@ function renderPostFeed(el, user, profile) {
         };
       }
       feed.querySelector(`.tw-reply-btn[data-id="${post.id}"]`)?.addEventListener("click", () => {
-        feed.querySelector(`.tw-comment-form[data-post-id="${post.id}"] input[name="reply"]`)?.focus();
+        openPostDetail(post.id);
       });
-
-      const delBtn = feed.querySelector(`.tw-del-btn[data-id="${post.id}"]`);
-      if (delBtn) {
-        delBtn.onclick = async () => {
-          if (confirm("Delete this tweet?")) {
-            try {
-              await deleteDiaryPost(post.id);
-              toast("Deleted post");
-            } catch (err) {
-              console.error("Could not delete post:", err);
-              toast("Could not delete post.");
-            }
-          }
-        };
-      }
-
-      const editBtn = feed.querySelector(`.tw-edit-btn[data-id="${post.id}"]`);
-      if (editBtn) {
-        editBtn.onclick = async () => {
-          const newText = prompt("Edit your post:", post.text);
-          if (newText !== null && newText.trim() !== (post.text || "")) {
-            if (!newText.trim() && !post.photoUrl && !post.telegramFileId) return toast("A post needs text or a photo.");
-            try {
-              await updateDiaryPost(post.id, { text: newText.trim() });
-              toast("Post updated!");
-            } catch (err) {
-              console.error("Could not update post:", err);
-              toast("Could not update post.");
-            }
-          }
-        };
-      }
+      feed.querySelector(`#post-${post.id} .tw-post-content`)?.addEventListener("click", event => {
+        if (event.target.closest("button")) return;
+        if (event.target.matches("[data-post-image]")) return;
+        openPostDetail(post.id);
+      });
 
       if (!postCommentStops.has(post.id)) {
         const stop = watchDiaryComments(post.id, (comments) => {
           if (!active) return;
           commentsByPost.set(post.id, comments);
-          renderComments(post.id, comments);
+          if (detailPostId === post.id) renderPostDetail();
+          const count = feed.querySelector(`.tw-reply-btn[data-id="${post.id}"]`);
+          if (count) count.textContent = `💬 ${comments.length} comments`;
         });
         postCommentStops.set(post.id, stop);
       }
-      renderComments(post.id, commentsByPost.get(post.id) || []);
-
-      const commentForm = feed.querySelector(`.tw-comment-form[data-post-id="${post.id}"]`);
-      if (commentForm) {
-        commentForm.onsubmit = async (e) => {
-          e.preventDefault();
-          const text = commentForm.elements.reply.value.trim();
-          if (!text) return;
-          try {
-            const comment = await addDiaryComment(post.id, {
-              authorId: user.uid,
-              authorName: profile.name,
-              text
-            });
-            void notifyPartnerSafely(getProfileKey(profile), "comment", `${profile.name} commented on a post.`, comment.id, "gallery");
-            commentForm.reset();
-            toast("Reply sent!");
-          } catch (err) {
-            console.error("Could not send reply:", err);
-            toast("Could not send reply.");
-          }
-        };
-      }
     });
+    if (detailPostId) renderPostDetail();
   }
+
+  detailModal.addEventListener("click", event => { if (event.target === detailModal) closePostDetail(); });
+  $("#tw-detail-close", el).onclick = closePostDetail;
+  imageViewer.addEventListener("click", () => { imageViewer.classList.remove("open"); imageViewer.setAttribute("aria-hidden", "true"); });
+  feed.addEventListener("click", event => {
+    const image = event.target.closest("[data-post-image]");
+    if (!image) return;
+    event.stopPropagation();
+    const viewerImage = imageViewer.querySelector("img");
+    viewerImage.src = image.currentSrc || image.src;
+    imageViewer.classList.add("open");
+    imageViewer.setAttribute("aria-hidden", "false");
+  });
+  el.addEventListener("click", async event => {
+    const button = event.target.closest("[data-voice-record]");
+    if (!button) return;
+    if (button.dataset.voiceRecord === "post") {
+      const metadata = await recordVoice(button, { kind: "post" });
+      if (metadata) { selectedPostVoice = metadata; composer.querySelector(".tw-photo-name").textContent = "Voice note attached ♡"; }
+    } else {
+      const metadata = await recordVoice(button, { kind: "comment", postId: detailPostId });
+      if (metadata) { selectedCommentVoice = metadata; $("#tw-comment-voice-state", detailBody).textContent = "Voice note ready ♡"; }
+    }
+  });
 
   disposePostFeed = () => {
     active = false;
+    if (voiceRecorder) {
+      voiceRecorder.stream?.getTracks().forEach(track => track.stop());
+      voiceRecorder.stop();
+      voiceRecorder = null;
+    }
     stopPostFeed?.();
     stopPostFeed = null;
     postCommentStops.forEach((stop) => stop());

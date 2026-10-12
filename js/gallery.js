@@ -143,7 +143,7 @@ export function renderSharedGallery(el, user, profile) {
       .gallery-media-card:hover img { transform:scale(1.04); }
       .gallery-media-video { position:absolute; top:10px; right:10px; display:grid; width:32px; height:32px; place-items:center; border:1px solid #ffffff90; border-radius:50%; background:#26141dbd; color:#fff; font-size:12px; }
       .gallery-upload-input { display:none; }
-      .gallery-viewer { position:fixed; inset:0; z-index:1200; display:none; flex-direction:column; padding:env(safe-area-inset-top,10px) max(10px,env(safe-area-inset-right,10px)) env(safe-area-inset-bottom,10px) max(10px,env(safe-area-inset-left,10px)); background:#1c1119f5; color:#fff; }
+      .gallery-viewer { position:fixed; inset:0; z-index:1200; display:none; flex-direction:column; padding:env(safe-area-inset-top,10px) max(10px,env(safe-area-inset-right,10px)) env(safe-area-inset-bottom,10px) max(10px,env(safe-area-inset-left,10px)); background:#1c1119f5; color:#fff; touch-action:pan-x pan-y pinch-zoom; }
       .gallery-viewer.open { display:flex; }
       .gallery-viewer-head { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:48px; }
       .gallery-viewer-title { min-width:0; overflow:hidden; color:#fff; font-size:13px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }

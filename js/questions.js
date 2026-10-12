@@ -93,10 +93,10 @@ export function renderQuestions(el, user, profile) {
       .question-history-list { position:relative; display:grid; gap:16px; padding-left:23px; }
       .question-history-list::before { content:""; position:absolute; top:18px; bottom:18px; left:7px; width:2px; border-radius:2px; background:linear-gradient(#f1a8c2,#f8dce7 70%,#f1a8c2); }
       .question-history-item { position:relative; min-width:0; padding:15px; border:1px solid #f3dce6; border-radius:19px; background:linear-gradient(145deg,#fff 0%,#fff8fb 100%); box-shadow:0 8px 22px #873c5b0d; }
-      .question-history-item::before { content:""; position:absolute; top:20px; left:-22px; width:12px; height:12px; border:3px solid #fff; border-radius:50%; background:#df6492; box-shadow:0 0 0 2px #f3c1d2; }
-      .question-history-item header { display:flex; align-items:center; justify-content:flex-start; gap:8px; }
-      .question-history-item time { position:absolute; top:14px; left:-73px; width:64px; padding:5px 4px; border:1px solid #f5d9e4; border-radius:999px; background:#fff0f6; color:#9e5270; font-size:10px; font-weight:700; text-align:center; white-space:nowrap; }
-      .question-history-item h3 { margin:12px 0; color:#60283f; font:700 15px/1.4 system-ui,sans-serif; }
+      .question-history-item::before { content:attr(data-day-number); position:absolute; top:18px; left:-43px; width:31px; height:31px; display:grid; place-items:center; border:3px solid #fff; border-radius:50%; background:#fff0f6; color:#9e5270; font-size:12px; font-weight:800; box-shadow:0 0 0 2px #f3c1d2; }
+      .question-history-item header { display:flex; align-items:center; justify-content:flex-start; gap:8px; margin-bottom:10px; }
+      .question-history-item time { display:block; color:#9e5270; font-size:12px; font-weight:700; line-height:1.3; }
+      .question-history-item h3 { margin:0 0 12px; color:#60283f; font:700 15px/1.4 system-ui,sans-serif; }
       .question-history-answers { display:grid; gap:8px; }
       .question-history-answer { display:flex; align-items:flex-start; gap:9px; min-width:0; margin:0; padding:9px 10px; border:1px solid #f7e4eb; border-radius:14px; background:linear-gradient(110deg,#fff3f8,#fffafd); color:#493540; font-size:12px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
       .question-history-avatar { flex:none; width:32px; height:32px; display:grid; place-items:center; overflow:hidden; border:2px solid #fff; border-radius:50%; background:linear-gradient(145deg,#ffdce9,#f5bbd0); color:#8b315d; font-size:12px; font-weight:800; box-shadow:0 2px 6px #7d35501a; }
@@ -106,7 +106,7 @@ export function renderQuestions(el, user, profile) {
       .question-history-copy span { display:block; }
       .question-history-locked { align-items:center; background:#f8f5f6; border-color:#eee7ea; color:#9b8c93; font-style:italic; }
       .question-empty { padding:14px; color:var(--muted); text-align:center; font-size:12px; }
-      @media(max-width:420px) { .question-page-header h1 { font-size:22px; } .question-prompt { font-size:16px; } .question-card,.question-history-card { padding:12px; } .question-history-list { gap:12px; padding-left:19px; } .question-history-list::before { left:5px; } .question-history-item { padding:12px; border-radius:16px; } .question-history-item::before { left:-19px; width:10px; height:10px; } .question-history-item h3 { font-size:14px; } .question-history-answer { gap:7px; padding:8px; font-size:11px; } .question-history-avatar { width:29px; height:29px; } }
+      @media(max-width:420px) { .question-page-header h1 { font-size:22px; } .question-prompt { font-size:16px; } .question-card,.question-history-card { padding:12px; } .question-history-list { gap:12px; padding-left:20px; } .question-history-list::before { left:5px; } .question-history-item { padding:12px; border-radius:16px; } .question-history-item::before { left:-35px; top:15px; width:27px; height:27px; } .question-history-item h3 { font-size:14px; } .question-history-answer { gap:7px; padding:8px; font-size:11px; } .question-history-avatar { width:29px; height:29px; } }
     </style>
     <section class="question-page">
       <header class="question-page-header"><h1>Today's Question</h1><span class="question-day">${esc(new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}))}</span></header>
@@ -214,8 +214,8 @@ export function renderQuestions(el, user, profile) {
       return;
     }
     host.innerHTML = history.map(item => `
-      <article class="question-history-item" data-history-day="${esc(item.id)}">
-        <header><time>${esc(new Date(`${item.dayKey}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}))}</time></header>
+      <article class="question-history-item" data-history-day="${esc(item.id)}" data-day-number="${esc(new Date(`${item.dayKey}T12:00:00`).getDate())}">
+        <header><time datetime="${esc(item.dayKey)}">${esc(new Date(`${item.dayKey}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"}))}</time></header>
         <h3>${esc(item.question)}</h3>
         <div class="question-history-answers"><p class="question-empty">Loading answers…</p></div>
       </article>
