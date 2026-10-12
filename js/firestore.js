@@ -282,6 +282,10 @@ export function watchDrawingMessages(cb, maxItems) {
   );
 }
 
+export async function deleteDrawingMessage(id) {
+  return deleteDoc(doc(drawingCollection(), id));
+}
+
 export async function recordDailyGameWin(uid, dayKey) {
   if (!firebaseReady) throw new Error("Connect Firebase before saving game scores.");
   const reference = doc(root(), `game-${dayKey}-${uid}`);
