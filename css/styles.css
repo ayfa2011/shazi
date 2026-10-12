@@ -221,11 +221,13 @@ body:not(.home-dashboard) .hard-refresh-btn{display:none}
 .home-drawing-preview small { color: var(--muted); font: 12px "DM Sans",sans-serif; }
 .home-canvas-heart { font-size: 34px; }
 .live-drawing { position: fixed; inset: 0; z-index: 80; width: 100%; max-width: none; height: 100vh; height: 100dvh; display: flex; flex-direction: column; gap: 10px; overflow: hidden; padding: max(10px,env(safe-area-inset-top,10px)) max(12px,env(safe-area-inset-right,12px)) max(10px,env(safe-area-inset-bottom,10px)) max(12px,env(safe-area-inset-left,12px)); background: #fff7fb; }
-.drawing-heading { flex: none; min-height: 42px; padding: 0; gap: 10px; }
+.drawing-heading { flex: none; display: flex; flex-direction: column; align-items: stretch; min-height: 0; padding: 0; gap: 7px; }
 .drawing-heading h1 { flex: 1; margin: 0; color: var(--deep); font-size: 19px; }
 .drawing-close { width: 44px; height: 44px; flex: none; border-radius: 50%; background: #ffe7f0; color: var(--deep); font-size: 25px; line-height: 1; }
-.drawing-heading-actions { display: flex; align-items: center; gap: 7px; }
-.drawing-heading-actions .tool-button,.drawing-heading-actions .primary { min-height: 44px; padding: 8px 15px; border-radius: 999px; }
+.drawing-header-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
+.drawing-header-actions button { flex: none; min-height: 38px; padding: 7px 13px; border-radius: 999px; font-size: 12px; }
+.drawing-header-save { margin-left: auto; }
+.drawing-title-row { display: flex; align-items: center; gap: 9px; min-width: 0; min-height: 44px; }
 .drawing-history-trigger { align-self: center; flex: none; min-width: 100px; min-height: 44px; padding: 8px 16px; border-radius: 999px; }
 .drawing-tools { flex: none; gap: 7px; padding: 10px; border-radius: 15px; }
 .drawing-custom-color { position: relative; width: 44px; height: 44px; display: grid; place-items: center; overflow: hidden; border: 1px solid #edd5df; border-radius: 50%; background: #fff; color: var(--deep); font-size: 20px; line-height: 1; cursor: pointer; }
@@ -247,8 +249,10 @@ body:not(.home-dashboard) .hard-refresh-btn{display:none}
   .home-dashboard .home-canvas-launch { min-height: 150px; padding: 8px; }
   .home-dashboard .home-drawing-preview,.home-dashboard .home-drawing-preview img { min-height: 105px; }
   .live-drawing { gap: 8px; padding-left: max(8px,env(safe-area-inset-left)); padding-right: max(8px,env(safe-area-inset-right)); }
-  .drawing-heading { gap: 7px; }
+  .drawing-heading { gap: 6px; }
   .drawing-heading h1 { font-size: 17px; }
+  .drawing-header-actions button { min-height: 36px; padding: 6px 11px; font-size: 11px; }
+  .drawing-title-row { gap: 7px; }
   .drawing-tools { gap: 4px; padding: 6px; }
   .drawing-tools .tool-button { min-height: 40px; padding: 7px 8px; font-size: 10px; }
   .drawing-tools .tool-group { gap: 5px; padding: 0 3px; }
@@ -560,7 +564,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 button:disabled { cursor: not-allowed; opacity: .58; }
 @media (max-width: 359px) {
   .drawing-heading h1 { font-size: 15px; }
-  .drawing-heading-actions .primary { padding-right: 10px; padding-left: 10px; }
+  .drawing-header-actions button { padding-right: 9px; padding-left: 9px; font-size: 10px; }
   .drawing-tools { gap: 3px; }
   .drawing-tools .tool-button { padding: 6px 5px; font-size: 9px; }
   .drawing-tools .colors button { width: 22px; height: 22px; }
@@ -636,6 +640,7 @@ button:disabled { cursor: not-allowed; opacity: .58; }
   white-space: nowrap;
   box-shadow: 0 1px 4px rgba(143, 49, 93, 0.05);
 }
+.drawing-title-row { display: flex; align-items: center; gap: 9px; min-width: 0; }
 
 .markup-dock-container {
   position: relative;
@@ -652,17 +657,17 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .apple-markup-dock {
   position: relative;
   display: flex;
-  align-items: flex-end;
-  justify-content: flex-start;
-  gap: 8px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   width: max-content;
   max-width: 100%;
   min-width: 0;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
+  overflow: visible;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
-  padding: 8px 18px 4px;
+  padding: 7px 12px 8px;
   background: rgba(255, 255, 255, 0.94);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -673,7 +678,11 @@ button:disabled { cursor: not-allowed; opacity: .58; }
   -webkit-user-select: none;
 }
 .apple-markup-dock::-webkit-scrollbar { display: none; }
+.markup-tools-row { display: flex; align-items: flex-end; justify-content: center; gap: 7px; width: max-content; max-width: 100%; flex: none; }
 .markup-tool-group { display: flex; align-items: flex-end; gap: 5px; flex: none; padding: 0 3px; }
+.apple-markup-dock .toolbar-actions { display: flex; align-items: center; justify-content: center; gap: 8px; flex: none; width: 100%; padding: 5px 8px 0; border-top: 1px solid #f1e3e9; }
+.apple-markup-dock .toolbar-actions .tool-button { flex: 1 1 0; min-width: 72px; min-height: 38px; padding: 7px 12px; white-space: nowrap; border: 1px solid #f3e3ea; border-radius: 999px; background: #fff8fb; color: var(--deep); }
+.apple-markup-dock .markup-color-button,.apple-markup-dock .markup-tune-button { flex: none; }
 
 /* Tool Stems / Pens */
 .markup-tool {
@@ -1085,12 +1094,13 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 
 @media (max-width: 759px) {
   .apple-markup-dock {
-    gap: 7px;
-    padding: 7px 10px 5px;
+    gap: 4px;
+    padding: 6px 9px 7px;
   }
+  .markup-tools-row { gap: 5px; }
   .markup-tool-group { gap: 3px; padding: 0 2px; }
-  .apple-markup-dock .toolbar-actions { gap: 5px; padding: 5px 7px; }
-  .apple-markup-dock .toolbar-actions .tool-button { min-height: 40px; padding: 7px 9px; font-size: 11px; }
+  .apple-markup-dock .toolbar-actions { gap: 6px; padding: 5px 4px 0; }
+  .apple-markup-dock .toolbar-actions .tool-button { min-width: 68px; min-height: 38px; padding: 6px 8px; font-size: 11px; }
   .markup-tool {
     width: 32px;
     height: 76px;
@@ -1112,12 +1122,14 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 
 @media (max-width: 375px) {
   .apple-markup-dock {
-    gap: 5px;
-    padding: 6px 8px 5px;
+    gap: 4px;
+    padding: 5px 7px 6px;
   }
+  .markup-tools-row { gap: 3px; overflow-x: auto; overflow-y: hidden; width: 100%; justify-content: flex-start; scrollbar-width: none; }
+  .markup-tools-row::-webkit-scrollbar { display: none; }
   .markup-tool-group { gap: 1px; padding: 0; }
-  .apple-markup-dock .toolbar-actions { gap: 4px; padding: 4px 5px; }
-  .apple-markup-dock .toolbar-actions .tool-button { min-height: 38px; padding: 6px 8px; font-size: 10px; }
+  .apple-markup-dock .toolbar-actions { gap: 5px; padding: 4px 2px 0; }
+  .apple-markup-dock .toolbar-actions .tool-button { min-width: 64px; min-height: 36px; padding: 5px 6px; font-size: 10px; }
   .markup-tool {
     width: 28px;
     height: 68px;

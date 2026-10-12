@@ -16,15 +16,21 @@ export function renderDrawing(el, user, profile) {
 
   el.innerHTML = `<section class="live-drawing">
     <header class="drawing-heading">
-      <button type="button" class="drawing-close" id="drawing-close" aria-label="Close canvas">×</button>
-      <div class="drawing-title-group">
-        <h1>Our Canvas</h1>
-        <div class="drawing-presence-pill"><span class="presence-dot"></span><span id="drawing-presence">Connecting…</span></div>
+      <div class="drawing-header-actions">
+        <button type="button" class="tool-button drawing-header-history" id="drawing-history-open" aria-label="Open drawing history">History</button>
+        <button type="button" class="primary drawing-header-save" id="drawing-save" aria-label="Save and send drawing">Save &amp; Send ♡</button>
+      </div>
+      <div class="drawing-title-row">
+        <button type="button" class="drawing-close" id="drawing-close" aria-label="Close canvas">×</button>
+        <div class="drawing-title-group">
+          <h1>Our Canvas</h1>
+          <div class="drawing-presence-pill"><span class="presence-dot"></span><span id="drawing-presence">Connecting…</span></div>
+        </div>
       </div>
     </header>
 
     <div class="draw-board">
-      <canvas class="draw-canvas" id="draw-canvas" width="1200" height="720" aria-label="Shared drawing canvas" role="img" tabindex="0"></canvas>
+      <canvas class="draw-canvas" id="draw-canvas" width="720" height="1200" aria-label="Shared drawing canvas" role="img" tabindex="0"></canvas>
       <div class="canvas-watermark">K &amp; S ♡</div>
     </div>
 
@@ -101,6 +107,7 @@ export function renderDrawing(el, user, profile) {
 
       <!-- Apple Markup Dock Toolbar -->
       <div class="apple-markup-dock" role="toolbar" aria-label="Apple Markup Drawing Tools">
+        <div class="markup-tools-row">
         <div class="markup-tool-group" role="group" aria-label="Drawing tools">
         <!-- Pen Tool -->
         <button type="button" class="markup-tool selected" data-tool="pen" aria-label="Pen tool (Solid ink)" title="Pen (1)">
@@ -212,15 +219,6 @@ export function renderDrawing(el, user, profile) {
         </div>
 
         <div class="markup-divider" aria-hidden="true"></div>
-        <div class="toolbar-actions" role="group" aria-label="Canvas actions">
-          <button type="button" class="tool-button" id="drawing-undo" aria-label="Undo">Undo</button>
-          <button type="button" class="tool-button" id="drawing-redo" aria-label="Redo">Redo</button>
-          <button type="button" class="tool-button" id="drawing-clear" aria-label="Clear">Clear</button>
-          <button type="button" class="tool-button" id="drawing-history-open" aria-label="History">History</button>
-          <button type="button" class="tool-button" id="drawing-save" aria-label="Save">Save</button>
-        </div>
-        <div class="markup-divider controls-divider" aria-hidden="true"></div>
-
         <!-- Color Wheel Button -->
         <button type="button" class="markup-color-button" id="markup-color-btn" aria-label="Color Palette" title="Choose color">
           <span class="color-wheel-ring">
@@ -233,6 +231,13 @@ export function renderDrawing(el, user, profile) {
           <span class="tune-dot-preview" id="markup-size-dot"></span>
           <span id="markup-size-badge">5px</span>
         </button>
+        </div>
+
+        <div class="toolbar-actions" role="group" aria-label="Canvas actions">
+          <button type="button" class="tool-button" id="drawing-undo" aria-label="Undo">Undo</button>
+          <button type="button" class="tool-button" id="drawing-redo" aria-label="Redo">Redo</button>
+          <button type="button" class="tool-button" id="drawing-clear" aria-label="Clear">Clear</button>
+        </div>
       </div>
 
       <div class="drawing-footer-bar">
@@ -323,14 +328,22 @@ export function renderDrawing(el, user, profile) {
   let currentPreviewMessage = null;
   let cachedMessages = [];
 
-  // Dual-buffer offscreen canvas for instantaneous 120fps live drawing
+  // Match the drawing buffer to the visible board, with enough pixels for the active device.
   const liveBuffer = document.createElement("canvas");
-  liveBuffer.width = canvas.width;
-  liveBuffer.height = canvas.height;
   const liveBufferCtx = liveBuffer.getContext("2d");
 
-  const resizeCanvasObserver = new ResizeObserver(() => {
-    if (active && canvas.clientWidth && canvas.clientHeight) redrawCanvas();
+  const resizeCanvasObserver = new ResizeObserver(entries => {
+    const rect = entries[0]?.contentRect;
+    if (!active || !rect?.width || !rect?.height) return;
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 3);
+    const width = Math.round(rect.width * pixelRatio);
+    const height = Math.round(rect.height * pixelRatio);
+    if (canvas.width === width && canvas.height === height) return;
+    canvas.width = width;
+    canvas.height = height;
+    liveBuffer.width = width;
+    liveBuffer.height = height;
+    redrawCanvas();
   });
   resizeCanvasObserver.observe(canvas);
 
@@ -1221,17 +1234,21 @@ export function renderDrawing(el, user, profile) {
       const timestamp = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(createdAtMs));
       const artistName = profile.name || user.displayName || "Partner";
       const exportCanvas = document.createElement("canvas");
-      exportCanvas.width = canvas.width;
-      const footerScale = exportCanvas.width / 1200;
-      const footerHeight = Math.round(58 * footerScale);
-      exportCanvas.height = canvas.height + footerHeight;
+      const canvasRect = canvas.getBoundingClientRect();
+      const pixelRatio = Math.min(window.devicePixelRatio || 1, 3);
+      const exportWidth = canvas.width || Math.round(canvasRect.width * pixelRatio);
+      const exportHeight = canvas.height || Math.round(canvasRect.height * pixelRatio);
+      const footerScale = exportWidth / Math.max(1, canvasRect.width);
+      const footerHeight = Math.round(42 * footerScale);
+      exportCanvas.width = exportWidth;
+      exportCanvas.height = exportHeight + footerHeight;
       const exportContext = exportCanvas.getContext("2d");
       if (!exportContext) throw new Error("Drawing preparation failed.");
       exportContext.fillStyle = "#fff";
       exportContext.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
-      // Copy the backing bitmap at its native dimensions so export never follows the CSS display size.
-      exportContext.drawImage(canvas, 0, 0, canvas.width, canvas.height);
-      const footerTop = canvas.height;
+      // Preserve the backing bitmap's exact aspect ratio and append the footer below it.
+      exportContext.drawImage(canvas, 0, 0, exportWidth, exportHeight);
+      const footerTop = exportHeight;
       exportContext.fillStyle = "#fff9fc";
       exportContext.fillRect(0, footerTop, exportCanvas.width, footerHeight);
       exportContext.strokeStyle = "#f0dfe7";
@@ -1241,10 +1258,11 @@ export function renderDrawing(el, user, profile) {
       exportContext.lineTo(exportCanvas.width, footerTop + 0.5 * footerScale);
       exportContext.stroke();
       exportContext.fillStyle = "#806b75";
-      exportContext.font = `500 ${Math.round(17 * footerScale)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      exportContext.font = `500 ${Math.max(12, Math.round(11 * footerScale))}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
       exportContext.textBaseline = "middle";
       exportContext.textAlign = "left";
-      exportContext.fillText(`Drawn by ${artistName} • ${timestamp}`, Math.round(22 * footerScale), footerTop + footerHeight / 2, exportCanvas.width - Math.round(44 * footerScale));
+      const footerPadding = Math.round(12 * footerScale);
+      exportContext.fillText(`Drawn by ${artistName} • ${timestamp}`, footerPadding, footerTop + footerHeight / 2, exportCanvas.width - footerPadding * 2);
 
       const imageBlob = await new Promise((resolve, reject) => exportCanvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not prepare drawing image.")), "image/jpeg", 0.86));
       const photoUrl = await new Promise((resolve, reject) => {
