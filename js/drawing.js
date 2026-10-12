@@ -210,6 +210,13 @@ export function renderDrawing(el, user, profile) {
         </button>
 
         <div class="markup-divider" aria-hidden="true"></div>
+<div class="toolbar-actions">
+  <button type="button" class="tool-button" id="drawing-undo" aria-label="Undo">Undo</button>
+  <button type="button" class="tool-button" id="drawing-redo" aria-label="Redo">Redo</button>
+  <button type="button" class="tool-button" id="drawing-clear" aria-label="Clear">Clear</button>
+  <button type="button" class="tool-button" id="drawing-history-open" aria-label="History">History</button>
+  <button type="button" class="tool-button" id="drawing-save" aria-label="Save">Save</button>
+</div>
 
         <!-- Color Wheel Button -->
         <button type="button" class="markup-color-button" id="markup-color-btn" aria-label="Color Palette" title="Choose color">

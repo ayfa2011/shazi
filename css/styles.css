@@ -76,7 +76,33 @@ input:focus,textarea:focus{border-color:var(--pink);box-shadow:0 0 0 4px #ef6d9f
 .together-counter{position:relative;justify-content:center;min-height:174px;margin:16px 0 22px;overflow:hidden;color:#741e4b;background:linear-gradient(110deg,#f8c3d7dd,#f9d4dfaa 50%,#d46c91aa),radial-gradient(ellipse at 86% 40%,#8b3456 0,#e99ab0 35%,transparent 65%);border-color:#f6bdd2}.counter-script{font-family:"Playfair Display",serif;font-style:italic;font-size:22px;line-height:1.05;transform:rotate(-8deg);margin-right:18px}.counter-main{text-align:center;display:grid;gap:7px}.counter-main small{letter-spacing:.15em;font-size:10px}.counter-main strong{border:1px solid #de77a0;border-radius:999px;padding:8px 19px;background:#fff8fbcc;font-size:18px}.counter-main em{font-style:normal;font-size:13px}.counter-heart,.counter-arrow{display:none}
 .shared-feed{width:min(760px,100%);margin:0 auto}.diary-composer{position:relative;padding:17px 18px 12px 72px;border-radius:20px;box-shadow:0 7px 24px #8f315d0a}.diary-composer textarea{border:0;box-shadow:none!important;resize:vertical;min-height:66px;font-size:16px}.feed-avatar{position:absolute;left:17px;top:19px;width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,#ef6d9f,#a43f6c);color:white;font-size:19px;font-weight:700}.feed-posts{display:grid;gap:13px;margin-top:14px}.feed-posts .diary-post{padding:17px 18px;border-radius:20px}.post-menu{margin-left:auto;display:flex;gap:9px}.post-menu .text-button{font-size:11px;color:#aa7189}.post-menu .text-button:hover{color:var(--deep)}
 .drawing-fab{position:fixed;z-index:28;right:max(22px,calc((100vw - 1050px)/2));bottom:100px;width:58px;height:58px;border-radius:50%;background:linear-gradient(140deg,#ef6d9f,#d8417e);color:white;font-size:28px;box-shadow:0 10px 24px #b93c7350;border:3px solid white;transition:transform .18s}.drawing-fab:hover{transform:translateY(-3px)}
-.live-drawing{max-width:1050px;margin:0 auto}.drawing-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:8px 2px 16px}.drawing-heading h1{font-size:clamp(27px,5vw,40px);margin:4px 0}.drawing-heading p{margin:4px 0}.drawing-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid var(--line);padding:10px;border-radius:17px 17px 0 0}.tool-group{display:flex;gap:7px;align-items:center;padding:0 8px}.colors button{width:22px;height:22px;border-radius:50%;background:var(--swatch);border:2px solid white;box-shadow:0 0 0 1px #ead3dd}.colors button.selected{box-shadow:0 0 0 2px #a43262}.brush-size{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}.brush-size input{width:76px;padding:0;border:0;box-shadow:none}.tool-button{padding:9px 11px;border-radius:11px;background:#fff3f8;color:var(--deep);font-size:12px}.tool-button.selected{background:#ed5c94;color:white}.draw-board{position:relative;background:white;border:1px solid var(--line);border-top:0;border-radius:0 0 17px 17px;overflow:hidden;box-shadow:0 12px 32px #8f315d0b}.draw-canvas{display:block;width:100%;height:auto;aspect-ratio:5/3;touch-action:none;cursor:crosshair;background-color:#fffdfd;background-image:radial-gradient(#f6e7ed 1px,transparent 1px);background-size:22px 22px}.canvas-watermark{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;color:#db4c89;font:italic 22px "Playfair Display",serif;opacity:.08}.drawing-status{display:flex;align-items:center;gap:8px;padding:12px 3px;color:var(--deep);font-size:12px}.drawing-status .muted{margin-left:auto;font-size:11px}.presence-dot{width:9px;height:9px;border-radius:50%;background:#cfadb9}.presence-dot.online{background:#45bd88;box-shadow:0 0 0 4px #45bd8822}.drawing-history{margin-top:10px}.drawing-history h2{font-size:25px}.drawing-history-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}.history-card{display:flex;align-items:center;gap:12px;padding:10px;background:#fff;border:1px solid var(--line);border-radius:16px}.history-image{width:78px;aspect-ratio:1;border-radius:12px;background:linear-gradient(135deg,#ffe2ed,#fff4f9);color:var(--pink);display:grid;place-content:center}.history-image span{font-size:26px}.history-image small{font-size:10px}.history-card>div{display:grid;gap:4px;min-width:0}.history-card strong,.history-card small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-card strong{color:var(--deep);font-size:13px}.history-card small,.history-card a{font-size:10px;color:var(--muted)}.history-card a{color:var(--deep);text-decoration:none}
+.live-drawing{max-width:1050px;margin:0 auto}.drawing-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:8px 2px 16px}.drawing-heading h1{font-size:clamp(27px,5vw,40px);margin:4px 0}.drawing-heading p{margin:4px 0}.drawing-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  background: #fff;
+  border: 1px solid var(--line);
+  padding: 10px;
+  border-radius: 17px 17px 0 0;
+}
+
+/* New toolbar actions inside apple-markup-dock */
+.apple-markup-dock .toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.apple-markup-dock .toolbar-actions #drawing-undo {
+  margin-right: auto;
+}
+
+.apple-markup-dock .toolbar-actions #drawing-redo {
+  margin-left: auto;
+}
+.tool-group{display:flex;gap:7px;align-items:center;padding:0 8px}.colors button{width:22px;height:22px;border-radius:50%;background:var(--swatch);border:2px solid white;box-shadow:0 0 0 1px #ead3dd}.colors button.selected{box-shadow:0 0 0 2px #a43262}.brush-size{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}.brush-size input{width:76px;padding:0;border:0;box-shadow:none}.tool-button{padding:9px 11px;border-radius:11px;background:#fff3f8;color:var(--deep);font-size:12px}.tool-button.selected{background:#ed5c94;color:white}.draw-board{position:relative;background:white;border:1px solid var(--line);border-top:0;border-radius:0 0 17px 17px;overflow:hidden;box-shadow:0 12px 32px #8f315d0b}.draw-canvas{display:block;width:100%;height:auto;aspect-ratio:5/3;touch-action:none;cursor:crosshair;background-color:#fffdfd;background-image:radial-gradient(#f6e7ed 1px,transparent 1px);background-size:22px 22px}.canvas-watermark{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;color:#db4c89;font:italic 22px "Playfair Display",serif;opacity:.08}.drawing-status{display:flex;align-items:center;gap:8px;padding:12px 3px;color:var(--deep);font-size:12px}.drawing-status .muted{margin-left:auto;font-size:11px}.presence-dot{width:9px;height:9px;border-radius:50%;background:#cfadb9}.presence-dot.online{background:#45bd88;box-shadow:0 0 0 4px #45bd8822}.drawing-history{margin-top:10px}.drawing-history h2{font-size:25px}.drawing-history-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}.history-card{display:flex;align-items:center;gap:12px;padding:10px;background:#fff;border:1px solid var(--line);border-radius:16px}.history-image{width:78px;aspect-ratio:1;border-radius:12px;background:linear-gradient(135deg,#ffe2ed,#fff4f9);color:var(--pink);display:grid;place-content:center}.history-image span{font-size:26px}.history-image small{font-size:10px}.history-card>div{display:grid;gap:4px;min-width:0}.history-card strong,.history-card small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-card strong{color:var(--deep);font-size:13px}.history-card small,.history-card a{font-size:10px;color:var(--muted)}.history-card a{color:var(--deep);text-decoration:none}
 @media(max-width:759px){.couple-brand{padding-top:2px}.together-counter{min-height:148px;padding:12px}.counter-script{font-size:18px;margin-right:8px}.counter-main{min-width:0;flex:1}.counter-main strong{font-size:16px;padding:7px 13px}.counter-units{gap:8px}.counter-units span{min-width:32px}.counter-units b{font-size:18px}.counter-units i{height:26px}.diary-composer{padding-left:62px}.feed-avatar{left:12px}.drawing-heading{align-items:flex-start}.drawing-heading .secondary{font-size:12px;padding:10px}.drawing-tools{gap:6px;padding:8px}.tool-button{font-size:11px;padding:8px}.brush-size{order:5}.drawing-status{flex-wrap:wrap}.drawing-status .muted{width:100%;margin:0 0 0 17px}.draw-canvas{aspect-ratio:4/3}.drawing-fab{right:17px;bottom:92px;width:54px;height:54px}}
 @media(max-width:759px){.diary-grid{grid-template-columns:1fr}.diary-column{padding:13px}.together-counter{padding:14px}.counter-heart{width:42px;height:42px}}
 @media(max-width:759px){.home-feature-grid{flex-direction:column;gap:12px}.home-panel-head{margin-top:5px}.home-drawing-panel{margin-top:0;padding:15px}.home-canvas-launch{min-height:205px}.today-cards{grid-template-columns:1fr}.today-cards .card{padding:15px}.dashboard-extras{grid-template-columns:1fr}.dashboard-welcome{padding:21px}.memory-summary .photo-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
@@ -1447,3 +1473,13 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 }
 
 
+
+/* SOS line coloring */
+.sos-line-cell.own-line{background:#a5d6a7;border-color:#1b5e20;}
+.sos-line-cell.partner-line{background:#ef9a9a;border-color:#b71c1c;}
+
+/* Games summary card */
+.games-summary{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#fff8fb;border:1px solid var(--line);border-radius:20px;margin-bottom:16px;}
+.games-summary .avatar{width:48px;height:48px;border-radius:50%;background:#ffe2ed;display:grid;place-items:center;color:var(--deep);font-weight:700;}
+.games-summary .stats{display:flex;gap:12px;flex-wrap:wrap;}
+.games-summary .stat{font-size:14px;color:var(--deep);font-weight:700;}
