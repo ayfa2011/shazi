@@ -87,18 +87,26 @@ export function renderQuestions(el, user, profile) {
       .question-answer-body p { margin:5px 0 0; color:#493540; font-size:13px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; }
       .question-answer-locked { filter:blur(5px); user-select:none; }
       .question-reveal-message { padding:12px; border-radius:12px; background:#fff0f6; color:var(--deep); font-size:12px; text-align:center; }
-      .question-history { margin-top:20px; }
-      .question-history-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
-      .question-history-heading h2 { margin:0; color:var(--deep); font-size:20px; }
-      .question-history-list { display:grid; gap:9px; }
-      .question-history-item { padding:12px; border:1px solid #f3e1e9; border-radius:15px; background:#fff; }
+      .question-history { margin-top:24px; }
+      .question-history-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+      .question-history-heading h2 { margin:0; color:var(--deep); font-size:21px; }
+      .question-history-list { position:relative; display:grid; gap:16px; padding-left:23px; }
+      .question-history-list::before { content:""; position:absolute; top:18px; bottom:18px; left:7px; width:2px; border-radius:2px; background:linear-gradient(#f1a8c2,#f8dce7 70%,#f1a8c2); }
+      .question-history-item { position:relative; min-width:0; padding:15px; border:1px solid #f3dce6; border-radius:19px; background:linear-gradient(145deg,#fff 0%,#fff8fb 100%); box-shadow:0 8px 22px #873c5b0d; }
+      .question-history-item::before { content:""; position:absolute; top:20px; left:-22px; width:12px; height:12px; border:3px solid #fff; border-radius:50%; background:#df6492; box-shadow:0 0 0 2px #f3c1d2; }
       .question-history-item header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-      .question-history-item time { color:var(--muted); font-size:10px; }
-      .question-history-item h3 { margin:9px 0; color:#60283f; font:600 14px/1.4 system-ui,sans-serif; }
-      .question-history-answer { margin:6px 0 0; padding:8px 10px; border-radius:10px; background:#fff7fa; color:#493540; font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; }
-      .question-history-locked { color:var(--muted); font-style:italic; }
+      .question-history-item time { flex:none; padding:5px 9px; border:1px solid #f5d9e4; border-radius:999px; background:#fff0f6; color:#9e5270; font-size:10px; font-weight:700; }
+      .question-history-item h3 { margin:12px 0; color:#60283f; font:700 15px/1.4 system-ui,sans-serif; }
+      .question-history-answers { display:grid; gap:8px; }
+      .question-history-answer { display:flex; align-items:flex-start; gap:9px; min-width:0; margin:0; padding:9px 10px; border:1px solid #f7e4eb; border-radius:14px; background:linear-gradient(110deg,#fff3f8,#fffafd); color:#493540; font-size:12px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
+      .question-history-avatar { flex:none; width:32px; height:32px; display:grid; place-items:center; overflow:hidden; border:2px solid #fff; border-radius:50%; background:linear-gradient(145deg,#ffdce9,#f5bbd0); color:#8b315d; font-size:12px; font-weight:800; box-shadow:0 2px 6px #7d35501a; }
+      .question-history-avatar img { display:block; width:100%; height:100%; object-fit:cover; }
+      .question-history-copy { min-width:0; flex:1; }
+      .question-history-copy strong { display:block; margin:0 0 2px; color:#8b315d; font-size:11px; font-weight:800; }
+      .question-history-copy span { display:block; }
+      .question-history-locked { align-items:center; background:#f8f5f6; border-color:#eee7ea; color:#9b8c93; font-style:italic; }
       .question-empty { padding:14px; color:var(--muted); text-align:center; font-size:12px; }
-      @media(max-width:420px) { .question-page-header h1 { font-size:22px; } .question-prompt { font-size:16px; } .question-card,.question-history-card { padding:12px; } }
+      @media(max-width:420px) { .question-page-header h1 { font-size:22px; } .question-prompt { font-size:16px; } .question-card,.question-history-card { padding:12px; } .question-history-list { gap:12px; padding-left:19px; } .question-history-list::before { left:5px; } .question-history-item { padding:12px; border-radius:16px; } .question-history-item::before { left:-19px; width:10px; height:10px; } .question-history-item h3 { font-size:14px; } .question-history-answer { gap:7px; padding:8px; font-size:11px; } .question-history-avatar { width:29px; height:29px; } }
     </style>
     <section class="question-page">
       <header class="question-page-header"><h1>Today's Question</h1><span class="question-day">${esc(new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}))}</span></header>
@@ -233,15 +241,20 @@ export function renderQuestions(el, user, profile) {
         const canReveal = Boolean(status[ownKey] && status[partnerKey]);
         const card = el.querySelector(`[data-history-day="${item.id}"] .question-history-answers`);
         if (!card || !isCurrent()) return;
-        const entries = [
-          [ownKey, mine],
-          [partnerKey, canReveal ? partner : null]
-        ].filter(([key]) => key);
+        const entries = Object.keys(APP_CONFIG.profiles).map(key => [
+          key,
+          key === ownKey ? mine : canReveal ? partner : null
+        ]).filter(([key]) => key);
         card.innerHTML = entries.map(([key, answer]) => {
           const person = APP_CONFIG.profiles[key];
-          if (answer?.answer) return `<p class="question-history-answer"><strong>${esc(person.name)}:</strong> ${esc(answer.answer)}</p>`;
-          if (key === partnerKey && status[partnerKey] && !canReveal) return `<p class="question-history-answer question-history-locked">${esc(person.name)} answered · locked until both answer</p>`;
-          return `<p class="question-history-answer question-history-locked">${esc(person.name)} has not answered</p>`;
+          const avatar = person.avatar ? `<img src="${esc(person.avatar)}" alt="">` : esc((person.name || "♡")[0]);
+          const content = answer?.answer
+            ? esc(answer.answer)
+            : key === partnerKey && status[partnerKey] && !canReveal
+              ? "Answered · locked until both answer"
+              : "Not answered yet";
+          const lockedClass = answer?.answer ? "" : " question-history-locked";
+          return `<div class="question-history-answer${lockedClass}"><span class="question-history-avatar">${avatar}</span><span class="question-history-copy"><strong>${esc(person.name || "Partner")}</strong><span>${content}</span></span></div>`;
         }).join("");
       } catch (error) {
         console.error(`Could not load question history for ${item.dayKey}:`, error);

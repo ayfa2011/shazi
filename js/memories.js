@@ -116,6 +116,7 @@ export function renderMemories(el, user, profile) {
       .memory-view-close { position: absolute; top: 20px; right: 20px; z-index: 5; width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid #ffffff80; border-radius: 50%; background: #382631a8; color: #fff; font-size: 22px; line-height: 1; cursor: pointer; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
       .memory-view-photo { position: relative; display: grid; width:100%; aspect-ratio: 16 / 10; min-height: 170px; max-height: 40dvh; overflow: hidden; place-items: center; border-radius: 22px; background: linear-gradient(145deg,#ffe8f0,#f8dce7); }
       .memory-view-main { display:block; width:100%; height:100%; object-fit:cover; }
+      img.memory-view-main { cursor:zoom-in; }
       video.memory-view-main { background:#21151b; }
       .memory-view-date { position:absolute; bottom:12px; left:12px; z-index:3; display:inline-flex; align-items:center; gap:6px; margin:0; padding:7px 12px; border:1px solid #ffffff80; border-radius:999px; background:#fffaf2e8; color:#923f65; font-size:11px; font-weight:700; box-shadow:0 3px 12px #35172420; backdrop-filter:blur(8px); }
       .memory-view-placeholder { color: #e0799c; font-size: 52px; }
@@ -143,6 +144,10 @@ export function renderMemories(el, user, profile) {
       .memory-nav-btn:hover:not(:disabled) { transform: translateY(-1px); background: #ffedf4; box-shadow: 0 8px 18px #a54c7418; }
       .memory-nav-btn:disabled { opacity: .35; cursor: not-allowed; }
       .memory-nav-position { color: #b08b9b; font-size: 10px; letter-spacing: .1em; white-space: nowrap; }
+      .memory-image-lightbox { position:fixed; inset:0; z-index:1100; display:none; align-items:center; justify-content:center; padding:env(safe-area-inset-top,12px) env(safe-area-inset-right,12px) env(safe-area-inset-bottom,12px) env(safe-area-inset-left,12px); background:#1b1018ed; }
+      .memory-image-lightbox[aria-hidden="false"] { display:flex; }
+      .memory-image-lightbox img { display:block; max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; border-radius:8px; box-shadow:0 14px 50px #0007; }
+      .memory-image-lightbox-close { position:absolute; top:max(14px,env(safe-area-inset-top,14px)); right:max(14px,env(safe-area-inset-right,14px)); width:42px; height:42px; border:1px solid #ffffff55; border-radius:50%; background:#fff2; color:#fff; font-size:25px; cursor:pointer; }
 
       /* ───────── Animations ───────── */
       @keyframes mem-rise { from { opacity: 0; transform: translateY(22px) rotate(var(--tilt, 0deg)) scale(.95); } to { opacity: 1; transform: translateY(0) rotate(var(--tilt, 0deg)) scale(1); } }
@@ -262,6 +267,10 @@ export function renderMemories(el, user, profile) {
         </nav>
       </article>
     </div>
+    <div id="memory-image-lightbox" class="memory-image-lightbox" role="dialog" aria-modal="true" aria-label="Full size memory photo" aria-hidden="true">
+      <button id="memory-image-lightbox-close" class="memory-image-lightbox-close" type="button" aria-label="Close full size photo">×</button>
+      <img id="memory-image-lightbox-img" alt="Full size memory photo">
+    </div>
   `;
 
   const addModal = $("#add-mem-modal", el);
@@ -269,6 +278,8 @@ export function renderMemories(el, user, profile) {
   const form = $("#add-mem-form", el);
   const mediaInput = $("#memory-media-input", el);
   const mediaGrid = $("#memory-gallery-grid", el);
+  const imageLightbox = $("#memory-image-lightbox", el);
+  const lightboxImage = $("#memory-image-lightbox-img", el);
   let activeMemoryForView = null;
   let selectedGalleryMedia = null;
 
@@ -293,6 +304,22 @@ export function renderMemories(el, user, profile) {
   $("#close-mem-modal", el).onclick = () => (addModal.style.display = "none");
   $("#cancel-mem-btn", el).onclick = () => (addModal.style.display = "none");
   $("#close-view-modal", el).onclick = () => (viewModal.style.display = "none");
+  $("#memory-image-lightbox-close", el).onclick = closeImageLightbox;
+  imageLightbox.onclick = event => {
+    if (event.target === imageLightbox) closeImageLightbox();
+  };
+
+  function closeImageLightbox() {
+    imageLightbox.setAttribute("aria-hidden", "true");
+    lightboxImage.removeAttribute("src");
+  }
+
+  function openImageLightbox(image) {
+    lightboxImage.src = image.currentSrc || image.src;
+    lightboxImage.alt = image.alt || "Full size memory photo";
+    imageLightbox.setAttribute("aria-hidden", "false");
+    $("#memory-image-lightbox-close", el).focus();
+  }
 
   $("#delete-mem-btn", el).onclick = async () => {
     const editId = $("#mem-edit-id", el).value;
@@ -406,6 +433,17 @@ export function renderMemories(el, user, profile) {
 
   function renderMemoryHero(memory, selected = null) {
     const imgWrap = $("#view-mem-img-wrap", el);
+    imgWrap.onclick = event => {
+      const image = event.target.closest("img.memory-view-main");
+      if (!image) return;
+      openImageLightbox(image);
+    };
+    imgWrap.onkeydown = event => {
+      const image = event.target.closest("img.memory-view-main");
+      if (!image || (event.key !== "Enter" && event.key !== " ")) return;
+      event.preventDefault();
+      openImageLightbox(image);
+    };
     const url = selected?.type === "video" ? selected.thumbnailUrl : (selected?.url || memory.photoUrl);
     imgWrap.querySelectorAll(".memory-view-main,.memory-view-placeholder").forEach(node => node.remove());
     if (selected?.type === "video" && selected.url) {
@@ -422,6 +460,9 @@ export function renderMemories(el, user, profile) {
       image.className = "memory-view-main";
       image.src = url;
       image.alt = memory.title || "A shared memory";
+      image.tabIndex = 0;
+      image.setAttribute("role", "button");
+      image.setAttribute("aria-label", `View full-size photo: ${memory.title || "A shared memory"}`);
       image.decoding = "async";
       imgWrap.prepend(image);
     } else {
@@ -608,6 +649,11 @@ export function renderMemories(el, user, profile) {
   };
 
   const closeViewOnEscape = (event) => {
+    if (event.key === "Escape" && imageLightbox.getAttribute("aria-hidden") === "false") {
+      closeImageLightbox();
+      $("#view-mem-img-wrap img.memory-view-main", el)?.focus();
+      return;
+    }
     if (event.key === "Escape" && viewModal.style.display !== "none") {
       viewModal.style.display = "none";
     }
