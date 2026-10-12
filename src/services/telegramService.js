@@ -92,6 +92,17 @@ export function getTelegramMediaUrl(fileId, mimeType = "application/octet-stream
   return mediaUrlCache.get(fileId);
 }
 
+/**
+ * Drop a cached blob URL so the browser can release the media bytes.
+ * Safe to call for unknown ids; a rejected or in-flight request is discarded.
+ */
+export function revokeTelegramMediaUrl(fileId) {
+  const pending = mediaUrlCache.get(fileId);
+  if (!pending) return;
+  mediaUrlCache.delete(fileId);
+  pending.then(url => URL.revokeObjectURL(url)).catch(() => {});
+}
+
 /** Ask Telegram to remove a Gallery message when its server-side retention rules allow it. */
 export async function deleteTelegramGalleryMessage(chatId, messageId) {
   const url = new URL(TELEGRAM_CONFIG.WORKER_URL);
