@@ -94,8 +94,8 @@ export function renderQuestions(el, user, profile) {
       .question-history-list::before { content:""; position:absolute; top:18px; bottom:18px; left:7px; width:2px; border-radius:2px; background:linear-gradient(#f1a8c2,#f8dce7 70%,#f1a8c2); }
       .question-history-item { position:relative; min-width:0; padding:15px; border:1px solid #f3dce6; border-radius:19px; background:linear-gradient(145deg,#fff 0%,#fff8fb 100%); box-shadow:0 8px 22px #873c5b0d; }
       .question-history-item::before { content:""; position:absolute; top:20px; left:-22px; width:12px; height:12px; border:3px solid #fff; border-radius:50%; background:#df6492; box-shadow:0 0 0 2px #f3c1d2; }
-      .question-history-item header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-      .question-history-item time { flex:none; padding:5px 9px; border:1px solid #f5d9e4; border-radius:999px; background:#fff0f6; color:#9e5270; font-size:10px; font-weight:700; }
+      .question-history-item header { display:flex; align-items:center; justify-content:flex-start; gap:8px; }
+      .question-history-item time { position:absolute; top:14px; left:-73px; width:64px; padding:5px 4px; border:1px solid #f5d9e4; border-radius:999px; background:#fff0f6; color:#9e5270; font-size:10px; font-weight:700; text-align:center; white-space:nowrap; }
       .question-history-item h3 { margin:12px 0; color:#60283f; font:700 15px/1.4 system-ui,sans-serif; }
       .question-history-answers { display:grid; gap:8px; }
       .question-history-answer { display:flex; align-items:flex-start; gap:9px; min-width:0; margin:0; padding:9px 10px; border:1px solid #f7e4eb; border-radius:14px; background:linear-gradient(110deg,#fff3f8,#fffafd); color:#493540; font-size:12px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
@@ -215,7 +215,7 @@ export function renderQuestions(el, user, profile) {
     }
     host.innerHTML = history.map(item => `
       <article class="question-history-item" data-history-day="${esc(item.id)}">
-        <header><span class="question-category">${esc(item.category || "💗 About Us")}</span><time>${esc(new Date(`${item.dayKey}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}))}</time></header>
+        <header><time>${esc(new Date(`${item.dayKey}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}))}</time></header>
         <h3>${esc(item.question)}</h3>
         <div class="question-history-answers"><p class="question-empty">Loading answers…</p></div>
       </article>
