@@ -50,7 +50,7 @@ function formatClock(seconds) {
       }
 
       status.textContent = `Adding ${file.name} to the playlist...`;
-      await addItem(uid, {
+      await addItem("musicTrack", {
         ownerUid: uid,
         ownerName: auth.currentUser.displayName,
         name: file.name,
