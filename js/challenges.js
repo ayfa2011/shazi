@@ -277,7 +277,7 @@ export function renderChallenges(el, user, profile) {
       ${uploads[ownKey]?.dayKey === dayKey && !lovePhotoMissing.has(`${dayKey}:${ownKey}`) ? `<button class="love-upload" type="button" disabled>✓ Your photo is in</button>` : `<button class="love-upload" type="button" data-action="love-upload" data-id="${esc(assignment.id)}">${uploads[ownKey]?.dayKey === dayKey ? "Send your photo again ♡" : "Add your photo ♡"}</button>`}
       </div>` : "";
     const specialWidget = isSnapChallenge
-      ? `<button type="button" class="snap-mark" data-action="snap-complete" data-id="${esc(assignment.id)}" ${hasCompleted ? "disabled" : ""}>${hasCompleted ? "✓ Snap sent today" : "I sent today's Snap 📸"}</button>`
+      ? `<button type="button" class="snap-mark" data-action="snap-complete" data-id="${esc(assignment.id)}" ${hasCompleted ? "disabled" : ""}>${hasCompleted ? "✓ Snap sent today" : "I sent today's Snap 📸"}</button><div class="snap-status">${hasCompleted ? `Sent at ${new Date().toLocaleString()}` : "Not sent yet"}</div>`
       : isWaterChallenge ? `<div class="water-widget">
           <div class="water-bottle-row"><div class="water-bottle" aria-label="Water bottle"><div class="water-fill" style="height:${ownCount / 8 * 100}%"></div></div>
           <div class="water-progress"><div class="water-bar" style="width:${ownCount / 8 * 100}%"></div></div>

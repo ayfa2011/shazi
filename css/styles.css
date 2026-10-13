@@ -1527,3 +1527,18 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .games-summary .avatar{width:48px;height:48px;border-radius:50%;background:#ffe2ed;display:grid;place-items:center;color:var(--deep);font-weight:700;}
 .games-summary .stats{display:flex;gap:12px;flex-wrap:wrap;}
 .games-summary .stat{font-size:14px;color:var(--deep);font-weight:700;}
+
+/* Love Photo equal sizing */
+.love-photo-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 14px;
+}
+
+/* Waiting placeholder styling */
+.love-waiting {
+  color: var(--muted);
+  font-style: italic;
+  margin: 8px 0;
+}

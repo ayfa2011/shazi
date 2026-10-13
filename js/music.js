@@ -725,5 +725,10 @@ export function initMusic(user) {
   };
   startPresence();
 
+  uploadInput.addEventListener("change", (event) => {
+    handleFiles(event.target.files);
+    event.target.value = "";
+  });
+
   return () => cleanupCurrent?.();
 }
