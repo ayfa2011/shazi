@@ -1,7 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Nunito:wght@800;900;1000&family=Playfair+Display:wght@500;600&display=swap');
 
 :root{
-  --pink:#ef6d9f; --pink2:#f8a7c5; --deep:#8f315d; --bg:#fff7fb;
+  --pink:#ef6d9f; --pink2:#f8a7c5; --deep:#8f315d; --burgundy:#6e1846; --burgundy-2:#7d1f4d; --card-pink:#fff9fb;
+  --bg:#fff7fb;
   --card:#ffffffd9; --text:#34242c; --muted:#8c737d; --line:#f1dbe5;
   --shadow:0 18px 50px rgba(139,47,88,.10); --radius:22px;
 }
@@ -118,14 +119,14 @@ body:not(.home-dashboard) .hard-refresh-btn{display:none}
 @media(max-width:420px){.post-page-head h1{font-size:27px}.post-profiles button{font-size:12px}.post-page-composer{padding-left:54px}.post-page-composer .feed-avatar{width:32px;height:32px}.social-post{padding:11px}.social-post-photo img{max-height:340px}.bottom-nav{bottom:max(8px,env(safe-area-inset-bottom,0px));padding:6px 4px}.bottom-nav button{min-height:46px;font-size:18px;padding:5px 0}.bottom-nav button span{font-size:9px}}
 
 .home-dashboard {
-  background: linear-gradient(160deg, #fff3f8 0%, #fff8fb 48%, #fff0f6 100%);
+  min-height: 100vh;
+  min-height: 100dvh;
 }
 .home-dashboard .topbar {
   height: calc(52px + env(safe-area-inset-top, 0px));
   justify-content: center;
   padding: calc(4px + env(safe-area-inset-top, 0px)) 12px 4px;
   border: 0;
-  background: transparent;
 }
 .home-dashboard .top-brand { display: none; }
 .home-dashboard .hard-refresh-btn { top: calc(env(safe-area-inset-top, 0px) + 50%); }
@@ -1541,4 +1542,59 @@ button:disabled { cursor: not-allowed; opacity: .58; }
   color: var(--muted);
   font-style: italic;
   margin: 8px 0;
+}
+
+/* ===== Harmonized Pink Theme: smooth gradient + unified burgundy accents (home only, visual-only) ===== */
+body.home-dashboard {
+  background: linear-gradient(180deg, #ec9cbd 0%, #f1acc9 9%, #f7c2d5 20%, #fad2e0 32%, #fce1eb 44%, #fdeaf2 58%, #fff1f6 74%, #fff7fb 90%, #fff7fb 100%);
+  background-attachment: fixed;
+}
+body.home-dashboard .topbar {
+  background: linear-gradient(180deg, #e68cb2 0%, #ec9cbd 100%);
+  border-bottom: 1px solid #d97ba1;
+}
+body.home-dashboard .content {
+  background: transparent;
+}
+/* Content cards: consistent very light pink / off-white */
+body.home-dashboard .home-post-panel,
+body.home-dashboard .home-drawing-panel,
+body.home-dashboard .today-cards .card,
+body.home-dashboard .home-post-panel .home-post-card,
+body.home-dashboard .home-special-day-reminders {
+  background: #fff9fb !important;
+  border-color: #f2c9d9 !important;
+}
+/* Card text: rich dark burgundy / deep rose */
+body.home-dashboard .home-post-panel,
+body.home-dashboard .home-drawing-panel,
+body.home-dashboard .today-cards .card,
+body.home-dashboard .home-post-text,
+body.home-dashboard .home-post-author strong,
+body.home-dashboard .today-card-copy strong,
+body.home-dashboard .today-cards strong,
+body.home-dashboard .home-empty-posts strong,
+body.home-dashboard .couple-brand h1,
+body.home-dashboard .home-drawing-heading h3 {
+  color: var(--burgundy) !important;
+}
+body.home-dashboard .counter-units b,
+body.home-dashboard .home-header-countdown b {
+  color: #7d1f4d !important;
+}
+/* Section titles + action buttons unified */
+body.home-dashboard .today-section .eyebrow,
+body.home-dashboard .today-section .section-head h2,
+body.home-dashboard .home-view-more,
+body.home-dashboard .home-canvas-action,
+body.home-dashboard .home-post-btn,
+body.home-dashboard .today-link {
+  color: var(--burgundy) !important;
+  border-color: #e2a3bd !important;
+}
+body.home-dashboard .home-view-more {
+  background: #fff5f9 !important;
+}
+body.home-dashboard .home-canvas-action {
+  background: #fff5f9 !important;
 }
