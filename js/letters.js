@@ -2,6 +2,7 @@ import { $, esc, toast } from "./utils.js";
 import { watchItems, addLetter, markLetterRead, getScheduledLetterBody, migrateScheduledLetterBody, notifyPartnerSafely } from "./firestore.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 import { APP_CONFIG } from "../config/app-config.js";
+import { sendToTelegram, telegramMediaReferences } from "../src/services/telegramService.js";
 
 let stopLetters = null, deliveryTimer = null, active = false;
 
@@ -31,176 +32,18 @@ export function renderLetters(el, user, profile) {
 
   el.innerHTML = `
     <style>
-      .letters-card {
-        background: #ffffff;
-        border-radius: 20px;
-        padding: 20px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.05);
-        font-family: system-ui, -apple-system, sans-serif;
-        max-width: 550px;
-        margin: 0 auto;
-      }
-      .letters-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        margin-bottom: 16px;
-      }
-      .letters-title-area {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-      .letters-icon {
-        width: 32px;
-        height: 32px;
-        background: #ffe4e6;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #e11d48;
-        font-size: 16px;
-      }
-      .letters-text h3 {
-        margin: 0;
-        font-size: 18px;
-        font-weight: 700;
-        color: #881337;
-      }
-      .letters-text p {
-        margin: 2px 0 0 0;
-        font-size: 12px;
-        color: #9ca3af;
-      }
-      .write-letter-btn {
-        background: #e11d48;
-        color: #ffffff;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 20px;
-        font-size: 13px;
-        font-weight: 600;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        gap: 4px;
-      }
-      .letters-tabs {
-        display: flex;
-        gap: 8px;
-        margin-bottom: 18px;
-      }
-      .tab-btn {
-        padding: 6px 18px;
-        border-radius: 20px;
-        border: none;
-        background: #f3f4f6;
-        color: #6b7280;
-        font-size: 13px;
-        font-weight: 500;
-        cursor: pointer;
-      }
-      .tab-btn.active {
-        background: #ffe4e6;
-        color: #e11d48;
-        font-weight: 600;
-      }
-      .letters-list {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-      }
-      .letter-item {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 10px 0;
-        border-bottom: 1px solid #f3f4f6;
-        cursor: pointer;
-      }
-      .letter-item:last-child {
-        border-bottom: none;
-      }
-      .letter-left {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-      .letter-avatar {
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        background: #ffe4e6;
-        color: #e11d48;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: bold;
-        font-size: 16px;
-      }
-      .letter-info h4 {
-        margin: 0;
-        font-size: 14px;
-        font-weight: 700;
-        color: #374151;
-      }
-      .letter-info p {
-        margin: 3px 0 0 0;
-        font-size: 13px;
-        color: #6b7280;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 260px;
-      }
-      .letter-date {
-        font-size: 12px;
-        color: #9ca3af;
-        white-space: nowrap;
+      @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&display=swap');
+
+      /* ── Notebook paper colour palette ─────────────────── */
+      :root {
+        --nb-line: #bed8f0;       /* horizontal ruling */
+        --nb-margin: #e8a6af;     /* pink/red margin line */
+        --nb-bg: #f8faff;         /* off-white page */
+        --nb-ink: #1b365d;        /* dark-blue ballpoint ink */
+        --nb-line-h: 34px;        /* ruling pitch */
       }
 
-      .letter-modal-overlay {
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0,0,0,0.5);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-      }
-      .letter-modal-box {
-        background: white;
-        padding: 20px;
-        border-radius: 20px;
-        width: 90%;
-        max-width: 450px;
-      }
-      .letter-modal-head {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 15px;
-      }
-      .letter-modal-head h3 {
-        margin: 0;
-        color: #881337;
-      }
-      .letter-modal-box input, .letter-modal-box textarea, .letter-modal-box select {
-        width: 100%;
-        padding: 10px;
-        margin: 6px 0 12px 0;
-        box-sizing: border-box;
-        border: 1px solid #fecdd3;
-        border-radius: 10px;
-        font-family: inherit;
-        outline: none;
-      }
-      .letter-modal-actions {
-        display: flex;
-        justify-content: flex-end;
-        gap: 8px;
-      }
+      /* ── Card shell ──────────────────────────────────────── */
       .letters-card {
         max-width: 650px;
         padding: 22px;
@@ -208,74 +51,93 @@ export function renderLetters(el, user, profile) {
         border-radius: 24px;
         background: linear-gradient(145deg,#fff 35%,#fff8fb);
         box-shadow: 0 18px 48px rgba(139,47,88,.09);
+        font-family: system-ui, -apple-system, sans-serif;
+        margin: 0 auto;
       }
-      .letters-header { align-items: center; gap: 12px; margin-bottom: 20px; }
-      .letters-title-area { gap: 12px; }
-      .letters-icon { width: 46px; height: 46px; background: linear-gradient(145deg,#ffe5ef,#ffd2e3); color: #b63368; font-size: 22px; }
-      .letters-text h3 { color: #873456; font-size: 21px; }
-      .letters-text p { margin-top: 4px; color: #967b87; line-height: 1.4; }
+      .letters-header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:20px; }
+      .letters-title-area { display:flex; align-items:center; gap:12px; }
+      .letters-icon { width:46px; height:46px; flex:none; display:flex; align-items:center; justify-content:center; background:linear-gradient(145deg,#ffe5ef,#ffd2e3); border-radius:50%; color:#b63368; font-size:22px; }
+      .letters-text h3 { margin:0; color:#873456; font-size:21px; font-family:"Playfair Display",serif; }
+      .letters-text p { margin:4px 0 0; color:#967b87; font-size:12px; line-height:1.4; }
       .write-letter-btn {
-        flex: none; padding: 11px 15px; border-radius: 999px;
-        background: linear-gradient(135deg,#e85c91,#c73d76); box-shadow: 0 7px 18px #d7478030;
-        transition: transform .2s ease,box-shadow .2s ease;
+        flex:none; padding:11px 15px; border-radius:999px; border:none; cursor:pointer;
+        background:linear-gradient(135deg,#e85c91,#c73d76); color:#fff; font-size:13px; font-weight:600;
+        display:flex; align-items:center; gap:4px;
+        box-shadow:0 7px 18px #d7478030; transition:transform .2s ease,box-shadow .2s ease;
       }
-      .write-letter-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 22px #d7478040; }
-      .letters-tabs { gap: 7px; padding: 5px; border: 1px solid #f4e8ee; border-radius: 15px; background: #fffafd; }
-      .tab-btn { flex: 1; padding: 9px 8px; border-radius: 11px; background: transparent; color: #886e79; font-weight: 600; transition: background .2s ease,color .2s ease; }
-      .tab-btn.active { background: #ffe7f0; color: #a72f62; }
-      .letters-list { gap: 9px; }
+      .write-letter-btn:hover { transform:translateY(-2px); box-shadow:0 10px 22px #d7478040; }
+
+      /* ── Tabs ────────────────────────────────────────────── */
+      .letters-tabs { display:flex; gap:7px; padding:5px; border:1px solid #f4e8ee; border-radius:15px; background:#fffafd; margin-bottom:18px; }
+      .tab-btn { flex:1; padding:9px 8px; border-radius:11px; border:none; background:transparent; color:#886e79; font-size:13px; font-weight:600; cursor:pointer; transition:background .2s ease,color .2s ease; }
+      .tab-btn.active { background:#ffe7f0; color:#a72f62; }
+
+      /* ── Letter list ─────────────────────────────────────── */
+      .letters-list { display:flex; flex-direction:column; gap:9px; }
       .letter-item {
-        position: relative;
-        gap: 12px; padding: 13px; border: 1px solid #f2e5eb; border-radius: 17px;
-        background: #fff; box-shadow: 0 4px 13px #74314908;
-        transition: transform .2s ease,border-color .2s ease,box-shadow .2s ease;
+        position:relative; display:flex; align-items:center; justify-content:space-between;
+        gap:12px; padding:13px; border:1px solid #f2e5eb; border-radius:17px;
+        background:#fff; box-shadow:0 4px 13px #74314908; cursor:pointer;
+        transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease;
       }
-      .letter-item:hover { transform: translateY(-2px); border-color: #edbfd2; box-shadow: 0 9px 20px #74314912; }
-      .letter-left { min-width: 0; gap: 11px; }
+      .letter-item:hover { transform:translateY(-2px); border-color:#edbfd2; box-shadow:0 9px 20px #74314912; }
+      .letter-left { display:flex; align-items:center; min-width:0; gap:11px; }
       .letter-envelope { position:relative; width:48px; height:38px; flex:none; display:grid; place-items:center; overflow:visible; border:1px solid #f0bfd1; border-radius:7px; background:linear-gradient(145deg,#fff9fc,#ffe4ee); color:#cc4b7b; font-size:20px; box-shadow:0 3px 8px #9a476313; }
       .letter-envelope::before { content:""; position:absolute; z-index:1; inset:0 0 auto; height:52%; border-radius:6px 6px 50% 50%; background:linear-gradient(150deg,#ffedf4,#f9c9dc); clip-path:polygon(0 0,100% 0,50% 100%); transform-origin:top; transition:transform .36s cubic-bezier(.2,.75,.2,1); }
       .letter-envelope::after { content:""; position:absolute; z-index:2; inset:auto 0 0; height:55%; border-radius:0 0 6px 6px; background:linear-gradient(35deg,#f7c9da 49%,transparent 50%),linear-gradient(-35deg,#fbe0e9 49%,transparent 50%); }
       .letter-item.is-opening .letter-envelope::before { transform:rotateX(180deg); }
       .letter-unread-dot { position:absolute; top:-5px; right:-5px; z-index:4; width:12px; height:12px; border:2px solid white; border-radius:50%; background:#ef3e65; box-shadow:0 1px 5px #a31d3f55; }
-      .letter-avatar { width:42px; height:42px; flex:none; border-radius:14px; background:#fff0f6; color:#cb4a7b; font-size:20px; }
-      .letter-info { min-width: 0; }
-      .letter-info h4 { overflow: hidden; color: #5a3445; text-overflow: ellipsis; white-space: nowrap; }
-      .letter-info p { max-width: 390px; color: #8e7a83; font-size: 11px; }
-      .letter-date { flex: none; color: #9b8790; font-size: 10px; }
+      .letter-info { min-width:0; }
+      .letter-info h4 { margin:0; font-size:14px; font-weight:700; color:#5a3445; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .letter-info p { margin:3px 0 0; font-size:11px; color:#8e7a83; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px; }
+      .letter-date { flex:none; color:#9b8790; font-size:10px; white-space:nowrap; }
       .letter-date .letter-read-receipt { display:block; margin-top:4px; text-align:right; }
-      .letter-modal-overlay { padding: 18px; overflow-y: auto; background: rgba(49,20,36,.56); opacity: 0; backdrop-filter: blur(5px); }
-      .letter-modal-overlay.is-open { animation: letter-overlay-in .25s ease forwards; }
-      .letter-modal-box {
-        width: min(520px,100%); max-height: calc(100dvh - 36px); overflow-y: auto;
-        padding: 23px; border: 1px solid #f2dce6; border-radius: 23px;
-        background: #fffafd; box-shadow: 0 25px 80px #30132144;
-      }
-      .letter-modal-overlay.is-open .letter-modal-box { animation: letter-modal-in .55s cubic-bezier(.2,.8,.2,1) both; }
-      .letter-modal-head { gap: 12px; }
-      .letter-modal-head h3 { color: #873456; font-size: 21px; }
-      .letter-close-btn { width: 34px; height: 34px; flex: none; border-radius: 50%; background: #fff0f6; color: #9c3b64; font-size: 21px; }
-      .letter-form { gap: 12px; margin-top: 0; }
-      .letter-form label { gap: 6px; color: #795565; font-size: 11px; font-weight: 700; }
+
+      /* ── Modals ──────────────────────────────────────────── */
+      .letter-modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; padding:18px; display:flex; align-items:center; justify-content:center; overflow-y:auto; background:rgba(49,20,36,.56); opacity:0; backdrop-filter:blur(5px); z-index:1000; }
+      .letter-modal-overlay.is-open { animation:letter-overlay-in .25s ease forwards; }
+      .letter-modal-box { width:min(520px,100%); max-height:calc(100dvh - 36px); overflow-y:auto; padding:23px; border:1px solid #f2dce6; border-radius:23px; background:#fffafd; box-shadow:0 25px 80px #30132144; }
+      .letter-modal-overlay.is-open .letter-modal-box { animation:letter-modal-in .55s cubic-bezier(.2,.8,.2,1) both; }
+      .letter-modal-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:15px; }
+      .letter-modal-head h3 { margin:0; color:#873456; font-size:21px; font-family:"Playfair Display",serif; }
+      .letter-close-btn { width:34px; height:34px; flex:none; border-radius:50%; border:none; background:#fff0f6; color:#9c3b64; font-size:21px; cursor:pointer; }
+      .letter-form { display:grid; gap:12px; margin-top:0; }
+      .letter-form label { display:grid; gap:6px; color:#795565; font-size:11px; font-weight:700; }
       .letter-form select,.letter-form input {
-        width: 100%; min-height: 43px; margin: 0; border: 1px solid #efd6e1;
-        border-radius: 12px; background: #fff; color: #583447; font-size: 13px;
+        width:100%; min-height:43px; margin:0; padding:10px; box-sizing:border-box;
+        border:1px solid #efd6e1; border-radius:12px; background:#fff; color:#583447;
+        font-size:13px; outline:none;
       }
+      .letter-form select:focus,.letter-form input:focus { border-color:#db8eae; box-shadow:0 0 0 3px #ef6d9f16; }
+
+      /* ── NOTEBOOK PAPER textarea ─────────────────────────── */
       .letter-form textarea {
-        width: 100%; min-height: 235px; resize: vertical; margin: 0; padding: 18px 17px 16px 30px;
-        border: 1px solid #edcfb4; border-radius: 12px;
-        background-color: #fffdf4;
-        background-image: radial-gradient(ellipse at 15% 20%,#fff8df55 0 1px,transparent 48%),radial-gradient(ellipse at 85% 70%,#d8bf9a18 0 1px,transparent 55%),linear-gradient(90deg,transparent 0,transparent 21px,#e8a6af 22px,#e8a6af 23px,transparent 24px),repeating-linear-gradient(to bottom,transparent 0,transparent 31px,#c9dbea 32px,#c9dbea 33px);
-        color: #593a48; font-family: "Segoe Print","Bradley Hand","Comic Sans MS",cursive;
-        font-size: 17px; line-height: 33px; box-shadow: inset 0 1px 8px #8353340b;
+        width:100%; min-height:240px; resize:vertical; margin:0; padding:18px 17px 16px 44px;
+        box-sizing:border-box; outline:none;
+        border:1px solid #c5d8ee;
+        border-radius:4px 12px 10px 4px;
+        background-color: var(--nb-bg);
+        background-image:
+          /* left margin pink line */
+          linear-gradient(90deg, transparent 0, transparent 30px, var(--nb-margin) 31px, var(--nb-margin) 32px, transparent 33px),
+          /* horizontal ruling */
+          repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--nb-line-h) - 1px), var(--nb-line) calc(var(--nb-line-h) - 1px), var(--nb-line) var(--nb-line-h));
+        color: var(--nb-ink);
+        font-family: "Caveat", "Segoe Print", "Bradley Hand", cursive;
+        font-size: 20px;
+        line-height: var(--nb-line-h);
+        box-shadow: inset 0 1px 8px rgba(50,90,150,.05), 2px 3px 12px rgba(30,60,120,.06);
       }
-      .letter-form textarea::placeholder { color: #b99e9f; opacity: 1; }
-      .letter-form textarea:focus,.letter-form select:focus,.letter-form input:focus { border-color: #db8eae; box-shadow: 0 0 0 3px #ef6d9f16; }
-      .letter-prompt { margin: 0; color: #9a7c89; font-size: 10px; text-align: center; }
-      .letter-modal-actions { flex-wrap: wrap; gap: 8px; margin-top: 3px; }
-      .letter-modal-actions button,.read-letter-actions button { min-height: 40px; padding: 9px 14px; border-radius: 12px; font-size: 12px; font-weight: 700; }
-      .letter-cancel-btn { border: 1px solid #efdde5; background: #fff; color: #765a68; }
-      .letter-send-btn { background: linear-gradient(135deg,#e85c91,#c73d76); color: #fff; box-shadow: 0 6px 16px #d7478028; }
-      .read-letter-date { margin: -9px 0 15px; color: #9b8790; font-size: 11px; }
+      .letter-form textarea::placeholder { color:#88a8c8; opacity:1; font-style:italic; }
+      .letter-form textarea:focus { border-color:#88b4d9; box-shadow:0 0 0 3px #bed8f028, inset 0 1px 8px rgba(50,90,150,.05); }
+
+      .letter-prompt { margin:0; color:#9a7c89; font-size:10px; text-align:center; }
+      .letter-modal-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:3px; justify-content:flex-end; }
+      .letter-modal-actions button,.read-letter-actions button { min-height:40px; padding:9px 14px; border-radius:12px; font-size:12px; font-weight:700; cursor:pointer; border:none; }
+      .letter-cancel-btn { border:1px solid #efdde5 !important; background:#fff; color:#765a68; }
+      .letter-send-btn { background:linear-gradient(135deg,#e85c91,#c73d76); color:#fff; box-shadow:0 6px 16px #d7478028; }
+
+      /* ── Read-letter meta bar ────────────────────────────── */
       .read-letter-meta { display:flex; align-items:center; gap:9px; margin:0 0 15px; padding:10px 12px; border:1px solid #f0e1d0; border-radius:14px; background:linear-gradient(120deg,#fffaf0,#fffdf8); }
       .read-letter-sender-avatar { width:35px; height:35px; flex:none; display:grid; place-items:center; overflow:hidden; border:2px solid white; border-radius:50%; background:#ffe4ef; color:#96365f; font-weight:800; box-shadow:0 2px 7px #7340511c; }
       .read-letter-sender-avatar img { width:100%; height:100%; object-fit:cover; }
@@ -284,41 +146,95 @@ export function renderLetters(el, user, profile) {
       .read-letter-meta-copy time { color:#9b8790; font-size:10px; }
       .letter-read-receipt { flex:none; color:#8796a4; font-size:11px; font-weight:700; white-space:nowrap; }
       .letter-read-receipt.is-read { color:#299bd0; }
+
+      /* ── NOTEBOOK PAPER reading view ─────────────────────── */
       .letter-paper {
-        position: relative; min-height: 230px; padding: 22px 20px 22px 38px;
-        overflow-wrap: anywhere; border: 1px solid #ecd8bb; border-radius: 5px 15px 10px 5px;
-        background-color: #fffdf5;
-        background-image: radial-gradient(ellipse at 20% 15%,#fff7db55 0 1px,transparent 52%),radial-gradient(ellipse at 82% 76%,#d4bc991a 0 1px,transparent 50%),linear-gradient(90deg,transparent 0,transparent 26px,#e8a6af 27px,#e8a6af 28px,transparent 29px),repeating-linear-gradient(to bottom,transparent 0,transparent 31px,#c9dbea 32px,#c9dbea 33px);
-        box-shadow: 0 12px 26px #603f2a14,inset 0 0 24px #aa74410a; color: #593a48;
-        font-family: "Segoe Print","Bradley Hand","Comic Sans MS",cursive;
-        font-size: 17px; line-height: 33px; white-space: pre-wrap; transform-origin: top center;
+        position:relative; overflow:hidden;
+        border:1px solid #c5d8ee;
+        border-radius:4px 15px 12px 4px;
+        background-color: var(--nb-bg);
+        background-image:
+          linear-gradient(90deg, transparent 0, transparent 30px, var(--nb-margin) 31px, var(--nb-margin) 32px, transparent 33px),
+          repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--nb-line-h) - 1px), var(--nb-line) calc(var(--nb-line-h) - 1px), var(--nb-line) var(--nb-line-h));
+        box-shadow: 2px 4px 18px rgba(30,60,120,.08), inset 0 0 24px rgba(100,130,180,.04);
+        color: var(--nb-ink);
+        font-family: "Caveat", "Segoe Print", "Bradley Hand", cursive;
+        font-size: 20px;
+        line-height: var(--nb-line-h);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        transform-origin: top center;
       }
-      .letter-paper::after { content: "♡"; position: absolute; right: 14px; bottom: 8px; color: #d889a5; font: 19px Georgia,serif; opacity: .75; }
-      .letter-modal-overlay.is-open .letter-paper { animation: letter-paper-unfold .85s .08s cubic-bezier(.2,.75,.2,1) both; }
-      .read-letter-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 17px; }
-      .letter-reply-btn { background: #ffe5ef; color: #a72f62; }
-      .letter-reply-btn[hidden] { display: none; }
-      .letter-read-close { background: #f6edf1; color: #765a68; }
-      @keyframes letter-overlay-in { to { opacity: 1; } }
-      @keyframes letter-modal-in { from { opacity: 0; transform: translateY(16px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+      /* top-right corner: sender avatar + name + timestamp */
+      .letter-paper-header {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 10px 14px 0 44px;
+        min-height: var(--nb-line-h);
+      }
+      .letter-paper-avatar {
+        width: 28px; height: 28px; flex: none;
+        border-radius: 50%; overflow: hidden;
+        border: 1.5px solid #c5d8ee;
+        background: #ffe4ef; color: #96365f; font-weight: 800; font-size: 13px;
+        display: grid; place-items: center;
+      }
+      .letter-paper-avatar img { width: 100%; height: 100%; object-fit: cover; }
+      .letter-paper-meta-text {
+        display: grid; gap: 1px; text-align: right;
+      }
+      .letter-paper-meta-text strong {
+        font-size: 11px; font-weight: 700; color: var(--nb-ink);
+        font-family: "DM Sans", sans-serif; line-height: 1.2;
+      }
+      .letter-paper-meta-text time {
+        font-size: 9px; color: #6688aa;
+        font-family: "DM Sans", sans-serif; line-height: 1.2;
+      }
+
+      /* actual body text area – padding keeps text on the ruled lines */
+      .letter-paper-body {
+        padding: 4px 17px 20px 44px;
+        min-height: 180px;
+      }
+      .letter-paper::after { content:"♡"; position:absolute; right:14px; bottom:8px; color:#d889a5; font:19px Georgia,serif; opacity:.75; }
+      .letter-modal-overlay.is-open .letter-paper { animation:letter-paper-unfold .85s .08s cubic-bezier(.2,.75,.2,1) both; }
+
+      .read-letter-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:17px; }
+      .letter-reply-btn { background:#ffe5ef; color:#a72f62; }
+      .letter-reply-btn[hidden] { display:none; }
+      .letter-read-close { background:#f6edf1; color:#765a68; }
+
+      /* ── Snap-status (other card) ────────────────────────── */
+      .snap-status { margin-top:6px; font-size:11px; color:#9b8790; text-align:center; }
+
+      /* ── Animations ──────────────────────────────────────── */
+      @keyframes letter-overlay-in { to { opacity:1; } }
+      @keyframes letter-modal-in { from { opacity:0; transform:translateY(16px) scale(.97); } to { opacity:1; transform:translateY(0) scale(1); } }
       @keyframes letter-paper-unfold {
-        0% { opacity: 0; transform: perspective(900px) rotateX(-16deg) translateY(-9px) scale(.98); }
-        55% { opacity: 1; transform: perspective(900px) rotateX(3deg) translateY(0) scale(1); }
-        100% { opacity: 1; transform: perspective(900px) rotateX(0) translateY(0) scale(1); }
+        0% { opacity:0; transform:perspective(900px) rotateX(-16deg) translateY(-9px) scale(.98); }
+        55% { opacity:1; transform:perspective(900px) rotateX(3deg) translateY(0) scale(1); }
+        100% { opacity:1; transform:perspective(900px) rotateX(0) translateY(0) scale(1); }
       }
-      @media (max-width: 480px) {
-        .letters-card { padding: 16px; border-radius: 20px; }
-        .letters-header { align-items: flex-start; }
-        .write-letter-btn { padding: 10px 12px; font-size: 11px; }
-        .letter-item { padding: 11px; }
-        .letter-date { font-size: 9px; }
-        .letter-modal-overlay { padding: 10px; }
-        .letter-modal-box { padding: 18px; max-height: calc(100dvh - 20px); }
-        .letter-form textarea { min-height: 205px; }
+
+      /* ── Mobile ──────────────────────────────────────────── */
+      @media (max-width:480px) {
+        .letters-card { padding:16px; border-radius:20px; }
+        .letters-header { align-items:flex-start; }
+        .write-letter-btn { padding:10px 12px; font-size:11px; }
+        .letter-item { padding:11px; }
+        .letter-date { font-size:9px; }
+        .letter-modal-overlay { padding:10px; }
+        .letter-modal-box { padding:18px; max-height:calc(100dvh - 20px); }
+        .letter-form textarea { min-height:205px; font-size:18px; }
+        .letter-paper { font-size:18px; }
       }
-      @media (prefers-reduced-motion: reduce) {
-        .letter-modal-overlay.is-open,.letter-modal-overlay.is-open .letter-modal-box,.letter-modal-overlay.is-open .letter-paper { animation-duration: .01ms; animation-delay: 0ms; }
-        .letter-item,.write-letter-btn { transition: none; }
+      @media (prefers-reduced-motion:reduce) {
+        .letter-modal-overlay.is-open,.letter-modal-overlay.is-open .letter-modal-box,.letter-modal-overlay.is-open .letter-paper { animation-duration:.01ms; animation-delay:0ms; }
+        .letter-item,.write-letter-btn { transition:none; }
       }
     </style>
 
@@ -391,7 +307,10 @@ export function renderLetters(el, user, profile) {
           <button id="close-read-modal" class="letter-close-btn" type="button" aria-label="Close letter">×</button>
         </div>
         <div id="read-letter-meta" class="read-letter-meta"></div>
-        <div id="read-letter-body" class="letter-paper"></div>
+        <div id="read-letter-body" class="letter-paper">
+          <div id="read-letter-paper-header" class="letter-paper-header"></div>
+          <div id="read-letter-paper-text" class="letter-paper-body"></div>
+        </div>
         <div class="read-letter-actions">
           <button id="reply-letter-btn" class="letter-reply-btn" type="button" hidden>Write a reply ♡</button>
           <button id="close-read-letter-btn" class="letter-read-close" type="button">Close letter</button>
