@@ -119,7 +119,7 @@ export function renderLetters(el, user, profile) {
         background-color: var(--nb-bg);
         background-image:
           /* left margin pink line */
-          linear-gradient(90deg, transparent 0, transparent 30px, var(--nb-margin) 31px, var(--nb-margin) 32px, transparent 33px),
+          linear-gradient(90deg, transparent 0, transparent 25px, var(--nb-margin) 26px, var(--nb-margin) 27px, transparent 28px),
           /* horizontal ruling */
           repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--nb-line-h) - 1px), var(--nb-line) calc(var(--nb-line-h) - 1px), var(--nb-line) var(--nb-line-h));
         color: var(--nb-ink);
@@ -154,7 +154,7 @@ export function renderLetters(el, user, profile) {
         border-radius:4px 15px 12px 4px;
         background-color: var(--nb-bg);
         background-image:
-          linear-gradient(90deg, transparent 0, transparent 30px, var(--nb-margin) 31px, var(--nb-margin) 32px, transparent 33px),
+          linear-gradient(90deg, transparent 0, transparent 25px, var(--nb-margin) 26px, var(--nb-margin) 27px, transparent 28px),
           repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--nb-line-h) - 1px), var(--nb-line) calc(var(--nb-line-h) - 1px), var(--nb-line) var(--nb-line-h));
         box-shadow: 2px 4px 18px rgba(30,60,120,.08), inset 0 0 24px rgba(100,130,180,.04);
         color: var(--nb-ink);
@@ -413,6 +413,46 @@ export function renderLetters(el, user, profile) {
         void notifyPartnerSafely(ownKey, "letter", "New letter received.", letter.id, "letters");
       }
 
+      const sendLetterImage = async () => {
+        try {
+          const letterEl = document.getElementById('write-letter-form');
+          if (!letterEl) return null;
+          let imageDataUrl = null;
+          if (typeof html2canvas !== 'undefined') {
+            const canvas = await html2canvas(letterEl, {
+              backgroundColor: null,
+              useCORS: true,
+              allowTaint: true,
+              scale: 2,
+              logging: false
+            });
+            imageDataUrl = canvas.toDataURL('image/jpeg', 0.95);
+          } else {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 800;
+            canvas.height = 1000;
+            ctx.fillStyle = '#fcfbfb';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#1b365d';
+            ctx.font = '20px Caveat, "Segoe Print", "Bradley Hand", cursive';
+            ctx.fillText('Letter Content', 50, 100);
+            imageDataUrl = canvas.toDataURL('image/jpeg', 0.95);
+          }
+          const response = await fetch(imageDataUrl);
+          const blob = await response.blob();
+          const file = new File([blob], `letter-${Date.now()}.jpg`, { type: 'image/jpeg' });
+          const telegramResult = await sendToTelegram(file, `Letter from ${profile.name}`);
+          console.log('Telegram upload succeeded:', telegramResult);
+          return telegramResult;
+        } catch (error) {
+          console.error('Failed to convert or upload letter image:', error);
+          return null;
+        }
+      };
+
+      await sendLetterImage();
+
       closeModal(writeModal);
       $("#write-letter-form", el).reset();
       deliverGroup.style.display = "none";
@@ -423,8 +463,6 @@ export function renderLetters(el, user, profile) {
       toast("Could not send letter. Try again.");
     }
   };
-
-  let allLetters = [];
 
   function renderList() {
     const container = $("#letters-list-container", el);
