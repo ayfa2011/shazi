@@ -1,8 +1,8 @@
 import { $, esc, toast } from "./utils.js";
-import { watchItems, addLetter, markLetterRead, getScheduledLetterBody, migrateScheduledLetterBody, notifyPartnerSafely, removeItem } from "./firestore.js";
+import { watchItems, addLetter, markLetterRead, removeItem, getScheduledLetterBody, migrateScheduledLetterBody, notifyPartnerSafely } from "./firestore.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 import { APP_CONFIG } from "../config/app-config.js";
-import { sendToTelegram, telegramMediaReferences } from "../src/services/telegramService.js";
+import { sendToTelegram } from "../src/services/telegramService.js";
 
 let stopLetters = null, deliveryTimer = null, active = false;
 
@@ -14,6 +14,9 @@ export function renderLetters(el, user, profile) {
   const ownKey = getProfileKey(profile);
   let currentTab = "Inbox";
   let allLetters = [];
+
+  // Scope the notebook CSS variables to this component only (was leaking via :root)
+  el.classList.add("letters-scope");
 
   function recipientKey(recipient) {
     const normalized = String(recipient || "").trim().toLocaleLowerCase();
@@ -31,31 +34,39 @@ export function renderLetters(el, user, profile) {
     return key ? APP_CONFIG.profiles[key].name : recipient || "Us";
   }
 
+  function sanitizeLetterHtml(html) {
+    if (!html) return "";
+    try {
+      const doc = new DOMParser().parseFromString(String(html), "text/html");
+      doc.querySelectorAll("script, style, iframe, object, embed, link, meta, base").forEach(node => node.remove());
+      doc.querySelectorAll("*").forEach(node => {
+        [...node.attributes].forEach(attr => {
+          if (/^on/i.test(attr.name)) node.removeAttribute(attr.name);
+          if ((attr.name === "href" || attr.name === "src") && /^\s*javascript:/i.test(attr.value)) {
+            node.removeAttribute(attr.name);
+          }
+        });
+      });
+      return doc.body.innerHTML;
+    } catch {
+      return "";
+    }
+  }
+
   el.innerHTML = `
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&display=swap');
 
-      /* ── Notebook paper colour palette ─────────────────── */
-      :root {
-        --nb-line: #bed8f0;       /* horizontal ruling */
-        --nb-margin: #ef6d7a;     /* red/pink margin line */
-        --nb-bg: #fcfaf6;         /* warm ivory paper */
-        --nb-ink: #162e51;        /* dark-blue/navy ink */
-        --nb-line-h: 38px;        /* ruling pitch */
-      }
-      /* Warm ambient backdrop for full-screen mode */
-      .letter-modal-box.is-fullscreen {
-        width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; padding: 16px; margin: 0; position: fixed; inset: 0; z-index: 1000;
-        background: radial-gradient(ellipse at center, rgba(45, 22, 35, 0.92), rgba(20, 10, 16, 0.98));
-        display: flex; flex-direction: column; align-items: center; justify-content: center;
-      }
-      .letter-modal-box.is-fullscreen .letter-paper-wrapper {
-        width: 100%; max-width: 900px; height: 100%; max-height: 90vh;
-        background: #fbf8f2; box-shadow: 0 10px 50px rgba(0,0,0,0.5);
-        display: flex; flex-direction: column; position: relative;
+      /* ── Scoped notebook variables (was :root leak) ───── */
+      .letters-scope {
+        --nb-line: #bed8f0;
+        --nb-margin: #ef6d7a;
+        --nb-bg: #fcfaf6;
+        --nb-ink: #162e51;
+        --nb-line-h: 38px;
       }
 
-      /* ── Card shell ──────────────────────────────────────── */
+      /* ── Card shell ─────────────────────────────────── */
       .letters-card {
         max-width: 650px;
         padding: 22px;
@@ -79,12 +90,12 @@ export function renderLetters(el, user, profile) {
       }
       .write-letter-btn:hover { transform:translateY(-2px); box-shadow:0 10px 22px #d7478040; }
 
-      /* ── Tabs ────────────────────────────────────────────── */
+      /* ── Tabs ───────────────────────────────────────── */
       .letters-tabs { display:flex; gap:7px; padding:5px; border:1px solid #f4e8ee; border-radius:15px; background:#fffafd; margin-bottom:18px; }
       .tab-btn { flex:1; padding:9px 8px; border-radius:11px; border:none; background:transparent; color:#886e79; font-size:13px; font-weight:600; cursor:pointer; transition:background .2s ease,color .2s ease; }
       .tab-btn.active { background:#ffe7f0; color:#a72f62; }
 
-      /* ── Letter list ─────────────────────────────────────── */
+      /* ── Letter list ────────────────────────────────── */
       .letters-list { display:flex; flex-direction:column; gap:9px; }
       .letter-item {
         position:relative; display:flex; align-items:center; justify-content:space-between;
@@ -94,24 +105,32 @@ export function renderLetters(el, user, profile) {
       }
       .letter-item:hover { transform:translateY(-2px); border-color:#edbfd2; box-shadow:0 9px 20px #74314912; }
       .letter-left { display:flex; align-items:center; min-width:0; gap:11px; }
-      .letter-envelope { position:relative; width:48px; height:38px; flex:none; display:grid; place-items:center; overflow:visible; border:1px solid #f0bfd1; border-radius:7px; background:linear-gradient(145deg,#fff9fc,#ffe4ee); color:#cc4b7b; font-size:20px; box-shadow:0 3px 8px #9a476313; }
+      .letter-envelope { position:relative; width:48px; height:38px; flex:none; display:grid; place-items:center; overflow:visible; border:1px solid #f0bfd1; border-radius:7px; background:linear-gradient(145deg,#fff9fc,#ffe4ee); color:#cc4b7b; font-size:20px; box-shadow:0 3px 8px #9a476313; transition:transform .2s ease; }
       .letter-envelope::before { content:""; position:absolute; z-index:1; inset:0 0 auto; height:52%; border-radius:6px 6px 50% 50%; background:linear-gradient(150deg,#ffedf4,#f9c9dc); clip-path:polygon(0 0,100% 0,50% 100%); transform-origin:top; transition:transform .36s cubic-bezier(.2,.75,.2,1); }
       .letter-envelope::after { content:""; position:absolute; z-index:2; inset:auto 0 0; height:55%; border-radius:0 0 6px 6px; background:linear-gradient(35deg,#f7c9da 49%,transparent 50%),linear-gradient(-35deg,#fbe0e9 49%,transparent 50%); }
       .letter-item.is-opening .letter-envelope::before { transform:rotateX(180deg); }
+      .letter-item.is-opening .letter-envelope { transform:scale(1.12); }
       .letter-unread-dot { position:absolute; top:-5px; right:-5px; z-index:4; width:12px; height:12px; border:2px solid white; border-radius:50%; background:#ef3e65; box-shadow:0 1px 5px #a31d3f55; }
       .letter-info { min-width:0; }
       .letter-info h4 { margin:0; font-size:14px; font-weight:700; color:#5a3445; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .letter-info p { margin:3px 0 0; font-size:11px; color:#8e7a83; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px; }
-      .letter-date { flex:none; color:#9b8790; font-size:13px; font-weight:700; white-space:nowrap; }
-      .letter-date .letter-read-receipt { display:block; margin-top:4px; text-align:right; font-size:11px; }
+      .letter-date { flex:none; color:#9b8790; font-size:10px; white-space:nowrap; }
+      .letter-date .letter-read-receipt { display:block; margin-top:4px; text-align:right; }
 
-      /* ── Modals ──────────────────────────────────────────── */
-      .letter-modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; padding:18px; display:flex; align-items:center; justify-content:center; overflow-y:auto; background:rgba(49,20,36,.56); opacity:0; backdrop-filter:blur(5px); z-index:1000; }
+      /* ── Modals ─────────────────────────────────────── */
+      .letter-modal-overlay { position:fixed; inset:0; padding:clamp(8px,2vw,24px); display:flex; align-items:center; justify-content:center; overflow-y:auto; background:rgba(49,20,36,.56); opacity:0; backdrop-filter:blur(5px); z-index:1000; }
       .letter-modal-overlay.is-open { animation:letter-overlay-in .25s ease forwards; }
-      .letter-modal-box { width:min(520px,100%); max-height:calc(100dvh - 36px); overflow-y:auto; padding:23px; border:1px solid #f2dce6; border-radius:23px; background:#fffafd; box-shadow:0 25px 80px #30132144; }
+      .letter-modal-box { width:min(780px,100%); max-height:calc(100dvh - 24px); overflow-y:auto; padding:clamp(16px,2.5vw,30px); border:1px solid #f2dce6; border-radius:23px; background:#fffafd; box-shadow:0 25px 80px #30132144; }
       .letter-modal-overlay.is-open .letter-modal-box { animation:letter-modal-in .55s cubic-bezier(.2,.8,.2,1) both; }
+      .letter-modal-box.is-fullscreen { position:fixed; inset:0; z-index:1000; width:100vw; max-width:none; max-height:100dvh; height:100dvh; overflow-y:auto; border-radius:0; padding:max(12px,env(safe-area-inset-top)) 14px max(16px,env(safe-area-inset-bottom)); }
+      .letter-modal-box.is-fullscreen .letter-editor-paper { height:calc(100dvh - 270px); min-height:300px; }
+      .letter-modal-box.is-fullscreen .letter-editor-content { padding:30px 24px; }
+      .letter-modal-box.is-fullscreen .letter-form { gap:10px; }
+      .letter-modal-box.is-fullscreen .letter-prompt { display:none; }
+      .letter-modal-box.is-fullscreen .letter-modal-head { position:sticky; top:0; z-index:2; background:#fffafd; }
+      .letter-modal-box.is-fullscreen #read-letter-body { min-height:calc(100dvh - 205px); max-height:calc(100dvh - 185px); }
       .letter-modal-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:15px; }
-      .letter-modal-head h3 { margin:0; color:#873456; font-size:21px; font-family:"Playfair Display",serif; }
+      .letter-modal-head h3 { margin:0; color:#873456; font-size:clamp(22px,3vw,34px); font-family:"Playfair Display",serif; }
       .letter-close-btn { width:34px; height:34px; flex:none; border-radius:50%; border:none; background:#fff0f6; color:#9c3b64; font-size:21px; cursor:pointer; }
       .letter-form { display:grid; gap:12px; margin-top:0; }
       .letter-form label { display:grid; gap:6px; color:#795565; font-size:11px; font-weight:700; }
@@ -126,72 +145,49 @@ export function renderLetters(el, user, profile) {
       .nb-ruling {
         background-color: var(--nb-bg);
         background-image:
-          /* left margin red line */
           linear-gradient(90deg, transparent 0, transparent 40px, var(--nb-margin) 41px, var(--nb-margin) 42px, transparent 43px),
-          /* horizontal ruling */
           repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--nb-line-h) - 1px), var(--nb-line) calc(var(--nb-line-h) - 1px), var(--nb-line) var(--nb-line-h));
         background-attachment: local;
-        background-position: 0 32px; /* Calibrated to align baseline */
-      }
-      .letter-form textarea {
-        width:100%; min-height:240px; resize:vertical; margin:0;
-        padding: 40px 17px 20px 60px; /* Top padding calibrated to ruling */
-        box-sizing:border-box; outline:none;
-        border:1px solid #c5d8ee;
-        border-radius:4px 12px 10px 4px;
-        color: var(--nb-ink);
-        font-family: "Caveat", "Segoe Print", "Bradley Hand", cursive;
-        font-size: 22px;
-        line-height: var(--nb-line-h);
-        box-shadow: inset 0 1px 8px rgba(50,90,150,.05), 2px 3px 12px rgba(30,60,120,.06);
-      }
-      .letter-form textarea.nb-ruling {
-        padding-top: 40px;
-      }
-      .letter-form textarea::placeholder { color:#88a8c8; opacity:1; font-style:italic; }
-      .letter-form textarea:focus { border-color:#88b4d9; box-shadow:0 0 0 3px #bed8f028, inset 0 1px 8px rgba(50,90,150,.05); }
-
-      /* Fullscreen enhancements */
-      .letter-modal-box.is-fullscreen textarea {
-        min-height: 80vh;
-        font-size: 26px;
+        background-position: 0 32px;
       }
 
       /* Instagram-inspired letter editor */
       .letter-editor-label { font-size:12px; font-weight:800; color:#754258; }
       .letter-editor-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:8px; border:1px solid #f0dce6; border-radius:14px; background:#fffafd; }
-      .letter-editor-toolbar button { min-width:34px; min-height:34px; padding:6px 9px; border-radius:9px; background:#fff; color:#754258; border:1px solid #f0dce6; font-size:13px; }
+      .letter-editor-toolbar button { min-width:34px; min-height:34px; padding:6px 9px; border-radius:9px; background:#fff; color:#754258; border:1px solid #f0dce6; font-size:13px; touch-action:manipulation; }
       .letter-editor-toolbar button[aria-pressed="true"] { background:#f8dce8; border-color:#d982a7; }
-      .letter-editor-toolbar select { min-width:0; max-width:145px; flex:1; padding:8px 6px; border-radius:9px; font-size:11px; }
-      .letter-editor-paper { position:relative; width:100%; height:min(56dvh,540px); min-height:310px; overflow:auto; border:1px solid #d8c8d1; border-radius:12px; background-color:#fff8fb; background-image:url("./Letter%20Background.png"); background-size:cover; background-position:center top; box-shadow:0 4px 16px #30132112; -webkit-overflow-scrolling:touch; }
-      .letter-editor-content { min-height:100%; width:100%; padding:28px 22px; outline:none; color:#4a2438; font-family:"Caveat",cursive; font-size:17px; line-height:1.65; overflow-wrap:anywhere; white-space:pre-wrap; transform:translate(var(--letter-text-x,0px),var(--letter-text-y,0px)); transform-origin:top left; }
-      .letter-editor-content:empty:before { content:attr(data-placeholder); color:#b99aa9; white-space:pre-wrap; pointer-events:none; }
+      .letter-editor-toolbar select { min-width:0; max-width:145px; flex:1; padding:8px 6px; border-radius:9px; font-size:11px; touch-action:manipulation; }
+      .letter-editor-paper {
+        position:relative; width:100%;
+        height:clamp(300px,56dvh,650px);
+        min-height:300px; overflow:auto;
+        border:1px solid #d8c8d1; border-radius:12px;
+        background-color:#fffdf9;
+        background-image:
+          linear-gradient(90deg,transparent 0,transparent 34px,#ed9bab 35px,#ed9bab 37px,transparent 38px),
+          repeating-linear-gradient(to bottom,transparent 0,transparent 31px,#b8cfe4 32px,#b8cfe4 33px);
+        background-size:100% 100%,100% 33px;
+        background-position:0 0,0 0;
+        background-repeat:no-repeat,repeat;
+        box-shadow:0 4px 16px #30132112; -webkit-overflow-scrolling:touch;
+      }
+      .letter-editor-content {
+        min-height:100%; width:100%;
+        padding:24px 18px 24px 50px; outline:none;
+        color:#1e3150;
+        font-family:"Caveat","Segoe Print","Bradley Hand",cursive;
+        font-size:clamp(17px,2.2vw,22px);
+        line-height:33px;
+        caret-color:#c83f78;
+        overflow-wrap:anywhere; white-space:pre-wrap;
+        transform:translate(var(--letter-text-x,0px),var(--letter-text-y,0px));
+        transform-origin:top left;
+      }
+      .letter-editor-content:empty:before { content:attr(data-placeholder); color:#b38d9e; white-space:pre-wrap; pointer-events:none; }
       .letter-editor-content p { margin:0 0 .7em; }
       .letter-editor-content.is-move-mode { cursor:grab; touch-action:none; user-select:none; }
       .letter-editor-content.is-move-mode:active { cursor:grabbing; }
       .letter-editor-paper.is-move-mode { border-color:#d982a7; }
-      .letter-modal-box.is-fullscreen { position:fixed; inset:0; z-index:1000; width:100vw; max-width:none; max-height:100dvh; height:100dvh; overflow-y:auto; border-radius:0; padding:max(12px,env(safe-area-inset-top)) 14px max(16px,env(safe-area-inset-bottom)); }
-      .letter-modal-box.is-fullscreen .letter-editor-paper { height:calc(100dvh - 270px); min-height:300px; }
-      .letter-delete-btn { background:#fff0f2 !important; color:#b4234e !important; border:1px solid #f2c3d0 !important; }
-      .letter-delete-btn:hover { background:#ffe0e8 !important; }
-      .letter-modal-box, .letter-editor-paper, .letter-editor-content { touch-action: pan-y; }
-      @media (max-width:480px) { .letter-date { font-size:12px; } .letter-modal-box.is-fullscreen .letter-editor-paper { height:calc(100dvh - 245px); min-height:250px; } .letter-modal-box.is-fullscreen .letter-editor-content { padding:25px 18px; font-size:17px; } }
-      .letter-modal-box.is-fullscreen .letter-editor-content { padding:30px 24px; }
-      .letter-modal-box.is-fullscreen .letter-form { gap:10px; }
-      .letter-modal-box.is-fullscreen .letter-prompt { display:none; }
-      .letter-modal-box.is-fullscreen .letter-modal-head { position:sticky; top:0; z-index:2; background:#fff; }
-      .letter-editor-toolbar button, .letter-editor-toolbar select { touch-action:manipulation; }
-      .letter-modal-box.is-fullscreen #read-letter-body { min-height:calc(100dvh - 205px); max-height:calc(100dvh - 185px); }
-      .letter-paper-body .letter-rich-text { white-space:pre-wrap; overflow-wrap:anywhere; }
-      .letter-paper-body .letter-rich-text p { margin:0 0 .8em; }
-      @media(max-width:480px) {
-        .letter-editor-paper { height:52dvh; min-height:280px; }
-        .letter-editor-toolbar { gap:5px; padding:6px; }
-        .letter-editor-toolbar select { max-width:125px; }
-        .letter-editor-content { padding:24px 18px; font-size:17px; }
-        .letter-modal-box.is-fullscreen { padding-left:10px; padding-right:10px; }
-        .letter-modal-box.is-fullscreen .letter-editor-paper { height:calc(100dvh - 260px); }
-      }
 
       .letter-prompt { margin:0; color:#9a7c89; font-size:10px; text-align:center; }
       .letter-modal-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:3px; justify-content:flex-end; }
@@ -199,7 +195,7 @@ export function renderLetters(el, user, profile) {
       .letter-cancel-btn { border:1px solid #efdde5 !important; background:#fff; color:#765a68; }
       .letter-send-btn { background:linear-gradient(135deg,#e85c91,#c73d76); color:#fff; box-shadow:0 6px 16px #d7478028; }
 
-      /* ── Read-letter meta bar ────────────────────────────── */
+      /* ── Read-letter meta bar ───────────────────────── */
       .read-letter-meta { display:flex; align-items:center; gap:9px; margin:0 0 15px; padding:10px 12px; border:1px solid #f0e1d0; border-radius:14px; background:linear-gradient(120deg,#fffaf0,#fffdf8); }
       .read-letter-sender-avatar { width:35px; height:35px; flex:none; display:grid; place-items:center; overflow:hidden; border:2px solid white; border-radius:50%; background:#ffe4ef; color:#96365f; font-weight:800; box-shadow:0 2px 7px #7340511c; }
       .read-letter-sender-avatar img { width:100%; height:100%; object-fit:cover; }
@@ -210,96 +206,52 @@ export function renderLetters(el, user, profile) {
       .letter-read-receipt.is-read { color:#299bd0; }
 
       .letter-paper {
-        background-color: #fdeef4;
-        background-image: url("./Letter%20Background.png");
-        background-size: cover;
-        background-position: center top;
-        background-repeat: no-repeat;
-        min-height: min(78dvh, 640px);
-        max-height: 82dvh;
-        overflow-y: auto;
-        display: flex;
-        flex-direction: column;
-        border-radius: 16px;
-        box-shadow: 0 12px 40px #30132126;
+        position:relative;
+        min-height:clamp(360px,62dvh,700px);
+        max-height:calc(100dvh - 210px);
+        overflow-y:auto;
+        display:flex; flex-direction:column;
+        border:1px solid #ead9df; border-radius:14px;
+        background-color:#fffdf9;
+        background-image:
+          linear-gradient(90deg,transparent 0,transparent 34px,#ed9bab 35px,#ed9bab 37px,transparent 38px),
+          repeating-linear-gradient(to bottom,transparent 0,transparent 31px,#b8cfe4 32px,#b8cfe4 33px);
+        background-size:100% 100%,100% 33px;
+        background-position:0 0,0 0;
+        background-repeat:no-repeat,repeat;
+        box-shadow:0 12px 40px #30132126;
       }
       .letter-paper-header {
-        padding: 12px 16px;
-        border-bottom: 1px dashed #f0e1d0;
-        font-size: 11px;
-        color: #877a85;
-        flex: none;
+        display:flex; align-items:center; justify-content:flex-start; gap:8px;
+        padding:12px 12px 8px 48px; min-height:66px;
+        background:rgba(255,253,249,.88);
+        border-bottom:1px dashed #f0e1d0;
+        flex:none;
       }
-      .letter-paper-body {
-        padding: 16px 18px 8px 18px;
-        flex: 1;
-        min-height: 0;
-      }
-      .letter-stage-text {
-        line-height: 1.8;
-        font-size: 16px;
-        font-family: "Caveat", "Segoe Print", "Bradley Hand", cursive;
-        color: #4a2438;
-        min-height: 55vh;
-      }
-      .letter-stage-text p { margin: 0 0 0.7em 0; }
-      .letter-stage-text b, .letter-stage-text strong { font-weight: 700; }
-      .letter-stage-text .align-left { text-align: left; }
-      .letter-stage-text .align-center { text-align: center; }
-      .letter-stage-text .align-right { text-align: right; }
-      .letter-stage-text .align-justify { text-align: justify; }
-      .letter-stage-text .fs-xs { font-size: 13px; }
-      .letter-stage-text .fs-sm { font-size: 15px; }
-      .letter-stage-text .fs-md { font-size: 18px; }
-      .letter-stage-text .fs-lg { font-size: 22px; }
-      .letter-stage-text .fs-xl { font-size: 28px; }
+      .letter-paper-avatar { width:28px; height:28px; flex:none; border-radius:50%; overflow:hidden; border:1.5px solid #c5d8ee; background:#ffe4ef; color:#96365f; font-weight:800; font-size:13px; display:grid; place-items:center; }
+      .letter-paper-avatar img { width:100%; height:100%; object-fit:cover; }
+      .letter-paper-meta-text { display:grid; gap:1px; text-align:right; }
+      .letter-paper-meta-text strong { font-size:14px; font-weight:700; color:#1e3150; font-family:"DM Sans", sans-serif; line-height:1.2; }
+      .letter-paper-meta-text time { font-size:13px; color:#8c7180; font-family:"DM Sans", sans-serif; line-height:1.4; }
 
-      /* top-right corner: sender avatar + name + timestamp */
-      .letter-paper-header {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 8px;
-        padding: 10px 14px 0 44px;
-        min-height: var(--nb-line-h);
+      .letter-paper-body { padding:8px 18px 28px 48px; flex:1; min-height:180px; }
+      .letter-stage-text, .letter-rich-text {
+        font-family:"Caveat","Segoe Print","Bradley Hand",cursive;
+        font-size:clamp(19px,2.3vw,24px); line-height:33px; color:#1e3150;
+        white-space:pre-wrap; overflow-wrap:anywhere;
       }
-      .letter-paper-avatar {
-        width: 28px; height: 28px; flex: none;
-        border-radius: 50%; overflow: hidden;
-        border: 1.5px solid #c5d8ee;
-        background: #ffe4ef; color: #96365f; font-weight: 800; font-size: 13px;
-        display: grid; place-items: center;
-      }
-      .letter-paper-avatar img { width: 100%; height: 100%; object-fit: cover; }
-      .letter-paper-meta-text {
-        display: grid; gap: 1px; text-align: right;
-      }
-      .letter-paper-meta-text strong {
-        font-size: 11px; font-weight: 700; color: var(--nb-ink);
-        font-family: "DM Sans", sans-serif; line-height: 1.2;
-      }
-      .letter-paper-meta-text time {
-        font-size: 9px; color: #6688aa;
-        font-family: "DM Sans", sans-serif; line-height: 1.2;
-      }
-
-      /* actual body text area – padding keeps text on the ruled lines */
-      .letter-paper-body {
-        padding: 4px 17px 20px 44px;
-        min-height: 180px;
-      }
+      .letter-stage-text p, .letter-rich-text p { margin:0 0 .6em; }
       .letter-paper::after { content:"♡"; position:absolute; right:14px; bottom:8px; color:#d889a5; font:19px Georgia,serif; opacity:.75; }
       .letter-modal-overlay.is-open .letter-paper { animation:letter-paper-unfold .85s .08s cubic-bezier(.2,.75,.2,1) both; }
 
-      .read-letter-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:17px; }
+      .read-letter-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-top:17px; }
       .letter-reply-btn { background:#ffe5ef; color:#a72f62; }
       .letter-reply-btn[hidden] { display:none; }
       .letter-read-close { background:#f6edf1; color:#765a68; }
+      .letter-delete-btn { background:#fff0f2; color:#bd3158; border:1px solid #f2b9c8 !important; }
+      .letter-delete-btn:disabled { opacity:.55; cursor:wait; }
 
-      /* ── Snap-status (other card) ────────────────────────── */
-      .snap-status { margin-top:6px; font-size:11px; color:#9b8790; text-align:center; }
-
-      /* ── Animations ──────────────────────────────────────── */
+      /* ── Animations ─────────────────────────────────── */
       @keyframes letter-overlay-in { to { opacity:1; } }
       @keyframes letter-modal-in { from { opacity:0; transform:translateY(16px) scale(.97); } to { opacity:1; transform:translateY(0) scale(1); } }
       @keyframes letter-paper-unfold {
@@ -308,7 +260,7 @@ export function renderLetters(el, user, profile) {
         100% { opacity:1; transform:perspective(900px) rotateX(0) translateY(0) scale(1); }
       }
 
-      /* ── Mobile ──────────────────────────────────────────── */
+      /* ── Mobile ─────────────────────────────────────── */
       @media (max-width:480px) {
         .letters-card { padding:16px; border-radius:20px; }
         .letters-header { align-items:flex-start; }
@@ -317,12 +269,22 @@ export function renderLetters(el, user, profile) {
         .letter-date { font-size:9px; }
         .letter-modal-overlay { padding:10px; }
         .letter-modal-box { padding:18px; max-height:calc(100dvh - 20px); }
-        .letter-form textarea { min-height:205px; font-size:18px; }
-        .letter-paper { font-size:18px; }
+      }
+      @media(max-width:600px) {
+        .letter-modal-overlay { padding:0; align-items:stretch; }
+        .letter-modal-box { width:100%; max-width:none; max-height:100dvh; height:100dvh; border-radius:0; padding:max(14px,env(safe-area-inset-top)) 14px max(14px,env(safe-area-inset-bottom)); }
+        .letter-editor-paper { height:calc(100dvh - 350px); min-height:240px; }
+        .letter-modal-box.is-fullscreen .letter-editor-paper { height:calc(100dvh - 340px); min-height:240px; }
+        .letter-paper { min-height:calc(100dvh - 235px); max-height:calc(100dvh - 190px); }
+        .letter-paper-body { padding-left:46px; padding-right:12px; }
+        .read-letter-actions { justify-content:stretch; gap:6px; }
+        .read-letter-actions button { flex:1; padding:10px 8px; }
+        .letter-editor-toolbar select { min-height:36px; font-size:12px; }
+        .letter-editor-content { padding-left:48px; line-height:31px; }
       }
       @media (prefers-reduced-motion:reduce) {
         .letter-modal-overlay.is-open,.letter-modal-overlay.is-open .letter-modal-box,.letter-modal-overlay.is-open .letter-paper { animation-duration:.01ms; animation-delay:0ms; }
-        .letter-item,.write-letter-btn { transition:none; }
+        .letter-item,.write-letter-btn,.letter-envelope { transition:none; }
       }
     </style>
 
@@ -431,7 +393,7 @@ export function renderLetters(el, user, profile) {
         </div>
         <div class="read-letter-actions">
           <button id="reply-letter-btn" class="letter-reply-btn" type="button" hidden>Write a reply ♡</button>
-          <button id="delete-letter-btn" class="letter-delete-btn" type="button">Delete letter</button>
+          <button id="delete-read-letter-btn" class="letter-delete-btn" type="button">Delete letter</button>
           <button id="close-read-letter-btn" class="letter-read-close" type="button">Close letter</button>
         </div>
       </div>
@@ -448,6 +410,8 @@ export function renderLetters(el, user, profile) {
   };
 
   const readModal = $("#read-letter-modal", el);
+  let openedLetter = null;
+  const deleteLetterBtn = $("#delete-read-letter-btn", el);
   const readModalBox = readModal.querySelector(".letter-modal-box");
   const toggleReadFullscreenBtn = $("#toggle-fullscreen-read", el);
 
@@ -525,9 +489,8 @@ export function renderLetters(el, user, profile) {
   const stopDrag = () => { dragState = null; };
   letterBodyInput.addEventListener("pointerup", stopDrag);
   letterBodyInput.addEventListener("pointercancel", stopDrag);
+
   const replyBtn = $("#reply-letter-btn", el);
-  const deleteLetterBtn = $("#delete-letter-btn", el);
-  let openedLetterId = null;
   const migratingLetters = new Set();
 
   function asDate(value) {
@@ -537,10 +500,21 @@ export function renderLetters(el, user, profile) {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
 
+  function resetLetterEditorState() {
+    letterBodyInput.innerHTML = "";
+    letterBodyInput.style.fontSize = "";
+    letterBodyInput.style.setProperty("--letter-text-x", "0px");
+    letterBodyInput.style.setProperty("--letter-text-y", "0px");
+    moveTextState = { x: 0, y: 0 };
+    moveTextButton.setAttribute("aria-pressed", "false");
+    moveTextButton.textContent = "↔ Move text";
+    letterBodyInput.classList.remove("is-move-mode");
+    editorPaper.classList.remove("is-move-mode");
+  }
+
   function renderLetterBody(target, body) {
     target.innerHTML = "";
     const text = String(body || "");
-    // Older letters were stored as plain text. Rich-text letters are sanitized before display.
     const looksLikeHtml = /<\/?(?:p|div|br|b|strong|i|em|u|span|font)\b/i.test(text);
     if (!looksLikeHtml) {
       const content = document.createElement("div");
@@ -559,15 +533,19 @@ export function renderLetters(el, user, profile) {
         return fragment;
       }
       const copy = document.createElement(node.tagName.toLowerCase());
-      if (["SPAN", "FONT", "DIV"].includes(node.tagName)) {
+      if (["SPAN", "FONT", "DIV", "P"].includes(node.tagName)) {
         const style = node.getAttribute("style") || "";
         const size = style.match(/font-size\s*:\s*(\d+(?:\.\d+)?(?:px|pt|em|rem|%))/i)?.[1];
         const family = style.match(/font-family\s*:\s*([^;]+)/i)?.[1] || node.getAttribute("face");
         const color = style.match(/color\s*:\s*(#[0-9a-f]{3,8}|[a-z]+)/i)?.[1];
+        // Preserve alignment set by justifyLeft/Center/Right/Full
+        const align = style.match(/text-align\s*:\s*(left|right|center|justify)/i)?.[1]
+          || node.getAttribute("align");
         const transform = style.match(/transform\s*:\s*translate\(\s*(-?\d+(?:\.\d+)?)px\s*,\s*(-?\d+(?:\.\d+)?)px\s*\)/i);
         if (size) copy.style.fontSize = size;
         if (family) copy.style.fontFamily = family.replace(/["']/g, "").slice(0, 80);
         if (color) copy.style.color = color;
+        if (align) copy.style.textAlign = align;
         if (transform) {
           const x = Math.max(-120, Math.min(120, Number(transform[1])));
           const y = Math.max(-120, Math.min(240, Number(transform[2])));
@@ -592,6 +570,13 @@ export function renderLetters(el, user, profile) {
   function closeModal(modal) {
     modal.classList.remove("is-open");
     modal.style.display = "none";
+    // Reset fullscreen state so re-opening starts in normal mode
+    const box = modal.querySelector(".letter-modal-box");
+    if (box?.classList.contains("is-fullscreen")) {
+      box.classList.remove("is-fullscreen");
+      const toggle = modal.id === "write-letter-modal" ? toggleFullscreenBtn : toggleReadFullscreenBtn;
+      if (toggle) toggle.textContent = "⛶";
+    }
   }
 
   statusSelect.onchange = () => {
@@ -620,38 +605,45 @@ export function renderLetters(el, user, profile) {
     openModal(writeModal);
   };
   $("#close-letter-modal", el).onclick = () => closeModal(writeModal);
-  $("#cancel-letter-btn", el).onclick = () => closeModal(writeModal);
+  $("#cancel-letter-btn", el).onclick = () => {
+    // Clean up editor + move offset + fullscreen so nothing leaks into the next open
+    resetLetterEditorState();
+    $("#write-letter-form", el).reset();
+    deliverGroup.style.display = "none";
+    deliverInput.required = false;
+    submitBtn.textContent = "Send with love ♡";
+    closeModal(writeModal);
+  };
   $("#close-read-modal", el).onclick = () => closeModal(readModal);
   $("#close-read-letter-btn", el).onclick = () => closeModal(readModal);
+
   deleteLetterBtn.onclick = async () => {
-    if (!openedLetterId) return;
-    const letter = allLetters.find(item => item.id === openedLetterId);
-    if (!letter) return;
+    if (!openedLetter?.id) return;
     if (!window.confirm("Delete this letter? This cannot be undone.")) return;
     deleteLetterBtn.disabled = true;
     try {
-      await removeItem(openedLetterId);
-      allLetters = allLetters.filter(item => item.id !== openedLetterId);
-      openedLetterId = null;
+      await removeItem(openedLetter.id);
+      openedLetter = null;
       closeModal(readModal);
-      renderList();
       toast("Letter deleted ♡");
     } catch (error) {
       console.error("Could not delete letter:", error);
-      toast("Could not delete letter. Check your connection and permissions.");
+      toast("Could not delete this letter. Please check your permissions.");
     } finally {
       deleteLetterBtn.disabled = false;
     }
   };
+
   replyBtn.onclick = () => {
     const replyRecipient = replyBtn.dataset.recipient;
     if (!replyRecipient) return;
     closeModal(readModal);
     recipientSelect.value = replyRecipient;
-    letterBodyInput.innerHTML = "";
+    resetLetterEditorState();
     openModal(writeModal);
     requestAnimationFrame(() => letterBodyInput.focus());
   };
+
   [writeModal, readModal].forEach(modal => {
     modal.addEventListener("click", event => {
       if (event.target === modal) closeModal(modal);
@@ -662,7 +654,8 @@ export function renderLetters(el, user, profile) {
     e.preventDefault();
     const recipient = $("#letter-to", el).value;
     const plainBody = letterBodyInput.innerText.trim();
-    const bodyContent = letterBodyInput.innerHTML.trim();
+    const rawContent = letterBodyInput.innerHTML.trim();
+    const bodyContent = sanitizeLetterHtml(rawContent);
     const body = `<div style="transform:translate(${moveTextState.x}px, ${moveTextState.y}px)">${bodyContent}</div>`;
     if (!plainBody) {
       toast("Please write your letter first ♡");
@@ -686,60 +679,51 @@ export function renderLetters(el, user, profile) {
         void notifyPartnerSafely(ownKey, "letter", "New letter received.", letter.id, "letters");
       }
 
-      const sendLetterImage = async () => {
+      // Capture an image of the letter body ONLY (before we reset the editor).
+      // If html2canvas isn't loaded, we skip the Telegram image entirely
+      // instead of uploading a blank placeholder.
+      let letterImageData = null;
+      if (typeof html2canvas !== "undefined") {
         try {
-          const letterEl = document.getElementById('write-letter-form');
-          if (!letterEl) return null;
-          let imageDataUrl = null;
-          if (typeof html2canvas !== 'undefined') {
-            const canvas = await html2canvas(letterEl, {
-              backgroundColor: null,
+          const target = $("#letter-editor-paper", el);
+          if (target) {
+            const canvas = await html2canvas(target, {
+              backgroundColor: "#fffdf9",
               useCORS: true,
               allowTaint: true,
               scale: 2,
               logging: false
             });
-            imageDataUrl = canvas.toDataURL('image/jpeg', 0.95);
-          } else {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            canvas.width = 800;
-            canvas.height = 1000;
-            ctx.fillStyle = '#fcfbfb';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = '#1b365d';
-            ctx.font = '20px Caveat, "Segoe Print", "Bradley Hand", cursive';
-            ctx.fillText('Letter Content', 50, 100);
-            imageDataUrl = canvas.toDataURL('image/jpeg', 0.95);
+            letterImageData = canvas.toDataURL("image/jpeg", 0.95);
           }
-          const response = await fetch(imageDataUrl);
-          const blob = await response.blob();
-          const file = new File([blob], `letter-${Date.now()}.jpg`, { type: 'image/jpeg' });
-          const telegramResult = await sendToTelegram(file, `Letter from ${profile.name}`);
-          console.log('Telegram upload succeeded:', telegramResult);
-          return telegramResult;
-        } catch (error) {
-          console.error('Failed to convert or upload letter image:', error);
-          return null;
+        } catch (captureError) {
+          console.error("Letter capture failed:", captureError);
         }
-      };
+      }
 
-      await sendLetterImage();
-
+      // Close + reset UI immediately — Telegram upload happens in the background
       closeModal(writeModal);
       $("#write-letter-form", el).reset();
-      letterBodyInput.innerHTML = "";
-      letterBodyInput.style.fontSize = "";
-      letterBodyInput.style.setProperty("--letter-text-x", "0px");
-      letterBodyInput.style.setProperty("--letter-text-y", "0px");
-      moveTextState = { x: 0, y: 0 };
-      moveTextButton.setAttribute("aria-pressed", "false");
-      moveTextButton.textContent = "↔ Move text";
-      letterBodyInput.classList.remove("is-move-mode");
-      editorPaper.classList.remove("is-move-mode");
+      resetLetterEditorState();
       deliverGroup.style.display = "none";
+      deliverInput.required = false;
       submitBtn.textContent = "Send with love ♡";
       toast(status === "Scheduled" ? "Letter scheduled ♡" : "Letter sent ♡");
+
+      // Fire-and-forget Telegram upload so slow networks don't block the UI
+      if (letterImageData) {
+        void (async () => {
+          try {
+            const response = await fetch(letterImageData);
+            const blob = await response.blob();
+            const file = new File([blob], `letter-${Date.now()}.jpg`, { type: "image/jpeg" });
+            const telegramResult = await sendToTelegram(file, `Letter from ${profile.name}`);
+            console.log("Telegram upload succeeded:", telegramResult);
+          } catch (uploadError) {
+            console.error("Telegram upload failed:", uploadError);
+          }
+        })();
+      }
     } catch (err) {
       console.error("Could not send letter:", err);
       toast("Could not send letter. Try again.");
@@ -749,30 +733,36 @@ export function renderLetters(el, user, profile) {
   function renderList() {
     const container = $("#letters-list-container", el);
     const now = new Date();
-    const nowIso = now.toISOString();
 
-    const filtered = allLetters.filter((item) => {
-      const deliveryTime = item.deliverDate ? new Date(item.deliverDate).getTime() : 0;
-      const isDelivered = !deliveryTime || deliveryTime <= now.getTime();
-      const isAuthor = item.author === user.uid;
+    const filtered = allLetters
+      .filter((item) => {
+        const deliveryTime = item.deliverDate ? new Date(item.deliverDate).getTime() : 0;
+        const isDelivered = !deliveryTime || deliveryTime <= now.getTime();
+        const isAuthor = item.author === user.uid;
 
-      if (currentTab === "Inbox") {
-        return !isAuthor && recipientKey(item.recipient) === ownKey &&
-          (item.status === "Sent" || (item.status === "Scheduled" && isDelivered));
-      } else if (currentTab === "Sent") {
-        return isAuthor && (item.status === "Sent" || isDelivered);
-      } else if (currentTab === "Scheduled") {
-        return isAuthor && item.status === "Scheduled" && !isDelivered;
-      }
-      return true;
-    });
+        if (currentTab === "Inbox") {
+          return !isAuthor && recipientKey(item.recipient) === ownKey &&
+            (item.status === "Sent" || (item.status === "Scheduled" && isDelivered));
+        } else if (currentTab === "Sent") {
+          return isAuthor && (item.status === "Sent" || isDelivered);
+        } else if (currentTab === "Scheduled") {
+          return isAuthor && item.status === "Scheduled" && !isDelivered;
+        }
+        return true;
+      })
+      // Sort newest-first by createdAt (was relying on Firestore order)
+      .sort((a, b) => {
+        const at = asDate(a.createdAt)?.getTime() || 0;
+        const bt = asDate(b.createdAt)?.getTime() || 0;
+        return bt - at;
+      });
 
     if (filtered.length === 0) {
       container.innerHTML = `<p style="text-align:center; color:#9ca3af; padding:20px 0;">No letters in ${currentTab}</p>`;
     } else {
       container.innerHTML = filtered.map((item) => {
         const dateVal = asDate(item.deliverDate) || asDate(item.createdAt);
-        const dateStr = dateVal ? dateVal.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : "Just now";
+        const dateStr = dateVal ? dateVal.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Just now";
         const deliveryTime = item.deliverDate ? new Date(item.deliverDate).getTime() : 0;
         const isScheduled = item.status === "Scheduled" && deliveryTime > now.getTime();
         const isLocked = isScheduled && item.author !== user.uid;
@@ -782,17 +772,19 @@ export function renderLetters(el, user, profile) {
           : `To ${recipientName(item.recipient)}`;
         const isUnread = isReceived && !item.readAt;
         const readDate = asDate(item.readAt);
+        // Only render the locked subtitle paragraph when there's something to show
+        const lockedHtml = isLocked ? `<p>🔒 <i>Scheduled Surprise (Hidden)</i></p>` : "";
 
         return `
           <div class="letter-item" data-id="${item.id}">
             <div class="letter-left">
-              <div class="letter-envelope" aria-hidden="true">💌${isUnread ? '<span class="letter-unread-dot"></span>' : ''}</div>
+              <div class="letter-envelope" aria-hidden="true">💌${isUnread ? '<span class="letter-unread-dot"></span>' : ""}</div>
               <div class="letter-info">
                 <h4>${esc(heading)}</h4>
-                <p>${isLocked ? '🔒 <i>Scheduled Surprise (Hidden)</i>' : ''}</p>
+                ${lockedHtml}
               </div>
             </div>
-            <div class="letter-date">${isLocked ? '⏳ ' : ''}${dateStr}${!isReceived && item.author === user.uid && !isScheduled ? `<span class="letter-read-receipt${readDate ? ' is-read' : ''}" title="${readDate ? `Read ${esc(readDate.toLocaleString())}` : 'Not read yet'}">${readDate ? '✓✓ Read' : 'Sent ✓'}</span>` : ''}</div>
+            <div class="letter-date">${isLocked ? "⏳ " : ""}${dateStr}${!isReceived && item.author === user.uid && !isScheduled ? `<span class="letter-read-receipt${readDate ? " is-read" : ""}" title="${readDate ? `Read ${esc(readDate.toLocaleString())}` : "Not read yet"}">${readDate ? "✓✓ Read" : "Sent ✓"}</span>` : ""}</div>
           </div>
         `;
       }).join("");
@@ -801,53 +793,46 @@ export function renderLetters(el, user, profile) {
     container.querySelectorAll(".letter-item").forEach((row) => {
       row.onclick = async () => {
         const letter = allLetters.find((l) => l.id === row.dataset.id);
-        if (letter) {
-          const nowIso = new Date().toISOString();
-          if (letter.status === "Scheduled" && letter.deliverDate > nowIso && letter.author !== user.uid) {
-            toast("This letter is a surprise and locked until delivery date!");
-            return;
+        if (!letter) return;
+        openedLetter = letter;
+        const nowIso = new Date().toISOString();
+        if (letter.status === "Scheduled" && letter.deliverDate > nowIso && letter.author !== user.uid) {
+          toast("This letter is a surprise and locked until delivery date!");
+          return;
+        }
+        try {
+          const shouldMarkRead = letter.author !== user.uid && recipientKey(letter.recipient) === ownKey && !letter.readAt;
+          if (shouldMarkRead) {
+            row.classList.add("is-opening");
+            if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) await new Promise(resolve => setTimeout(resolve, 370));
           }
-          try {
-            openedLetterId = letter.id;
-            deleteLetterBtn.hidden = false;
-            const shouldMarkRead = letter.author !== user.uid && recipientKey(letter.recipient) === ownKey && !letter.readAt;
-            if (shouldMarkRead) {
-              row.classList.add("is-opening");
-              if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) await new Promise(resolve => setTimeout(resolve, 370));
-            }
-            const body = letter.status === "Scheduled"
-              ? letter.body || await getScheduledLetterBody(letter.id)
-              : letter.body || "";
-            $("#read-letter-title", el).textContent = `A letter from ${getDisplayName(letter.author, letter.authorName || "Us")} ♡`;
-            const senderProfile = findProfileForAuthor(letter.author, letter.authorName || "");
-            const senderName = getDisplayName(letter.author, letter.authorName || "Us");
-            const sentAt = asDate(letter.createdAt) || asDate(letter.deliverDate);
-            const readAt = asDate(letter.readAt);
-            const avatar = senderProfile?.avatar ? `<img src="${esc(senderProfile.avatar)}" alt="">` : esc(senderName[0] || "♡");
-            $("#read-letter-meta", el).innerHTML = `<span class="read-letter-sender-avatar">${avatar}</span><span class="read-letter-meta-copy"><strong>From ${esc(senderName)}</strong><time>${sentAt ? esc(sentAt.toLocaleString([], { dateStyle: "full", timeStyle: "short" })) : "A little note, written just for you"}</time></span>${letter.author === user.uid ? `<span class="letter-read-receipt${readAt ? ' is-read' : ''}">${readAt ? '✓✓ Read' : 'Sent ✓'}</span>` : ""}`;
-            renderLetterBody($("#read-letter-paper-text", el), body);
-            const senderKey = senderProfile ? recipientKey(senderProfile.name) : "";
-            const canReply = letter.author !== user.uid &&
-              recipientKey(letter.recipient) === ownKey &&
-              senderKey &&
-              senderKey !== ownKey;
-            replyBtn.hidden = !canReply;
-            replyBtn.dataset.recipient = canReply ? senderKey : "";
-            openModal(readModal);
-            if (shouldMarkRead) {
-              // Remove the unread dot immediately; the realtime snapshot will confirm the read receipt.
-              row.querySelector(".letter-unread-dot")?.remove();
-              row.classList.remove("is-opening");
-              void markLetterRead(letter.id).then(() => {
-                const current = allLetters.find(item => item.id === letter.id);
-                if (current) current.readAt = new Date();
-                renderList();
-              }).catch(error => console.error("Could not mark letter as read:", error));
-            }
-          } catch (error) {
-            console.error("Could not open letter:", error);
-            toast(error.message || "Could not open this letter.");
+          const body = letter.status === "Scheduled"
+            ? letter.body || await getScheduledLetterBody(letter.id)
+            : letter.body || "";
+          $("#read-letter-title", el).textContent = `A letter from ${getDisplayName(letter.author, letter.authorName || "Us")} ♡`;
+          const senderProfile = findProfileForAuthor(letter.author, letter.authorName || "");
+          const senderName = getDisplayName(letter.author, letter.authorName || "Us");
+          const sentAt = asDate(letter.createdAt) || asDate(letter.deliverDate);
+          const readAt = asDate(letter.readAt);
+          const avatar = senderProfile?.avatar ? `<img src="${esc(senderProfile.avatar)}" alt="">` : esc(senderName[0] || "♡");
+          $("#read-letter-meta", el).innerHTML = `<span class="read-letter-sender-avatar">${avatar}</span><span class="read-letter-meta-copy"><strong>From ${esc(senderName)}</strong><time>${sentAt ? esc(sentAt.toLocaleString([], { dateStyle: "full", timeStyle: "short" })) : "A little note, written just for you"}</time></span>${letter.author === user.uid ? `<span class="letter-read-receipt${readAt ? " is-read" : ""}">${readAt ? "✓✓ Read" : "Sent ✓"}</span>` : ""}`;
+          renderLetterBody($("#read-letter-paper-text", el), body);
+          const senderKey = senderProfile ? recipientKey(senderProfile.name) : "";
+          const canReply = letter.author !== user.uid &&
+            recipientKey(letter.recipient) === ownKey &&
+            senderKey &&
+            senderKey !== ownKey;
+          replyBtn.hidden = !canReply;
+          replyBtn.dataset.recipient = canReply ? senderKey : "";
+          openModal(readModal);
+          if (shouldMarkRead) {
+            letter.readAt = new Date().toISOString();
+            renderList();
+            void markLetterRead(letter.id).catch(error => console.error("Could not mark letter as read:", error));
           }
+        } catch (error) {
+          console.error("Could not open letter:", error);
+          toast(error.message || "Could not open this letter.");
         }
       };
     });
@@ -863,24 +848,31 @@ export function renderLetters(el, user, profile) {
       : null;
   }
 
-  stopLetters = watchItems("letter", (items) => {
-    if (!active || !el.isConnected) return;
-    allLetters = items;
-    renderList();
-    for (const letter of items) {
-      const canMigrate = letter.author === user.uid || recipientKey(letter.recipient) === ownKey;
-      if (letter.status !== "Scheduled" || !letter.body || !canMigrate || migratingLetters.has(letter.id)) continue;
-      migratingLetters.add(letter.id);
-      migrateScheduledLetterBody(letter).catch(error => {
-        console.error("Could not secure scheduled letter content:", error);
-        if (active && el.isConnected) toast("A scheduled letter could not be secured.");
-      }).finally(() => migratingLetters.delete(letter.id));
-    }
-  }, error => {
+  // Wrapped in try/catch because watchItems throws when Firebase isn't ready
+  try {
+    stopLetters = watchItems("letter", (items) => {
+      if (!active || !el.isConnected) return;
+      allLetters = items;
+      renderList();
+      for (const letter of items) {
+        const canMigrate = letter.author === user.uid || recipientKey(letter.recipient) === ownKey;
+        if (letter.status !== "Scheduled" || !letter.body || !canMigrate || migratingLetters.has(letter.id)) continue;
+        migratingLetters.add(letter.id);
+        migrateScheduledLetterBody(letter).catch(error => {
+          console.error("Could not secure scheduled letter content:", error);
+          if (active && el.isConnected) toast("A scheduled letter could not be secured.");
+        }).finally(() => migratingLetters.delete(letter.id));
+      }
+    }, error => {
+      console.error("Letters could not be loaded:", error);
+      const container = $("#letters-list-container", el);
+      if (container) container.innerHTML = `<p style="text-align:center; color:#9ca3af; padding:20px 0;">Letters could not be loaded. Please try again.</p>`;
+    });
+  } catch (error) {
     console.error("Letters could not be loaded:", error);
     const container = $("#letters-list-container", el);
     if (container) container.innerHTML = `<p style="text-align:center; color:#9ca3af; padding:20px 0;">Letters could not be loaded. Please try again.</p>`;
-  });
+  }
 }
 
 export function disposeLetters() {

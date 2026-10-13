@@ -474,7 +474,6 @@ body.word-search-fullscreen .content{width:100%;max-width:none;min-height:100vh;
 }
 @media(max-width:420px){.special-days-header{align-items:flex-start}.special-days-add{padding:9px 10px}.special-day-item{gap:8px;padding:10px}.special-day-item-icon{width:34px;height:34px;font-size:18px}.special-day-countdown{max-width:68px;font-size:10px}}
 
-
 /* ===== Our Little World: romantic home polish (visual-only) ===== */
 .home-dashboard .content{width:min(100%,980px);margin-inline:auto;padding-bottom:calc(108px + env(safe-area-inset-bottom))}
 .home-dashboard .couple-brand{padding:8px 10px 14px;text-align:center}
@@ -1517,8 +1516,6 @@ button:disabled { cursor: not-allowed; opacity: .58; }
   }
 }
 
-
-
 /* SOS line coloring */
 .sos-line-cell.own-line{background:#a5d6a7;border-color:#1b5e20;}
 .sos-line-cell.partner-line{background:#ef9a9a;border-color:#b71c1c;}
@@ -1651,4 +1648,153 @@ body.home-dashboard .home-view-more {
 }
 body.home-dashboard .home-canvas-action {
   background: #fff5f9 !important;
+}
+
+/* ==========================================================================
+   CANVAS ZOOM SUPPORT — added for drawing zoom feature
+   (Pinch / Ctrl+Wheel / +− buttons with 50%–400% range)
+   ========================================================================== */
+
+/* Board becomes the scroll container for zoomed content */
+.draw-board {
+  position: relative;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
+
+/* Spacer creates the scrollable area sized to the zoomed canvas */
+.canvas-zoom-spacer {
+  position: relative;
+  display: block;
+  transition: width .12s ease-out, height .12s ease-out;
+  min-width: 100%;
+  min-height: 100%;
+}
+
+/* The transform layer scales the canvas + watermark together */
+.canvas-zoom-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+  transition: transform .12s ease-out;
+}
+
+/* Floating zoom controls (bottom-right of the canvas) */
+.canvas-zoom-controls {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid #f2dce5;
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.canvas-zoom-controls button {
+  min-width: 32px;
+  height: 32px;
+  border-radius: 16px;
+  border: none;
+  background: transparent;
+  color: #a43262;
+  font-weight: 700;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0 10px;
+  line-height: 1;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .15s ease, transform .1s ease;
+}
+
+.canvas-zoom-controls button:hover {
+  background: #fff0f6;
+}
+
+.canvas-zoom-controls button:active {
+  transform: scale(0.94);
+}
+
+.canvas-zoom-controls #zoom-out-btn,
+.canvas-zoom-controls #zoom-in-btn {
+  font-size: 18px;
+  min-width: 32px;
+  padding: 0;
+}
+
+.canvas-zoom-controls #zoom-level-btn {
+  background: #fff0f6;
+  font-size: 12px;
+  min-width: 52px;
+  font-variant-numeric: tabular-nums;
+}
+
+.canvas-zoom-controls #zoom-level-btn:hover {
+  background: #ffe3ee;
+}
+
+/* Prevent the canvas from stealing touch-action from zoom gestures */
+.canvas-zoom-layer .draw-canvas,
+.canvas-zoom-layer canvas {
+  touch-action: none;
+}
+
+/* Mobile tuning */
+@media (max-width: 759px) {
+  .canvas-zoom-controls {
+    bottom: 8px;
+    right: 8px;
+    padding: 5px;
+    gap: 3px;
+  }
+  .canvas-zoom-controls button {
+    height: 30px;
+    min-width: 30px;
+    font-size: 12px;
+  }
+  .canvas-zoom-controls #zoom-in-btn,
+  .canvas-zoom-controls #zoom-out-btn {
+    font-size: 17px;
+  }
+  .canvas-zoom-controls #zoom-level-btn {
+    min-width: 46px;
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 375px) {
+  .canvas-zoom-controls {
+    bottom: 6px;
+    right: 6px;
+    padding: 4px;
+  }
+  .canvas-zoom-controls button {
+    height: 28px;
+    min-width: 28px;
+  }
+  .canvas-zoom-controls #zoom-level-btn {
+    min-width: 42px;
+    font-size: 10px;
+  }
+}
+
+/* Reduced motion: kill zoom transitions */
+@media (prefers-reduced-motion: reduce) {
+  .canvas-zoom-spacer,
+  .canvas-zoom-layer {
+    transition-duration: .01ms !important;
+  }
 }
