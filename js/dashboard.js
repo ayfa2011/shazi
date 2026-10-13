@@ -227,10 +227,10 @@ export function renderHome(el, user, profile) {
         </div>
         <div class="today-cards today-cards--image">
           <article class="card today-question today-image-card">
-            <button type="button" class="today-image-btn" id="home-question-link" aria-label="Answer now"><img src="./Asset/Question.png" alt="Today's Question - Share, talk, and get closer"></button>
+            <button type="button" class="today-image-btn" id="home-question-link" aria-label="Answer now"><img src="./Asset/Question.png?v=6" alt="Today's Question - Share, talk, and get closer" fetchpriority="high" decoding="async"></button>
           </article>
           <article class="card today-challenge today-image-card" id="home-daily-challenge" role="link" tabindex="0" aria-label="Open Daily Challenges">
-            <button type="button" class="today-image-btn" id="home-challenge-link" aria-label="Take the challenge"><img src="./Asset/Challenge.png" alt="Daily Challenge - Small steps, big memories"></button>
+            <button type="button" class="today-image-btn" id="home-challenge-link" aria-label="Take the challenge"><img src="./Asset/Challenge.png?v=6" alt="Daily Challenge - Small steps, big memories" fetchpriority="high" decoding="async"></button>
           </article>
         </div>
       </section>
