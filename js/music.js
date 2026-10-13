@@ -93,6 +93,12 @@ async function extractAudioTrack(videoFile) {
 }
 
 /** Format a seconds value as m:ss for the player readouts. */
+function shortTrackName(value) {
+  const text = String(value || "Our song").trim();
+  const words = text.split(/\\s+/).filter(Boolean);
+  return words.length > 2 ? words.slice(0, 2).join(" ") : text;
+}
+
 function formatClock(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
   const total = Math.floor(seconds);
@@ -258,12 +264,17 @@ export function initMusic(user) {
     const saveButton = $("#save-music");
     const uploadButton = $("#music-upload");
     const listenButton = $("#listen-music");
-    if (trackName) trackName.textContent = value?.name || "No song selected";
+    if (trackName) trackName.textContent = shortTrackName(value?.name || "No song selected");
     if (playButton) playButton.disabled = !trackKey(value) || value.status === "uploading";
+    const replayButton = $("#replay-music");
+    const stopButton = $("#stop-music");
+    if (replayButton) replayButton.disabled = !trackKey(value);
+    if (stopButton) stopButton.disabled = !trackKey(value);
     if (pauseButton) pauseButton.disabled = !value?.playing;
     if (saveButton) saveButton.disabled = !trackKey(value) || value.saved;
     if (uploadButton) uploadButton.disabled = false;
-    uploadButton?.closest(".upload-btn")?.classList.toggle("disabled", locked);
+    // Uploads stay enabled while another song is playing; those uploads go to Queue.
+    uploadButton?.closest(".upload-btn")?.classList.remove("disabled");
     if (listenButton) listenButton.disabled = !value?.playing;
     const libraryLock = `${value?.ownerUid || ""}:${trackKey(value)}`;
     if (libraryLock !== lastLibraryLock) {
@@ -355,7 +366,7 @@ export function initMusic(user) {
       const row = document.createElement("div");
       row.className = "music-library-item";
       const title = document.createElement("span");
-      title.textContent = song.name || "Our song";
+      title.textContent = shortTrackName(song.name || "Our song");
       const actions = document.createElement("div");
       actions.className = "music-library-actions";
       const play = document.createElement("button");
@@ -411,7 +422,7 @@ export function initMusic(user) {
     if (!entries.length) { const empty = document.createElement("p"); empty.className = "muted"; empty.textContent = "Queue is empty."; list.append(empty); return; }
     for (const [id, song] of entries) {
       const row = document.createElement("div"); row.className = "music-library-item";
-      const title = document.createElement("span"); title.textContent = song.name || "Queued song";
+      const title = document.createElement("span"); title.textContent = shortTrackName(song.name || "Queued song");
       const actions = document.createElement("div"); actions.className = "music-library-actions";
       const play = document.createElement("button"); play.type = "button"; play.className = "secondary"; play.textContent = "Play now";
       play.addEventListener("click", async () => { await remove(dbRef(rtdb, `${ROOT}/queue/${id}`)); if (session?.ownerUid) await clearSession(); await startQueuedSong(song); });
@@ -553,10 +564,6 @@ export function initMusic(user) {
   async function playSharedSong() {
     if (!trackKey(session)) return;
     try {
-      // Let a completed song be replayed from the beginning.
-      if (audio.ended || (Number.isFinite(audio.duration) && audio.duration > 0 && audio.currentTime >= audio.duration - 0.25)) {
-        audio.currentTime = 0;
-      }
       await audio.play();
       if (!await patchOwnedSession({ playing: true, time: audio.currentTime, status: "ready" })) {
         audio.pause();
@@ -691,10 +698,40 @@ export function initMusic(user) {
   };
   uploadInput.onchange = event => uploadSong(event.target.files?.[0]);
   const playerControls = $("#pause-music")?.parentElement;
-  if (playerControls && !document.getElementById("stop-music")) {
-    const stopButton = document.createElement("button"); stopButton.id = "stop-music"; stopButton.type = "button"; stopButton.className = "secondary"; stopButton.textContent = "Stop song";
-    stopButton.addEventListener("click", async () => { audio.pause(); await clearSession(); setStatus("Song stopped. Upload or choose another song."); });
-    playerControls.append(stopButton);
+  if (playerControls) {
+    if (!document.getElementById("replay-music")) {
+      const replayButton = document.createElement("button");
+      replayButton.id = "replay-music";
+      replayButton.type = "button";
+      replayButton.className = "secondary";
+      replayButton.textContent = "Replay";
+      replayButton.addEventListener("click", async () => {
+        if (!trackKey(session)) {
+          toast("Choose a song first.");
+          return;
+        }
+        try {
+          audio.currentTime = 0;
+          await playSharedSong();
+        } catch (error) {
+          reportError(error, "This song could not be replayed.");
+        }
+      });
+      playerControls.append(replayButton);
+    }
+    if (!document.getElementById("stop-music")) {
+      const stopButton = document.createElement("button");
+      stopButton.id = "stop-music";
+      stopButton.type = "button";
+      stopButton.className = "secondary";
+      stopButton.textContent = "Stop song";
+      stopButton.addEventListener("click", async () => {
+        audio.pause();
+        await clearSession();
+        setStatus("Song stopped. Upload or choose another song.");
+      });
+      playerControls.append(stopButton);
+    }
   }
   $("#music-chat-form").onsubmit = sendChat;
 
@@ -733,31 +770,23 @@ export function initMusic(user) {
   };
   const onPlayerEnded = async () => {
     renderProgress();
-    if (!session?.ownerUid) return;
-    // Ask once, after the song finishes, whether the couple wants to keep it.
-    if (!session.saved && trackKey(session) && !session.favouritePromptShown) {
-      const shouldSave = window.confirm(`Add “${session.name || "this song"}” to Favourite / Saved music?`);
-      if (shouldSave) await saveCurrentSong();
-      // Mark the prompt handled for this playback session so it cannot repeat.
-      await patchOwnedSession({ favouritePromptShown: true }).catch(() => {});
+    // Only the active session owner asks, avoiding duplicate prompts on both phones.
+    if (!session?.ownerUid || session.ownerUid !== uid) return;
+    if (!session.saved && trackKey(session) && window.confirm(`Add “${shortTrackName(session.name)}” to Favourite / Saved Music?`)) {
+      await saveCurrentSong();
     }
-    const next = Object.entries(sharedQueue || {})[0];
+    const next = Object.entries(sharedQueue || {}).sort((a, b) => Number(a[1]?.addedAt || 0) - Number(b[1]?.addedAt || 0))[0];
     if (next) {
       const [id, song] = next;
       try {
         await remove(dbRef(rtdb, `${ROOT}/queue/${id}`));
+        await clearSession(uid);
         await startQueuedSong(song);
       } catch (error) {
         reportError(error, "The next queued song could not start.");
       }
     } else {
-      // Keep the current song selected at the end so Play can replay it.
-      try {
-        await patchOwnedSession({ playing: false, time: 0, status: "ready" });
-        audio.currentTime = 0;
-      } catch (error) {
-        reportError(error, "The finished song could not be reset for replay.");
-      }
+      await clearSession(uid);
     }
   };
   const onPlayerMetadata = () => {
