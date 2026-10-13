@@ -26,6 +26,72 @@ const ROOT = `couples/${APP_CONFIG.coupleId}/music`;
 const AUDIO_EXTENSIONS = /\.(mp3|m4a|aac|wav|wave|ogg|oga|opus|flac|weba|aiff?)$/i;
 const VIDEO_EXTENSIONS = /\.(mp4|m4v|mov|webm|mkv|avi|3gp|3g2|mpeg|mpg)$/i;
 
+/**
+ * Extract an audio-only WebM file from a local video using browser-native APIs.
+ * No video bytes are uploaded. Browsers without MediaRecorder/captureStream report
+ * a clear error instead of silently failing the upload.
+ */
+async function extractAudioTrack(videoFile) {
+  const video = document.createElement("video");
+  const objectUrl = URL.createObjectURL(videoFile);
+  let recorder;
+  let stream;
+  try {
+    const capture = video.captureStream || video.mozCaptureStream;
+    if (!capture || typeof MediaRecorder === "undefined") {
+      throw new Error("This browser cannot extract audio from video. Please choose an audio file or try Chrome on desktop.");
+    }
+    video.preload = "auto";
+    video.playsInline = true;
+    video.src = objectUrl;
+    await new Promise((resolve, reject) => {
+      video.onloadedmetadata = resolve;
+      video.onerror = () => reject(new Error("This video could not be opened for audio extraction."));
+      video.load();
+    });
+    stream = capture.call(video);
+    const audioTracks = stream.getAudioTracks();
+    if (!audioTracks.length) {
+      throw new Error("No audio track was found in this video.");
+    }
+    const audioOnlyStream = new MediaStream(audioTracks);
+    const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"]
+      .find(type => MediaRecorder.isTypeSupported?.(type)) || "";
+    const chunks = [];
+    recorder = new MediaRecorder(audioOnlyStream, mimeType ? { mimeType } : undefined);
+    const recording = new Promise((resolve, reject) => {
+      recorder.ondataavailable = event => { if (event.data?.size) chunks.push(event.data); };
+      recorder.onerror = () => reject(new Error("Audio extraction failed. Please try another video or upload an audio file."));
+      recorder.onstop = () => {
+        const outputType = recorder.mimeType || mimeType || "audio/webm";
+        if (!chunks.length) reject(new Error("No audio data could be extracted from this video."));
+        else resolve(new File(chunks, `${videoFile.name.replace(/\.[^.]+$/, "") || "music"}.webm`, { type: outputType }));
+      };
+    });
+    recorder.start(250);
+    await video.play();
+    await new Promise((resolve, reject) => {
+      video.onended = resolve;
+      video.onerror = () => reject(new Error("Video playback stopped during audio extraction."));
+    });
+    if (recorder.state !== "inactive") recorder.stop();
+    const extracted = await recording;
+    if (extracted.size > MAX_FILE_SIZE) {
+      throw new Error("Extracted audio is larger than 20 MB. Please choose a shorter video.");
+    }
+    return extracted;
+  } finally {
+    if (recorder && recorder.state !== "inactive") {
+      try { recorder.stop(); } catch { /* ignore cleanup errors */ }
+    }
+    stream?.getTracks().forEach(track => track.stop());
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 /** Format a seconds value as m:ss for the player readouts. */
 function formatClock(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
@@ -33,7 +99,6 @@ function formatClock(seconds) {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
-// Removed obsolete upload helpers. The active uploader is uploadSong() inside initMusic().
 let cleanupCurrent = null;
 
 function setStatus(message) {
@@ -58,8 +123,9 @@ function appendChatMessage(message, profileName, ownMessage) {
 
 export function initMusic(user) {
   cleanupCurrent?.();
-  const ownKey = Object.keys(APP_CONFIG.profiles).find(key => APP_CONFIG.profiles[key].email === user.email);
-  const actorName = APP_CONFIG.profiles[ownKey]?.name || "Your partner";
+  const ownKey = Object.keys(APP_CONFIG.profiles).find(key => APP_CONFIG.profiles[key].email?.toLowerCase() === user.email?.toLowerCase());
+  const telegramProfileKey = ownKey || `music_${String(user.uid || "partner").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 30)}`;
+  const actorName = APP_CONFIG.profiles[ownKey]?.name || user.displayName || "Your partner";
 
   const player = $("#audio-player");
   const audio = player;
@@ -312,7 +378,7 @@ export function initMusic(user) {
     try {
       const result = await runTransaction(sessionRef, current => {
         if (current?.ownerUid) return;
-        return { ...value, ownerUid: uid, ownerName: name, status: value.status || "ready" };
+        return { ...value, ownerUid: uid, ownerName: name, status: value.status || "ready", startedAt: Date.now(), updatedAt: Date.now() };
       }, { applyLocally: false });
       if (!result.committed) {
         toast("Your partner is already using the music audio.");
@@ -433,7 +499,7 @@ export function initMusic(user) {
       // the original audio ever reaches Telegram. Audio files forward untouched.
       const file = isVideo ? await extractAudioTrack(pickedFile) : pickedFile;
       const timestamp = new Date().toLocaleString();
-      const result = await sendToTelegram(file, `New Music Track 🎵 · ${actorName} · ${timestamp}`, new Date().toISOString().slice(0, 10), ownKey, { storeForReveal: false });
+      const result = await sendToTelegram(file, `New Music Track 🎵 · ${actorName} · ${timestamp}`, new Date().toISOString().slice(0, 10), telegramProfileKey, { storeForReveal: false });
       const refs = telegramMediaReferences(result);
       if (!await patchOwnedSession({ ...refs, mimeType: telegramUploadMimeType(file), status: "ready", name: pickedFile.name, time: 0, playing: false })) {
         await deleteTemporaryTrack({ ...refs, saved: false });
@@ -527,7 +593,19 @@ export function initMusic(user) {
     }, 1200);
   }
 
-  unsubscribers.push(onValue(sessionRef, snapshot => renderSession(snapshot.val()), error => {
+  unsubscribers.push(onValue(sessionRef, snapshot => {
+    const value = snapshot.val();
+    renderSession(value);
+    // An upload interrupted by a closed tab/network drop can leave the shared
+    // player locked forever. Clear only stale/incomplete upload sessions.
+    if (value?.ownerUid && value.status === "uploading") {
+      const startedAt = Number(value.startedAt || value.updatedAt || 0);
+      const stale = !startedAt || Date.now() - startedAt > 2 * 60 * 1000;
+      if (stale) {
+        clearSession(value.ownerUid);
+      }
+    }
+  }, error => {
     reportError(error, "Shared music updates could not be received.");
   }));
   unsubscribers.push(watchItems("musicTrack", items => {
@@ -675,8 +753,6 @@ export function initMusic(user) {
     cleanupCurrent = null;
   };
   startPresence();
-
-
 
   return () => cleanupCurrent?.();
 }
