@@ -93,12 +93,6 @@ async function extractAudioTrack(videoFile) {
 }
 
 /** Format a seconds value as m:ss for the player readouts. */
-function shortTrackName(value) {
-  const text = String(value || "Our song").trim();
-  const words = text.split(/\\s+/).filter(Boolean);
-  return words.length > 2 ? words.slice(0, 2).join(" ") : text;
-}
-
 function formatClock(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
   const total = Math.floor(seconds);
@@ -129,6 +123,41 @@ function appendChatMessage(message, profileName, ownMessage) {
 
 export function initMusic(user) {
   cleanupCurrent?.();
+  // Music-only visual refresh; index.html is intentionally not modified.
+  if (!document.getElementById("music-js-only-style")) {
+    const style = document.createElement("style");
+    style.id = "music-js-only-style";
+    style.textContent = `
+      #music-library, #music-queue-list { display:grid; gap:10px; min-width:0; }
+      #music-library .music-library-item, #music-queue-list .music-library-item {
+        display:flex; align-items:center; gap:10px; min-width:0; box-sizing:border-box;
+        padding:12px 13px; border:1px solid #f5d5e2; border-radius:16px;
+        background:linear-gradient(135deg,#fff9fc,#fff1f6); overflow:hidden;
+      }
+      #music-library .music-library-item > span, #music-queue-list .music-library-item > span {
+        flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+        font-size:14px; color:#442b37;
+      }
+      .music-library-actions { display:flex; flex-shrink:0; gap:7px; }
+      .music-library-actions button { border-radius:12px; min-height:36px; padding:7px 12px; }
+      #music-queue-section { margin-top:24px; }
+      #music-queue-section h3 { margin-bottom:12px; color:#492d3a; }
+      #music-queue-list .muted { margin:8px 0 16px; }
+      #music-chat-messages { min-height:150px; max-height:260px; overflow:auto; padding:8px 2px; }
+      #music-chat-form { display:flex; gap:8px; align-items:center; }
+      #music-chat-input { flex:1; min-width:0; min-height:46px; border-radius:16px; }
+      #music-chat-form button { min-height:46px; border-radius:16px; }
+      #music-upload { max-width:100%; }
+      #stop-music, #replay-music { border-radius:16px; }
+      @media (max-width:520px) {
+        #music-library .music-library-item, #music-queue-list .music-library-item { padding:10px; }
+        #music-library .music-library-item > span, #music-queue-list .music-library-item > span { font-size:12px; }
+        .music-library-actions button { padding:6px 9px; }
+        #music-chat-messages { min-height:170px; }
+      }
+    `;
+    document.head.append(style);
+  }
   const ownKey = Object.keys(APP_CONFIG.profiles).find(key => APP_CONFIG.profiles[key].email?.toLowerCase() === user.email?.toLowerCase());
   const telegramProfileKey = ownKey || `music_${String(user.uid || "partner").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 30)}`;
   const actorName = APP_CONFIG.profiles[ownKey]?.name || user.displayName || "Your partner";
@@ -264,17 +293,12 @@ export function initMusic(user) {
     const saveButton = $("#save-music");
     const uploadButton = $("#music-upload");
     const listenButton = $("#listen-music");
-    if (trackName) trackName.textContent = shortTrackName(value?.name || "No song selected");
+    if (trackName) trackName.textContent = value?.name || "No song selected";
     if (playButton) playButton.disabled = !trackKey(value) || value.status === "uploading";
-    const replayButton = $("#replay-music");
-    const stopButton = $("#stop-music");
-    if (replayButton) replayButton.disabled = !trackKey(value);
-    if (stopButton) stopButton.disabled = !trackKey(value);
     if (pauseButton) pauseButton.disabled = !value?.playing;
     if (saveButton) saveButton.disabled = !trackKey(value) || value.saved;
     if (uploadButton) uploadButton.disabled = false;
-    // Uploads stay enabled while another song is playing; those uploads go to Queue.
-    uploadButton?.closest(".upload-btn")?.classList.remove("disabled");
+    uploadButton?.closest(".upload-btn")?.classList.toggle("disabled", locked);
     if (listenButton) listenButton.disabled = !value?.playing;
     const libraryLock = `${value?.ownerUid || ""}:${trackKey(value)}`;
     if (libraryLock !== lastLibraryLock) {
@@ -349,6 +373,12 @@ export function initMusic(user) {
     }
   }
 
+  function displayTrackName(rawName) {
+    const clean = String(rawName || "Our song").replace(/\.[a-z0-9]{2,5}$/i, "").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+    const words = clean.split(" ").filter(Boolean);
+    return words.slice(0, 2).join(" ") || "Our song";
+  }
+
   function renderLibrary(library) {
     const list = $("#music-library");
     if (!list) return;
@@ -366,7 +396,7 @@ export function initMusic(user) {
       const row = document.createElement("div");
       row.className = "music-library-item";
       const title = document.createElement("span");
-      title.textContent = shortTrackName(song.name || "Our song");
+      title.textContent = displayTrackName(song.name);
       const actions = document.createElement("div");
       actions.className = "music-library-actions";
       const play = document.createElement("button");
@@ -422,7 +452,7 @@ export function initMusic(user) {
     if (!entries.length) { const empty = document.createElement("p"); empty.className = "muted"; empty.textContent = "Queue is empty."; list.append(empty); return; }
     for (const [id, song] of entries) {
       const row = document.createElement("div"); row.className = "music-library-item";
-      const title = document.createElement("span"); title.textContent = shortTrackName(song.name || "Queued song");
+      const title = document.createElement("span"); title.textContent = displayTrackName(song.name || "Queued song");
       const actions = document.createElement("div"); actions.className = "music-library-actions";
       const play = document.createElement("button"); play.type = "button"; play.className = "secondary"; play.textContent = "Play now";
       play.addEventListener("click", async () => { await remove(dbRef(rtdb, `${ROOT}/queue/${id}`)); if (session?.ownerUid) await clearSession(); await startQueuedSong(song); });
@@ -693,45 +723,32 @@ export function initMusic(user) {
       reportError(error, "This device could not start audio playback.");
     }
   };
+  // Replay the current shared track from the beginning for both partners.
+  const replayButton = $("#replay-music") || [...document.querySelectorAll("button")].find(button => button.textContent.trim().toLowerCase() === "replay");
+  if (replayButton) replayButton.onclick = async () => {
+    if (!trackKey(session)) { toast("Choose a song to replay first."); return; }
+    try {
+      audio.currentTime = 0;
+      if (audio.readyState < 2) await new Promise((resolve, reject) => {
+        audio.addEventListener("canplay", resolve, { once: true });
+        audio.addEventListener("error", reject, { once: true });
+      });
+      await audio.play();
+      if (!await patchOwnedSession({ playing: true, time: 0, status: "ready" })) {
+        toast("The shared music session has ended.");
+      }
+    } catch (error) { reportError(error, "This song could not be replayed. Tap Play and try again."); }
+  };
+
   $("#music-volume").oninput = event => {
     audio.volume = Number(event.target.value);
   };
   uploadInput.onchange = event => uploadSong(event.target.files?.[0]);
   const playerControls = $("#pause-music")?.parentElement;
-  if (playerControls) {
-    if (!document.getElementById("replay-music")) {
-      const replayButton = document.createElement("button");
-      replayButton.id = "replay-music";
-      replayButton.type = "button";
-      replayButton.className = "secondary";
-      replayButton.textContent = "Replay";
-      replayButton.addEventListener("click", async () => {
-        if (!trackKey(session)) {
-          toast("Choose a song first.");
-          return;
-        }
-        try {
-          audio.currentTime = 0;
-          await playSharedSong();
-        } catch (error) {
-          reportError(error, "This song could not be replayed.");
-        }
-      });
-      playerControls.append(replayButton);
-    }
-    if (!document.getElementById("stop-music")) {
-      const stopButton = document.createElement("button");
-      stopButton.id = "stop-music";
-      stopButton.type = "button";
-      stopButton.className = "secondary";
-      stopButton.textContent = "Stop song";
-      stopButton.addEventListener("click", async () => {
-        audio.pause();
-        await clearSession();
-        setStatus("Song stopped. Upload or choose another song.");
-      });
-      playerControls.append(stopButton);
-    }
+  if (playerControls && !document.getElementById("stop-music")) {
+    const stopButton = document.createElement("button"); stopButton.id = "stop-music"; stopButton.type = "button"; stopButton.className = "secondary"; stopButton.textContent = "Stop song";
+    stopButton.addEventListener("click", async () => { audio.pause(); await clearSession(); setStatus("Song stopped. Upload or choose another song."); });
+    playerControls.append(stopButton);
   }
   $("#music-chat-form").onsubmit = sendChat;
 
@@ -768,25 +785,14 @@ export function initMusic(user) {
       reportError(error, "Music playback position could not be synced.");
     });
   };
-  const onPlayerEnded = async () => {
+  const onPlayerEnded = () => {
     renderProgress();
-    // Only the active session owner asks, avoiding duplicate prompts on both phones.
-    if (!session?.ownerUid || session.ownerUid !== uid) return;
-    if (!session.saved && trackKey(session) && window.confirm(`Add “${shortTrackName(session.name)}” to Favourite / Saved Music?`)) {
-      await saveCurrentSong();
-    }
-    const next = Object.entries(sharedQueue || {}).sort((a, b) => Number(a[1]?.addedAt || 0) - Number(b[1]?.addedAt || 0))[0];
-    if (next) {
-      const [id, song] = next;
-      try {
-        await remove(dbRef(rtdb, `${ROOT}/queue/${id}`));
-        await clearSession(uid);
-        await startQueuedSong(song);
-      } catch (error) {
-        reportError(error, "The next queued song could not start.");
-      }
-    } else {
-      await clearSession(uid);
+    if (session?.ownerUid) {
+      const next = Object.entries(sharedQueue || {})[0];
+      if (next) {
+        const [id, song] = next;
+        remove(dbRef(rtdb, `${ROOT}/queue/${id}`)).then(() => startQueuedSong(song)).catch(error => reportError(error, "The next queued song could not start."));
+      } else clearSession();
     }
   };
   const onPlayerMetadata = () => {
