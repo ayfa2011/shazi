@@ -11,7 +11,6 @@ let activeDrawingCleanup = null;
 
 export function disposeDrawing() { activeDrawingCleanup?.(); activeDrawingCleanup = null; }
 
-// HTTPS-agnostic UUID — crypto.randomUUID throws on HTTP/file:// in some browsers
 function uuid() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     try { return crypto.randomUUID(); } catch { /* fall through */ }
@@ -46,11 +45,6 @@ export function renderDrawing(el, user, profile) {
           <canvas class="draw-canvas" id="draw-canvas" width="720" height="1200" aria-label="Shared drawing canvas" role="img" tabindex="0"></canvas>
           <div class="canvas-watermark">K &amp; S ♡</div>
         </div>
-      </div>
-      <div id="zoom-controls" class="canvas-zoom-controls" role="group" aria-label="Canvas zoom">
-        <button type="button" id="zoom-out-btn" aria-label="Zoom out">−</button>
-        <button type="button" id="zoom-level-btn" aria-label="Reset zoom to 100%">100%</button>
-        <button type="button" id="zoom-in-btn" aria-label="Zoom in">＋</button>
       </div>
     </div>
 
@@ -110,78 +104,93 @@ export function renderDrawing(el, user, profile) {
         </div>
       </div>
 
-      <div class="apple-markup-dock" role="toolbar" aria-label="Apple Markup Drawing Tools">
+      <div class="apple-markup-dock" role="toolbar" aria-label="Drawing tools">
         <div class="markup-tools-row">
-        <div class="markup-tool-group" role="group" aria-label="Drawing tools">
-        <button type="button" class="markup-tool selected" data-tool="pen" aria-label="Pen tool (Solid ink)" title="Pen (1)">
-          <svg viewBox="0 0 36 84" class="tool-svg" aria-hidden="true"><defs>
-            <linearGradient id="apple-pen-barrel" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#d8d8de"/><stop offset="26%" stop-color="#ffffff"/><stop offset="70%" stop-color="#f0f0f4"/><stop offset="100%" stop-color="#c6c6ce"/></linearGradient>
-            <linearGradient id="apple-pen-cone" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#dedee4"/><stop offset="35%" stop-color="#ffffff"/><stop offset="100%" stop-color="#b8b8c2"/></linearGradient>
-            <linearGradient id="apple-pen-metal" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#9999a2"/><stop offset="35%" stop-color="#ffffff"/><stop offset="70%" stop-color="#b5b5be"/><stop offset="100%" stop-color="#707078"/></linearGradient>
-          </defs>
-          <rect x="10" y="32" width="16" height="52" rx="1" fill="url(#apple-pen-barrel)"/>
-          <rect x="10" y="38" width="16" height="6" class="tool-color-fill" fill="#dc4d88"/>
-          <line x1="10" y1="44" x2="26" y2="44" stroke="#a0a0aa" stroke-width="0.5"/>
-          <path d="M 10 32 L 15 12 L 21 12 L 26 32 Z" fill="url(#apple-pen-cone)"/>
-          <rect x="16" y="8" width="4" height="4" fill="url(#apple-pen-metal)"/>
-          <path d="M 16.5 8 L 18 2 L 19.5 8 Z" class="tool-color-fill" fill="#dc4d88"/></svg>
-        </button>
+          <button type="button" class="dock-icon-btn" id="drawing-undo" aria-label="Undo" title="Undo" disabled>
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 1 2.6 5.9"/><path d="M4 5v6h6"/></svg>
+          </button>
 
-        <button type="button" class="markup-tool" data-tool="pencil" aria-label="Pencil tool (Graphite sketch)" title="Pencil (2)">
-          <svg viewBox="0 0 36 84" class="tool-svg" aria-hidden="true"><defs>
-            <linearGradient id="apple-pencil-barrel" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#e0e0e5"/><stop offset="25%" stop-color="#ffffff"/><stop offset="60%" stop-color="#f2f2f6"/><stop offset="100%" stop-color="#ceced6"/></linearGradient>
-            <linearGradient id="apple-pencil-wood" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#dfcaa9"/><stop offset="40%" stop-color="#faebd7"/><stop offset="85%" stop-color="#e2cdb0"/><stop offset="100%" stop-color="#c9b291"/></linearGradient>
-          </defs>
-          <rect x="10" y="34" width="16" height="50" rx="1" fill="url(#apple-pencil-barrel)"/>
-          <line x1="15" y1="34" x2="15" y2="84" stroke="#d5d5dc" stroke-width="0.75"/>
-          <line x1="21" y1="34" x2="21" y2="84" stroke="#b0b0ba" stroke-width="0.75"/>
-          <path d="M 10 34 L 15.5 12 L 20.5 12 L 26 34 Z" fill="url(#apple-pencil-wood)"/>
-          <path d="M 10 34 Q 14 31 18 34 Q 22 31 26 34 Z" fill="url(#apple-pencil-wood)"/>
-          <path d="M 15.5 12 L 18 3 L 20.5 12 Z" class="tool-color-fill" fill="#dc4d88"/>
-          <path d="M 17.5 4 L 18 3 L 18.5 4 L 18.5 12 L 17.5 12 Z" fill="#ffffff" opacity="0.35"/></svg>
-        </button>
+          <div class="markup-tool-group" role="group" aria-label="Drawing tools">
+            <button type="button" class="markup-tool selected" data-tool="pen" aria-label="Pen tool" title="Pen">
+              <svg viewBox="0 0 36 84" class="tool-svg" aria-hidden="true">
+                <defs>
+                  <linearGradient id="apple-pen-barrel" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#d8d8de"/><stop offset="26%" stop-color="#ffffff"/><stop offset="70%" stop-color="#f0f0f4"/><stop offset="100%" stop-color="#c6c6ce"/></linearGradient>
+                  <linearGradient id="apple-pen-cone" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#dedee4"/><stop offset="35%" stop-color="#ffffff"/><stop offset="100%" stop-color="#b8b8c2"/></linearGradient>
+                  <linearGradient id="apple-pen-metal" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#9999a2"/><stop offset="35%" stop-color="#ffffff"/><stop offset="70%" stop-color="#b5b5be"/><stop offset="100%" stop-color="#707078"/></linearGradient>
+                </defs>
+                <rect x="10" y="32" width="16" height="52" rx="1" fill="url(#apple-pen-barrel)"/>
+                <rect x="10" y="38" width="16" height="6" class="tool-color-fill" fill="#dc4d88"/>
+                <line x1="10" y1="44" x2="26" y2="44" stroke="#a0a0aa" stroke-width="0.5"/>
+                <path d="M 10 32 L 15 12 L 21 12 L 26 32 Z" fill="url(#apple-pen-cone)"/>
+                <rect x="16" y="8" width="4" height="4" fill="url(#apple-pen-metal)"/>
+                <path d="M 16.5 8 L 18 2 L 19.5 8 Z" class="tool-color-fill" fill="#dc4d88"/>
+              </svg>
+            </button>
 
-        <button type="button" class="markup-tool" data-tool="marker" aria-label="Marker tool (Highlighter with opacity)" title="Marker (3)">
-          <svg viewBox="0 0 36 84" class="tool-svg" aria-hidden="true"><defs>
-            <linearGradient id="apple-marker-barrel" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#dcdce2"/><stop offset="30%" stop-color="#ffffff"/><stop offset="70%" stop-color="#f4f4f8"/><stop offset="100%" stop-color="#c8c8d0"/></linearGradient>
-            <linearGradient id="apple-marker-shoulder" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#e0e0e6"/><stop offset="45%" stop-color="#ffffff"/><stop offset="100%" stop-color="#c4c4ce"/></linearGradient>
-          </defs>
-          <rect x="9" y="30" width="18" height="54" rx="2" fill="url(#apple-marker-barrel)"/>
-          <rect x="9" y="37" width="18" height="7" class="tool-color-fill" fill="#dc4d88"/>
-          <path d="M 9 30 C 9 24, 12 20, 13 18 L 23 18 C 24 20, 27 24, 27 30 Z" fill="url(#apple-marker-shoulder)"/>
-          <path d="M 13 18 L 13 6 L 23 12 L 23 18 Z" class="tool-color-fill" fill="#dc4d88"/>
-          <line x1="13" y1="6" x2="23" y2="12" stroke="#ffffff" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
-          <text x="18" y="66" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'DM Sans', sans-serif" font-size="9" font-weight="700" fill="#6e6e73" class="marker-opacity-label">80</text></svg>
-        </button>
+            <button type="button" class="markup-tool" data-tool="pencil" aria-label="Pencil tool" title="Pencil">
+              <svg viewBox="0 0 36 84" class="tool-svg" aria-hidden="true">
+                <defs>
+                  <linearGradient id="apple-pencil-barrel" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#e0e0e5"/><stop offset="25%" stop-color="#ffffff"/><stop offset="60%" stop-color="#f2f2f6"/><stop offset="100%" stop-color="#ceced6"/></linearGradient>
+                  <linearGradient id="apple-pencil-wood" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#dfcaa9"/><stop offset="40%" stop-color="#faebd7"/><stop offset="85%" stop-color="#e2cdb0"/><stop offset="100%" stop-color="#c9b291"/></linearGradient>
+                </defs>
+                <rect x="10" y="34" width="16" height="50" rx="1" fill="url(#apple-pencil-barrel)"/>
+                <line x1="15" y1="34" x2="15" y2="84" stroke="#d5d5dc" stroke-width="0.75"/>
+                <line x1="21" y1="34" x2="21" y2="84" stroke="#b0b0ba" stroke-width="0.75"/>
+                <path d="M 10 34 L 15.5 12 L 20.5 12 L 26 34 Z" fill="url(#apple-pencil-wood)"/>
+                <path d="M 10 34 Q 14 31 18 34 Q 22 31 26 34 Z" fill="url(#apple-pencil-wood)"/>
+                <path d="M 15.5 12 L 18 3 L 20.5 12 Z" class="tool-color-fill" fill="#dc4d88"/>
+                <path d="M 17.5 4 L 18 3 L 18.5 4 L 18.5 12 L 17.5 12 Z" fill="#ffffff" opacity="0.35"/>
+              </svg>
+            </button>
 
-        <button type="button" class="markup-tool" data-tool="eraser" aria-label="Eraser tool" title="Eraser (4)">
-          <svg viewBox="0 0 36 84" class="tool-svg" aria-hidden="true"><defs>
-            <linearGradient id="apple-eraser-body" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#dedee4"/><stop offset="28%" stop-color="#ffffff"/><stop offset="70%" stop-color="#f2f2f6"/><stop offset="100%" stop-color="#c6c6ce"/></linearGradient>
-            <linearGradient id="apple-eraser-rubber" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#ea8798"/><stop offset="35%" stop-color="#faaab6"/><stop offset="70%" stop-color="#f49ba9"/><stop offset="100%" stop-color="#d76f82"/></linearGradient>
-          </defs>
-          <rect x="9" y="32" width="18" height="52" rx="2" fill="url(#apple-eraser-body)"/>
-          <rect x="9" y="30" width="18" height="3" fill="#8e8e93"/>
-          <rect x="9" y="33" width="18" height="1" fill="#48484a"/>
-          <path d="M 9.5 30 L 9.5 16 C 9.5 7.5, 26.5 7.5, 26.5 16 L 26.5 30 Z" fill="url(#apple-eraser-rubber)"/>
-          <ellipse cx="18" cy="14" rx="4" ry="2" fill="#ffffff" opacity="0.45"/></svg>
-        </button>
-        </div>
+            <button type="button" class="markup-tool" data-tool="marker" aria-label="Marker tool" title="Marker">
+              <svg viewBox="0 0 36 84" class="tool-svg" aria-hidden="true">
+                <defs>
+                  <linearGradient id="apple-marker-barrel" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#dcdce2"/><stop offset="30%" stop-color="#ffffff"/><stop offset="70%" stop-color="#f4f4f8"/><stop offset="100%" stop-color="#c8c8d0"/></linearGradient>
+                  <linearGradient id="apple-marker-shoulder" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#e0e0e6"/><stop offset="45%" stop-color="#ffffff"/><stop offset="100%" stop-color="#c4c4ce"/></linearGradient>
+                </defs>
+                <rect x="9" y="30" width="18" height="54" rx="2" fill="url(#apple-marker-barrel)"/>
+                <rect x="9" y="37" width="18" height="7" class="tool-color-fill" fill="#dc4d88"/>
+                <path d="M 9 30 C 9 24, 12 20, 13 18 L 23 18 C 24 20, 27 24, 27 30 Z" fill="url(#apple-marker-shoulder)"/>
+                <path d="M 13 18 L 13 6 L 23 12 L 23 18 Z" class="tool-color-fill" fill="#dc4d88"/>
+                <line x1="13" y1="6" x2="23" y2="12" stroke="#ffffff" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
+                <text x="18" y="66" text-anchor="middle" font-family="-apple-system, 'DM Sans', sans-serif" font-size="9" font-weight="700" fill="#6e6e73" class="marker-opacity-label">80</text>
+              </svg>
+            </button>
 
-        <div class="markup-divider" aria-hidden="true"></div>
-        <button type="button" class="markup-color-button" id="markup-color-btn" aria-label="Color Palette" title="Choose color">
-          <span class="color-wheel-ring"><span class="color-wheel-disc" id="markup-color-disc" style="background-color: #dc4d88;"></span></span>
-        </button>
+            <button type="button" class="markup-tool" data-tool="eraser" aria-label="Eraser tool" title="Eraser">
+              <svg viewBox="0 0 36 84" class="tool-svg" aria-hidden="true">
+                <defs>
+                  <linearGradient id="apple-eraser-body" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#dedee4"/><stop offset="28%" stop-color="#ffffff"/><stop offset="70%" stop-color="#f2f2f6"/><stop offset="100%" stop-color="#c6c6ce"/></linearGradient>
+                  <linearGradient id="apple-eraser-rubber" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#ea8798"/><stop offset="35%" stop-color="#faaab6"/><stop offset="70%" stop-color="#f49ba9"/><stop offset="100%" stop-color="#d76f82"/></linearGradient>
+                </defs>
+                <rect x="9" y="32" width="18" height="52" rx="2" fill="url(#apple-eraser-body)"/>
+                <rect x="9" y="30" width="18" height="3" fill="#8e8e93"/>
+                <rect x="9" y="33" width="18" height="1" fill="#48484a"/>
+                <path d="M 9.5 30 L 9.5 16 C 9.5 7.5, 26.5 7.5, 26.5 16 L 26.5 30 Z" fill="url(#apple-eraser-rubber)"/>
+                <ellipse cx="18" cy="14" rx="4" ry="2" fill="#ffffff" opacity="0.45"/>
+              </svg>
+            </button>
+          </div>
 
-        <button type="button" class="markup-tune-button" id="markup-tune-btn" aria-label="Brush size and opacity options" title="Size &amp; Opacity">
-          <span class="tune-dot-preview" id="markup-size-dot"></span>
-          <span id="markup-size-badge">5px</span>
-        </button>
-        </div>
+          <div class="markup-divider" aria-hidden="true"></div>
 
-        <div class="toolbar-actions" role="group" aria-label="Canvas actions">
-          <button type="button" class="tool-button" id="drawing-undo" aria-label="Undo">Undo</button>
-          <button type="button" class="tool-button" id="drawing-redo" aria-label="Redo">Redo</button>
-          <button type="button" class="tool-button" id="drawing-clear" aria-label="Clear">Clear</button>
+          <button type="button" class="markup-color-button" id="markup-color-btn" aria-label="Color palette" title="Color">
+            <span class="color-wheel-ring"><span class="color-wheel-disc" id="markup-color-disc" style="background-color: #dc4d88;"></span></span>
+          </button>
+
+          <button type="button" class="markup-tune-button" id="markup-tune-btn" aria-label="Brush size and opacity" title="Size &amp; Opacity">
+            <span class="tune-dot-preview" id="markup-size-dot"></span>
+            <span id="markup-size-badge">5px</span>
+          </button>
+
+          <button type="button" class="dock-icon-btn small" id="drawing-clear" aria-label="Clear canvas" title="Clear">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+          </button>
+
+          <button type="button" class="dock-icon-btn" id="drawing-redo" aria-label="Redo" title="Redo" disabled>
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 0-2.6 5.9"/><path d="M20 5v6h-6"/></svg>
+          </button>
         </div>
       </div>
 
@@ -196,7 +205,7 @@ export function renderDrawing(el, user, profile) {
         <header class="history-dialog-header">
           <div class="history-header-titles"><h2 id="drawing-history-title">Drawing gallery</h2><span class="muted" id="drawing-history-count">Saved drawings</span></div>
           <div class="history-header-actions">
-            <button type="button" class="tool-button hidden" id="history-restore-selected" title="Restore selected drawing onto canvas">Load selected ♡</button>
+            <button type="button" class="tool-button hidden" id="history-restore-selected" title="Restore selected drawing">Load selected ♡</button>
             <button type="button" class="drawing-close" id="drawing-history-close" aria-label="Close history">×</button>
           </div>
         </header>
@@ -204,18 +213,18 @@ export function renderDrawing(el, user, profile) {
       </section>
     </div>
 
-    <div class="drawing-preview-overlay hidden" id="drawing-preview-overlay" role="dialog" aria-modal="true" aria-label="Full-size drawing preview">
+    <div class="drawing-preview-overlay hidden" id="drawing-preview-overlay" role="dialog" aria-modal="true" aria-label="Drawing preview">
       <div class="preview-backdrop" id="preview-backdrop"></div>
       <div class="preview-card-dialog">
         <header class="preview-dialog-header">
           <div class="preview-meta"><strong id="preview-meta-author">Keby &amp; Shazy</strong><small id="preview-meta-date">Date</small></div>
           <div class="preview-dialog-actions">
-            <button type="button" class="primary" id="preview-restore-btn" title="Open this drawing on canvas to continue drawing">Load on canvas ♡</button>
-            <button type="button" class="preview-trash-btn" id="preview-delete-btn" title="Delete this drawing from history">🗑 Delete</button>
+            <button type="button" class="primary" id="preview-restore-btn" title="Load on canvas">Load on canvas ♡</button>
+            <button type="button" class="preview-trash-btn" id="preview-delete-btn" title="Delete">🗑 Delete</button>
             <button type="button" class="drawing-close" id="preview-close-btn" aria-label="Close preview">×</button>
           </div>
         </header>
-        <div class="preview-image-container"><img id="preview-modal-img" src="" alt="Drawing full size actual preview"></div>
+        <div class="preview-image-container"><img id="preview-modal-img" src="" alt="Drawing preview"></div>
       </div>
     </div>
   </section>`;
@@ -224,9 +233,8 @@ export function renderDrawing(el, user, profile) {
   const drawBoard = $("#draw-board", el);
   const zoomLayer = $("#canvas-zoom-layer", el);
   const zoomSpacer = $("#canvas-zoom-spacer", el);
-  const zoomLevelBtn = $("#zoom-level-btn", el);
 
-  // ---- ZOOM (Figma / Apple Markup style) ----
+  // ---- Zoom state (no UI, finger/wheel only) ----
   const ZOOM_MIN = 0.5, ZOOM_MAX = 4, ZOOM_STEP = 0.25;
   let zoom = 1;
 
@@ -239,19 +247,10 @@ export function renderDrawing(el, user, profile) {
     zoomLayer.style.transform = `scale(${zoom})`;
     zoomSpacer.style.width = `${baseW * zoom}px`;
     zoomSpacer.style.height = `${baseH * zoom}px`;
-    if (zoomLevelBtn) {
-      zoomLevelBtn.textContent = `${Math.round(zoom * 100)}%`;
-      zoomLevelBtn.setAttribute("aria-valuetext", `${Math.round(zoom * 100)}%`);
-    }
   }
-
-  $("#zoom-in-btn", el).onclick = () => applyZoom(zoom + ZOOM_STEP);
-  $("#zoom-out-btn", el).onclick = () => applyZoom(zoom - ZOOM_STEP);
-  if (zoomLevelBtn) zoomLevelBtn.onclick = () => applyZoom(1);
 
   const ctx = canvas.getContext("2d");
   const strokeRef = ref(rtdb, `${root}/strokes`);
-  // Presence key must always be defined — fall back to profileKey then uid
   const presenceKey = profile?.id || getProfileKey(profile) || user.uid;
   const presenceRef = ref(rtdb, `${root}/presence/${presenceKey}`);
   const connectedRef = ref(rtdb, ".info/connected");
@@ -318,7 +317,7 @@ export function renderDrawing(el, user, profile) {
     applyZoom(zoom + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
   }, { passive: false });
 
-  // Pinch zoom
+  // Pinch zoom (no UI, just fingers)
   let pinchInfo = null;
   canvas.addEventListener("touchstart", e => {
     if (e.touches.length === 2) {
@@ -391,7 +390,6 @@ export function renderDrawing(el, user, profile) {
     loadSaved(photoUrl); closeHistory(); toast("Drawing loaded on canvas ♡");
   };
 
-  // restoreHistory — used by footer "Restore last" button (also referenced by tests)
   function restoreHistory() {
     if (history.canRestoreClear) {
       const restoredStrokes = history.restoreClearSnapshot();
@@ -575,20 +573,30 @@ export function renderDrawing(el, user, profile) {
     if (outgoingQueue.length) toast("Some strokes are still waiting to sync.");
   }
 
-  // ---- Drawing pointer handlers ----
+  // ═════════════════════════════════════════════════════
+  //  Pointer handlers — FIXED: no more remoteSyncReady block
+  //  Drawing works immediately, sync happens in background.
+  // ═════════════════════════════════════════════════════
   canvas.addEventListener("pointerdown", e => {
-    if (!remoteSyncReady) return;
-    if (e.pointerType === "touch" && e.isPrimary === false) return; // don't start a stroke on a second finger
-    e.preventDefault();
+    if (e.pointerType === "touch" && e.isPrimary === false) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
     if (drawing) return;
+    e.preventDefault();
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
     canvas.setPointerCapture(e.pointerId);
     closePopovers();
 
     drawing = true;
     last = point(e);
-    activeStroke = { id: uuid(), uid: user.uid, tool, color: tool === "eraser" ? "#ffffff" : color, size: toolConfigs[tool].size, opacity: toolConfigs[tool].opacity, points: [last] };
+    activeStroke = {
+      id: uuid(),
+      uid: user.uid,
+      tool,
+      color: tool === "eraser" ? "#ffffff" : color,
+      size: toolConfigs[tool].size,
+      opacity: toolConfigs[tool].opacity,
+      points: [last]
+    };
     liveBufferCtx.clearRect(0, 0, canvas.width, canvas.height);
     liveBufferCtx.drawImage(canvas, 0, 0);
     renderSingleStroke(ctx, activeStroke);
@@ -666,8 +674,6 @@ export function renderDrawing(el, user, profile) {
       if (history.strokes.some(stroke => stroke.id === v.id)) return;
       history.add(v);
       strokeIds.set(v.id, s.key);
-      // FIX: if a local stroke is in progress, redraw the whole canvas so the partner's
-      // stroke isn't overwritten by the next pointermove's liveBuffer restore.
       if (drawing) redrawCanvas();
       else { renderSingleStroke(ctx, v); refreshHistoryControls(); }
     }
@@ -703,7 +709,6 @@ export function renderDrawing(el, user, profile) {
     updateSyncStatus();
   });
 
-  // ---- Presence ----
   let isConnected = false;
   let presenceState = {};
 
@@ -720,7 +725,6 @@ export function renderDrawing(el, user, profile) {
   unsubs.push(onValue(connectedRef, s => {
     if (!active) return;
     isConnected = s.val() === true;
-    // FIX: update pill immediately — this is what kills the "Connecting…" sticking state
     updatePresenceUI();
     if (isConnected) {
       set(presenceRef, { name: profile.name, uid: user.uid, state: "online", lastSeen: Date.now() });
@@ -1029,11 +1033,11 @@ export function renderDrawing(el, user, profile) {
       const telegramImage = !photoUrl && m.telegramFileId;
       return `
         <article class="drawing-grid-card ${isSelected ? "selected" : ""}" style="--card-bg: ${cardBg};" data-card-id="${esc(m.id)}">
-          <button type="button" class="drawing-card-thumb-btn" data-open-preview="${esc(m.id)}" aria-label="View actual size preview of drawing by ${esc(authorName)}">
+          <button type="button" class="drawing-card-thumb-btn" data-open-preview="${esc(m.id)}" aria-label="View drawing by ${esc(authorName)}">
             ${photoUrl ? `<img src="${esc(photoUrl)}" alt="Drawing by ${esc(authorName)}" loading="lazy">` : telegramImage ? `<img data-drawing-file-id="${esc(m.telegramFileId)}" data-drawing-mime="${esc(m.mimeType || "image/jpeg")}" alt="Drawing by ${esc(authorName)}" loading="lazy">` : `<span style="font-size:32px;">🎨</span>`}
           </button>
-          <button type="button" class="drawing-select-circle-btn" data-select-id="${esc(m.id)}" aria-label="Select drawing by ${esc(authorName)}" title="Select drawing"><span class="selection-circle ${isSelected ? "checked" : ""}"></span></button>
-          <button type="button" class="drawing-card-delete-btn" data-delete-id="${esc(m.id)}" aria-label="Delete drawing" title="Delete drawing"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+          <button type="button" class="drawing-select-circle-btn" data-select-id="${esc(m.id)}" aria-label="Select drawing"><span class="selection-circle ${isSelected ? "checked" : ""}"></span></button>
+          <button type="button" class="drawing-card-delete-btn" data-delete-id="${esc(m.id)}" aria-label="Delete drawing"><svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
           <div class="drawing-card-footer"><span class="drawing-card-author">${esc(authorName)}</span><span class="drawing-card-date">${shortDate}</span></div>
         </article>`;
     }).join("");

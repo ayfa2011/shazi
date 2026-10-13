@@ -1798,3 +1798,150 @@ body.home-dashboard .home-canvas-action {
     transition-duration: .01ms !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   Compact single-row drawing dock
+   Undo (left) · tools · color · size · clear · redo (right)
+   ═══════════════════════════════════════════════════════════ */
+
+.markup-dock-container {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
+  z-index: 50;
+}
+
+/* Single compact row tray */
+.apple-markup-dock {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(228, 212, 222, 0.85);
+  box-shadow:
+    0 10px 28px rgba(80, 25, 50, 0.10),
+    0 2px 8px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.markup-tools-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 5px;
+  width: max-content;
+  max-width: 100%;
+}
+
+.markup-tool-group {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 0 2px;
+}
+
+/* Icon buttons for Undo / Redo / Clear */
+.dock-icon-btn {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid #f3e3ea;
+  background: #fff8fb;
+  color: #8f315d;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.15s, transform 0.1s, opacity 0.15s, box-shadow 0.15s;
+  align-self: center;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.dock-icon-btn:hover:not(:disabled) {
+  background: #ffe7f0;
+  box-shadow: 0 3px 10px rgba(143, 49, 93, 0.12);
+}
+.dock-icon-btn:active:not(:disabled) { transform: scale(0.92); }
+.dock-icon-btn:disabled { opacity: 0.36; cursor: not-allowed; }
+.dock-icon-btn.small { width: 34px; height: 34px; }
+
+/* Keep the existing vertical tools / color / tune styling but compact */
+.markup-tool {
+  width: 34px;
+  height: 76px;
+}
+.markup-tool .tool-svg {
+  width: 34px;
+  height: 76px;
+}
+
+.markup-divider {
+  width: 1px;
+  height: 32px;
+  align-self: center;
+  background: #e6d3dd;
+  margin: 0 3px;
+  flex: none;
+}
+
+.markup-color-button { margin-bottom: 4px; }
+.markup-tune-button { margin-bottom: 4px; }
+
+/* Footer stays minimal */
+.drawing-footer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 560px;
+  padding: 2px 12px max(6px, env(safe-area-inset-bottom, 8px));
+  font-size: 11px;
+}
+
+/* Mobile tuning */
+@media (max-width: 759px) {
+  .apple-markup-dock { padding: 5px 8px; border-radius: 26px; gap: 4px; }
+  .markup-tools-row { gap: 3px; }
+  .markup-tool-group { gap: 2px; padding: 0 1px; }
+  .markup-tool { width: 30px; height: 68px; }
+  .markup-tool .tool-svg { width: 30px; height: 68px; }
+  .dock-icon-btn { width: 36px; height: 36px; font-size: 16px; }
+  .dock-icon-btn.small { width: 32px; height: 32px; font-size: 13px; }
+  .color-wheel-ring { width: 32px; height: 32px; }
+  .markup-tune-button { height: 32px; padding: 0 8px; font-size: 10px; }
+}
+
+@media (max-width: 375px) {
+  .apple-markup-dock { padding: 4px 6px; }
+  .markup-tools-row { gap: 2px; }
+  .markup-tool { width: 26px; height: 62px; }
+  .markup-tool .tool-svg { width: 26px; height: 62px; }
+  .dock-icon-btn { width: 32px; height: 32px; font-size: 14px; }
+  .dock-icon-btn.small { width: 28px; height: 28px; font-size: 12px; }
+  .color-wheel-ring { width: 28px; height: 28px; }
+  .markup-tune-button { padding: 0 6px; }
+  .markup-tune-button span:last-child { display: none; }
+}
+
+/* Landscape safety */
+@media (max-height: 520px) and (orientation: landscape) {
+  .markup-tool { width: 28px; height: 62px; }
+  .markup-tool .tool-svg { width: 28px; height: 62px; }
+  .dock-icon-btn { width: 34px; height: 34px; }
+}
