@@ -14,8 +14,9 @@ export function renderLetters(el, user, profile) {
   const ownKey = getProfileKey(profile);
   let currentTab = "Inbox";
   let allLetters = [];
+  let readFontScale = 1.0;
+  let replyToId = null;
 
-  // Scope the notebook CSS variables to this component only (was leaking via :root)
   el.classList.add("letters-scope");
 
   function recipientKey(recipient) {
@@ -57,7 +58,6 @@ export function renderLetters(el, user, profile) {
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&display=swap');
 
-      /* ── Scoped notebook variables (was :root leak) ───── */
       .letters-scope {
         --nb-line: #bed8f0;
         --nb-margin: #ef6d7a;
@@ -108,13 +108,16 @@ export function renderLetters(el, user, profile) {
       .letter-envelope { position:relative; width:48px; height:38px; flex:none; display:grid; place-items:center; overflow:visible; border:1px solid #f0bfd1; border-radius:7px; background:linear-gradient(145deg,#fff9fc,#ffe4ee); color:#cc4b7b; font-size:20px; box-shadow:0 3px 8px #9a476313; transition:transform .2s ease; }
       .letter-envelope::before { content:""; position:absolute; z-index:1; inset:0 0 auto; height:52%; border-radius:6px 6px 50% 50%; background:linear-gradient(150deg,#ffedf4,#f9c9dc); clip-path:polygon(0 0,100% 0,50% 100%); transform-origin:top; transition:transform .36s cubic-bezier(.2,.75,.2,1); }
       .letter-envelope::after { content:""; position:absolute; z-index:2; inset:auto 0 0; height:55%; border-radius:0 0 6px 6px; background:linear-gradient(35deg,#f7c9da 49%,transparent 50%),linear-gradient(-35deg,#fbe0e9 49%,transparent 50%); }
+      /* Envelope stays open when the letter has been read */
+      .letter-item.is-read .letter-envelope::before,
       .letter-item.is-opening .letter-envelope::before { transform:rotateX(180deg); }
       .letter-item.is-opening .letter-envelope { transform:scale(1.12); }
-      .letter-unread-dot { position:absolute; top:-5px; right:-5px; z-index:4; width:12px; height:12px; border:2px solid white; border-radius:50%; background:#ef3e65; box-shadow:0 1px 5px #a31d3f55; }
-      .letter-info { min-width:0; }
+      .letter-unread-dot { position:absolute; top:-5px; right:-5px; z-index:4; width:12px; height:12px; border:2px solid white; border-radius:50%; background:#ef3e65; box-shadow:0 1px 5px #a31d3f55; animation:letter-dot-pulse 1.6s ease-in-out infinite; }
+      @keyframes letter-dot-pulse { 0%,100% { transform:scale(1); } 50% { transform:scale(1.14); } }
+      .letter-info { min-width:0; flex:1; }
       .letter-info h4 { margin:0; font-size:14px; font-weight:700; color:#5a3445; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .letter-info p { margin:3px 0 0; font-size:11px; color:#8e7a83; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px; }
-      .letter-date { flex:none; color:#9b8790; font-size:10px; white-space:nowrap; }
+      .letter-date { flex:none; color:#9b8790; font-size:12px; line-height:1.35; white-space:nowrap; text-align:right; }
       .letter-date .letter-read-receipt { display:block; margin-top:4px; text-align:right; }
 
       /* ── Modals ─────────────────────────────────────── */
@@ -141,53 +144,83 @@ export function renderLetters(el, user, profile) {
       }
       .letter-form select:focus,.letter-form input:focus { border-color:#db8eae; box-shadow:0 0 0 3px #ef6d9f16; }
 
-      /* ── Notebook paper textarea & paper styles (Shared ruling) ── */
+      /* ═══════════════════════════════════════════════════════
+         NOTEPAD PAPER — exactly like the reference image
+         • Red vertical margin line on the left
+         • Light blue horizontal ruling lines
+         • Handwriting font, text sits ON each line
+         ═══════════════════════════════════════════════════════ */
       .nb-ruling {
-        background-color: var(--nb-bg);
-        background-image:
-          linear-gradient(90deg, transparent 0, transparent 40px, var(--nb-margin) 41px, var(--nb-margin) 42px, transparent 43px),
-          repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--nb-line-h) - 1px), var(--nb-line) calc(var(--nb-line-h) - 1px), var(--nb-line) var(--nb-line-h));
-        background-attachment: local;
-        background-position: 0 32px;
+        /* Kept for backward-compat; visual is defined on .letter-editor-paper/.letter-paper */
+        background: transparent;
       }
 
-      /* Instagram-inspired letter editor */
+      /* Editorial handwriting fonts shared by the editor + read view */
+      .letter-editor-content,
+      .letter-stage-text,
+      .letter-rich-text {
+        font-family: "Caveat", "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
+      }
+
+      /* ── Editor paper ───────────────────────────────── */
+      .letter-editor-paper {
+        position: relative;
+        width: 100%;
+        height: clamp(300px, 56dvh, 650px);
+        min-height: 300px;
+        overflow: auto;
+        border: 1px solid #e5d5de;
+        border-radius: 6px;
+        background-color: #ffffff;
+        /* Vertical pink margin line at 56px, horizontal blue ruling every 34px */
+        background-image:
+          linear-gradient(90deg,
+            transparent 0,
+            transparent 55px,
+            #f5a8bd 55px,
+            #f5a8bd 57px,
+            transparent 57px),
+          repeating-linear-gradient(to bottom,
+            transparent 0,
+            transparent 33px,
+            #bed8ee 33px,
+            #bed8ee 34px);
+        background-size: 100% 100%, 100% 34px;
+        background-position: 0 0, 0 6px;
+        background-repeat: no-repeat, repeat;
+        box-shadow: 0 4px 16px #30132112;
+        -webkit-overflow-scrolling: touch;
+        touch-action: manipulation;
+      }
+      .letter-editor-content {
+        min-height: 100%;
+        width: 100%;
+        padding: 6px 22px 40px 74px; /* text starts right of margin line */
+        outline: none;
+        color: #1e3150;
+        font-size: 22px;
+        line-height: 34px; /* MUST match ruling pitch so text sits ON the line */
+        caret-color: #c83f78;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+        transform: translate(var(--letter-text-x,0px), var(--letter-text-y,0px));
+        transform-origin: top left;
+        touch-action: manipulation;
+        -webkit-user-select: text;
+        user-select: text;
+      }
+      .letter-editor-content:empty:before { content: attr(data-placeholder); color: #b38d9e; white-space: pre-wrap; pointer-events: none; }
+      .letter-editor-content p { margin: 0; }
+      .letter-editor-content.is-move-mode { cursor: grab; touch-action: none; user-select: none; }
+      .letter-editor-content.is-move-mode:active { cursor: grabbing; }
+      .letter-editor-paper.is-move-mode { border-color: #d982a7; }
+
       .letter-editor-label { font-size:12px; font-weight:800; color:#754258; }
       .letter-editor-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:8px; border:1px solid #f0dce6; border-radius:14px; background:#fffafd; }
       .letter-editor-toolbar button { min-width:34px; min-height:34px; padding:6px 9px; border-radius:9px; background:#fff; color:#754258; border:1px solid #f0dce6; font-size:13px; touch-action:manipulation; }
       .letter-editor-toolbar button[aria-pressed="true"] { background:#f8dce8; border-color:#d982a7; }
       .letter-editor-toolbar select { min-width:0; max-width:145px; flex:1; padding:8px 6px; border-radius:9px; font-size:11px; touch-action:manipulation; }
-      .letter-editor-paper {
-        position:relative; width:100%;
-        height:clamp(300px,56dvh,650px);
-        min-height:300px; overflow:auto;
-        border:1px solid #d8c8d1; border-radius:12px;
-        background-color:#fffdf9;
-        background-image:
-          linear-gradient(90deg,transparent 0,transparent 34px,#ed9bab 35px,#ed9bab 37px,transparent 38px),
-          repeating-linear-gradient(to bottom,transparent 0,transparent 31px,#b8cfe4 32px,#b8cfe4 33px);
-        background-size:100% 100%,100% 33px;
-        background-position:0 0,0 0;
-        background-repeat:no-repeat,repeat;
-        box-shadow:0 4px 16px #30132112; -webkit-overflow-scrolling:touch;
-      }
-      .letter-editor-content {
-        min-height:100%; width:100%;
-        padding:24px 18px 24px 50px; outline:none;
-        color:#1e3150;
-        font-family:"Caveat","Segoe Print","Bradley Hand",cursive;
-        font-size:clamp(17px,2.2vw,22px);
-        line-height:33px;
-        caret-color:#c83f78;
-        overflow-wrap:anywhere; white-space:pre-wrap;
-        transform:translate(var(--letter-text-x,0px),var(--letter-text-y,0px));
-        transform-origin:top left;
-      }
-      .letter-editor-content:empty:before { content:attr(data-placeholder); color:#b38d9e; white-space:pre-wrap; pointer-events:none; }
-      .letter-editor-content p { margin:0 0 .7em; }
-      .letter-editor-content.is-move-mode { cursor:grab; touch-action:none; user-select:none; }
-      .letter-editor-content.is-move-mode:active { cursor:grabbing; }
-      .letter-editor-paper.is-move-mode { border-color:#d982a7; }
+      .letter-editor-toolbar input[type="color"] { min-width:38px; height:34px; padding:2px; border-radius:9px; border:1px solid #f0dce6; background:#fff; cursor:pointer; touch-action:manipulation; }
 
       .letter-prompt { margin:0; color:#9a7c89; font-size:10px; text-align:center; }
       .letter-modal-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:3px; justify-content:flex-end; }
@@ -200,49 +233,110 @@ export function renderLetters(el, user, profile) {
       .read-letter-sender-avatar { width:35px; height:35px; flex:none; display:grid; place-items:center; overflow:hidden; border:2px solid white; border-radius:50%; background:#ffe4ef; color:#96365f; font-weight:800; box-shadow:0 2px 7px #7340511c; }
       .read-letter-sender-avatar img { width:100%; height:100%; object-fit:cover; }
       .read-letter-meta-copy { min-width:0; flex:1; display:grid; gap:2px; }
-      .read-letter-meta-copy strong { color:#754258; font-size:11px; }
-      .read-letter-meta-copy time { color:#9b8790; font-size:10px; }
+      .read-letter-meta-copy strong { color:#754258; font-size:13px; }
+      .read-letter-meta-copy time { color:#8c7180; font-size:14px; font-weight:600; }
       .letter-read-receipt { flex:none; color:#8796a4; font-size:11px; font-weight:700; white-space:nowrap; }
       .letter-read-receipt.is-read { color:#299bd0; }
 
+      /* ── READ LETTER PAPER (reference-matching) ───────── */
       .letter-paper {
-        position:relative;
-        min-height:clamp(360px,62dvh,700px);
-        max-height:calc(100dvh - 210px);
-        overflow-y:auto;
-        display:flex; flex-direction:column;
-        border:1px solid #ead9df; border-radius:14px;
-        background-color:#fffdf9;
+        position: relative;
+        width: min(100%, 600px);   /* A5-ish */
+        aspect-ratio: 1 / 1.414;   /* true A-series ratio */
+        max-height: 82dvh;
+        margin: 0 auto;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid #e3d3dc;
+        border-radius: 4px;
+        background-color: #ffffff;
+        /* Pink margin line at 60px, blue ruling every 34px */
         background-image:
-          linear-gradient(90deg,transparent 0,transparent 34px,#ed9bab 35px,#ed9bab 37px,transparent 38px),
-          repeating-linear-gradient(to bottom,transparent 0,transparent 31px,#b8cfe4 32px,#b8cfe4 33px);
-        background-size:100% 100%,100% 33px;
-        background-position:0 0,0 0;
-        background-repeat:no-repeat,repeat;
-        box-shadow:0 12px 40px #30132126;
+          linear-gradient(90deg,
+            transparent 0,
+            transparent 59px,
+            #f5a8bd 59px,
+            #f5a8bd 61px,
+            transparent 61px),
+          repeating-linear-gradient(to bottom,
+            transparent 0,
+            transparent 33px,
+            #bed8ee 33px,
+            #bed8ee 34px);
+        background-size: 100% 100%, 100% 34px;
+        background-position: 0 0, 0 10px;
+        background-repeat: no-repeat, repeat;
+        box-shadow: 0 14px 40px rgba(48,19,33,.14);
+        -webkit-overflow-scrolling: touch;
+        touch-action: manipulation;
       }
-      .letter-paper-header {
-        display:flex; align-items:center; justify-content:flex-start; gap:8px;
-        padding:12px 12px 8px 48px; min-height:66px;
-        background:rgba(255,253,249,.88);
-        border-bottom:1px dashed #f0e1d0;
-        flex:none;
-      }
-      .letter-paper-avatar { width:28px; height:28px; flex:none; border-radius:50%; overflow:hidden; border:1.5px solid #c5d8ee; background:#ffe4ef; color:#96365f; font-weight:800; font-size:13px; display:grid; place-items:center; }
-      .letter-paper-avatar img { width:100%; height:100%; object-fit:cover; }
-      .letter-paper-meta-text { display:grid; gap:1px; text-align:right; }
-      .letter-paper-meta-text strong { font-size:14px; font-weight:700; color:#1e3150; font-family:"DM Sans", sans-serif; line-height:1.2; }
-      .letter-paper-meta-text time { font-size:13px; color:#8c7180; font-family:"DM Sans", sans-serif; line-height:1.4; }
 
-      .letter-paper-body { padding:8px 18px 28px 48px; flex:1; min-height:180px; }
-      .letter-stage-text, .letter-rich-text {
-        font-family:"Caveat","Segoe Print","Bradley Hand",cursive;
-        font-size:clamp(19px,2.3vw,24px); line-height:33px; color:#1e3150;
-        white-space:pre-wrap; overflow-wrap:anywhere;
+      /* Sender meta header — kept minimal so paper looks clean */
+      .letter-paper-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 16px 12px 76px;
+        min-height: 34px;
+        background: transparent;
+        border-bottom: 0;
+        flex: none;
       }
-      .letter-stage-text p, .letter-rich-text p { margin:0 0 .6em; }
-      .letter-paper::after { content:"♡"; position:absolute; right:14px; bottom:8px; color:#d889a5; font:19px Georgia,serif; opacity:.75; }
+      .letter-paper-avatar { width:32px; height:32px; flex:none; border-radius:50%; overflow:hidden; border:2px solid #f5a8bd; background:#ffe4ef; color:#96365f; font-weight:800; font-size:13px; display:grid; place-items:center; }
+      .letter-paper-avatar img { width:100%; height:100%; object-fit:cover; }
+      .letter-paper-meta-text { display:grid; gap:1px; }
+      .letter-paper-meta-text strong { font-size:14px; font-weight:700; color:#1e3150; font-family:"Caveat","Segoe Print",cursive; line-height:1.2; }
+      .letter-paper-meta-text time { font-size:13px; color:#7a8fa8; font-family:"Caveat","Segoe Print",cursive; line-height:1.2; }
+
+      /* Body — text sits on the ruling */
+      .letter-paper-body {
+        padding: 0 22px 40px 76px;
+        flex: 1;
+        min-height: 220px;
+      }
+      .letter-stage-text,
+      .letter-rich-text {
+        font-size: calc(21px * var(--letter-font-scale, 1));
+        line-height: 34px;   /* MUST match ruling pitch */
+        color: #1e3150;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .letter-stage-text p,
+      .letter-rich-text p { margin: 0; }
+      .letter-stage-text b,
+      .letter-stage-text strong,
+      .letter-rich-text b,
+      .letter-rich-text strong { font-weight: 700; }
+
+      .letter-paper::after { content:"♡"; position:absolute; right:16px; bottom:12px; color:#e7a5bd; font:20px Georgia,serif; opacity:.7; pointer-events:none; }
       .letter-modal-overlay.is-open .letter-paper { animation:letter-paper-unfold .85s .08s cubic-bezier(.2,.75,.2,1) both; }
+
+      /* ── Read modal font size controls ──────────────── */
+      .letter-read-controls { display:flex; align-items:center; gap:6px; margin-bottom:10px; padding:6px 10px; border:1px solid #f0dce6; border-radius:999px; background:#fffafd; width:fit-content; }
+      .letter-read-controls span { font-size:11px; font-weight:700; color:#754258; margin-right:2px; }
+      .letter-read-controls button { min-width:32px; height:30px; padding:0 9px; border-radius:999px; background:#fff; border:1px solid #f0dce6; color:#754258; font-size:13px; font-weight:800; cursor:pointer; touch-action:manipulation; }
+      .letter-read-controls button:hover { background:#fff0f6; }
+      .letter-read-controls .letter-read-scale-value { min-width:42px; text-align:center; font-size:11px; color:#8c7180; font-weight:600; }
+
+      /* ── Reply block inside read modal ──────────────── */
+      .letter-replies-section { margin-top:18px; }
+      .letter-replies-title { font-size:12px; font-weight:800; color:#754258; margin:0 0 8px; letter-spacing:.02em; }
+      .letter-reply-card {
+        margin-bottom:8px; padding:12px 14px 10px 46px;
+        position:relative;
+        border:1px solid #f0dce6;
+        border-left:4px solid #c9a0b8;
+        border-radius:12px;
+        background:linear-gradient(145deg,#fff8fc,#fffdf9);
+        box-shadow:0 3px 10px #74314908;
+      }
+      .letter-reply-card::before { content:"↩"; position:absolute; left:14px; top:12px; color:#c680a4; font-size:18px; line-height:1; }
+      .letter-reply-card-head { font-size:11px; color:#8c7180; margin:0 0 4px; font-weight:700; }
+      .letter-reply-card-body { font-family:"Caveat","Segoe Print","Bradley Hand",cursive; font-size:19px; line-height:28px; color:#1e3150; white-space:pre-wrap; overflow-wrap:anywhere; }
+      .letter-reply-card-body p { margin:0; }
+      .letter-replies-empty { font-size:12px; color:#9b8790; font-style:italic; }
 
       .read-letter-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-top:17px; }
       .letter-reply-btn { background:#ffe5ef; color:#a72f62; }
@@ -266,7 +360,7 @@ export function renderLetters(el, user, profile) {
         .letters-header { align-items:flex-start; }
         .write-letter-btn { padding:10px 12px; font-size:11px; }
         .letter-item { padding:11px; }
-        .letter-date { font-size:9px; }
+        .letter-date { font-size:11px; }
         .letter-modal-overlay { padding:10px; }
         .letter-modal-box { padding:18px; max-height:calc(100dvh - 20px); }
       }
@@ -275,16 +369,17 @@ export function renderLetters(el, user, profile) {
         .letter-modal-box { width:100%; max-width:none; max-height:100dvh; height:100dvh; border-radius:0; padding:max(14px,env(safe-area-inset-top)) 14px max(14px,env(safe-area-inset-bottom)); }
         .letter-editor-paper { height:calc(100dvh - 350px); min-height:240px; }
         .letter-modal-box.is-fullscreen .letter-editor-paper { height:calc(100dvh - 340px); min-height:240px; }
-        .letter-paper { min-height:calc(100dvh - 235px); max-height:calc(100dvh - 190px); }
-        .letter-paper-body { padding-left:46px; padding-right:12px; }
+        .letter-paper { width:100%; aspect-ratio:auto; min-height:calc(100dvh - 260px); max-height:calc(100dvh - 200px); border-radius:2px; }
+        .letter-paper-header { padding-left:64px; padding-right:12px; }
+        .letter-paper-body { padding-left:64px; padding-right:14px; padding-bottom:32px; }
+        .letter-editor-content { padding-left:66px; padding-right:14px; }
         .read-letter-actions { justify-content:stretch; gap:6px; }
         .read-letter-actions button { flex:1; padding:10px 8px; }
         .letter-editor-toolbar select { min-height:36px; font-size:12px; }
-        .letter-editor-content { padding-left:48px; line-height:31px; }
       }
       @media (prefers-reduced-motion:reduce) {
         .letter-modal-overlay.is-open,.letter-modal-overlay.is-open .letter-modal-box,.letter-modal-overlay.is-open .letter-paper { animation-duration:.01ms; animation-delay:0ms; }
-        .letter-item,.write-letter-btn,.letter-envelope { transition:none; }
+        .letter-item,.write-letter-btn,.letter-envelope,.letter-unread-dot { transition:none; animation:none; }
       }
     </style>
 
@@ -315,7 +410,7 @@ export function renderLetters(el, user, profile) {
     <div id="write-letter-modal" class="letter-modal-overlay" style="display: none;">
       <div class="letter-modal-box">
         <div class="letter-modal-head">
-          <h3>Write a Letter ♡</h3>
+          <h3 id="write-letter-heading">Write a Letter ♡</h3>
           <div style="display:flex; gap:8px;">
             <button id="toggle-fullscreen-write" class="letter-close-btn" type="button" aria-label="Toggle Fullscreen">⛶</button>
             <button id="close-letter-modal" class="letter-close-btn" type="button" aria-label="Close letter form">×</button>
@@ -332,6 +427,7 @@ export function renderLetters(el, user, profile) {
             <button type="button" data-letter-command="bold" aria-label="Bold"><strong>B</strong></button>
             <button type="button" data-letter-command="italic" aria-label="Italic"><em>I</em></button>
             <button type="button" data-letter-command="underline" aria-label="Underline"><u>U</u></button>
+            <input type="color" id="letter-text-color" value="#1e3150" aria-label="Text color" title="Text color">
             <select id="letter-font-family" aria-label="Font style">
               <option value="Caveat">Handwritten</option>
               <option value="Arial">Classic</option>
@@ -340,18 +436,18 @@ export function renderLetters(el, user, profile) {
               <option value="monospace">Typewriter</option>
             </select>
             <select id="letter-font-size" aria-label="Text size">
-              <option value="14px">Small</option>
-              <option value="17px" selected>Normal</option>
-              <option value="21px">Large</option>
-              <option value="27px">Extra large</option>
-              <option value="34px">Huge</option>
+              <option value="16px">Small</option>
+              <option value="20px" selected>Normal</option>
+              <option value="24px">Large</option>
+              <option value="30px">Extra large</option>
+              <option value="38px">Huge</option>
             </select>
             <button type="button" data-letter-command="justifyLeft" aria-label="Align left">≡</button>
             <button type="button" data-letter-command="justifyCenter" aria-label="Center text">☰</button>
             <button type="button" data-letter-command="justifyRight" aria-label="Align right">☷</button>
             <button type="button" id="letter-move-text" aria-pressed="false" title="Drag to reposition text">↔ Move text</button>
           </div>
-          <div class="letter-editor-paper nb-ruling" id="letter-editor-paper">
+          <div class="letter-editor-paper" id="letter-editor-paper">
             <div id="letter-body" class="letter-editor-content" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Write your letter" data-placeholder="My dearest…&#10;&#10;Write from your heart ♡"></div>
           </div>
           <p class="letter-prompt">Take your time. The loveliest words are the ones that sound like you.</p>
@@ -387,10 +483,17 @@ export function renderLetters(el, user, profile) {
           </div>
         </div>
         <div id="read-letter-meta" class="read-letter-meta"></div>
-        <div id="read-letter-body" class="letter-paper nb-ruling">
+        <div class="letter-read-controls" role="group" aria-label="Letter text size">
+          <span>Text size</span>
+          <button type="button" id="read-font-decrease" aria-label="Decrease text size">A−</button>
+          <span class="letter-read-scale-value" id="read-font-value">100%</span>
+          <button type="button" id="read-font-increase" aria-label="Increase text size">A＋</button>
+        </div>
+        <div id="read-letter-body" class="letter-paper">
           <div id="read-letter-paper-header" class="letter-paper-header"></div>
           <div id="read-letter-paper-text" class="letter-paper-body"></div>
         </div>
+        <div id="read-letter-replies" class="letter-replies-section"></div>
         <div class="read-letter-actions">
           <button id="reply-letter-btn" class="letter-reply-btn" type="button" hidden>Write a reply ♡</button>
           <button id="delete-read-letter-btn" class="letter-delete-btn" type="button">Delete letter</button>
@@ -429,7 +532,12 @@ export function renderLetters(el, user, profile) {
   const editorPaper = $("#letter-editor-paper", el);
   const fontFamilySelect = $("#letter-font-family", el);
   const fontSizeSelect = $("#letter-font-size", el);
+  const textColorInput = $("#letter-text-color", el);
   const moveTextButton = $("#letter-move-text", el);
+  const writeHeading = $("#write-letter-heading", el);
+  const readPaper = $("#read-letter-body", el);
+  const readFontValue = $("#read-font-value", el);
+  const repliesContainer = $("#read-letter-replies", el);
   let moveTextState = { x: 0, y: 0 };
   let dragState = null;
 
@@ -437,9 +545,9 @@ export function renderLetters(el, user, profile) {
     letterBodyInput.focus({ preventScroll: true });
   }
 
-  function applyLetterCommand(command) {
+  function applyLetterCommand(command, value = null) {
     focusLetterEditor();
-    document.execCommand(command, false, null);
+    document.execCommand(command, false, value);
   }
 
   el.querySelectorAll("[data-letter-command]").forEach(button => {
@@ -461,7 +569,11 @@ export function renderLetters(el, user, profile) {
       while (node.firstChild) span.appendChild(node.firstChild);
       node.replaceWith(span);
     });
-    letterBodyInput.style.fontSize = fontSizeSelect.value;
+  };
+
+  textColorInput.oninput = () => {
+    focusLetterEditor();
+    document.execCommand("foreColor", false, textColorInput.value);
   };
 
   moveTextButton.onclick = () => {
@@ -502,7 +614,6 @@ export function renderLetters(el, user, profile) {
 
   function resetLetterEditorState() {
     letterBodyInput.innerHTML = "";
-    letterBodyInput.style.fontSize = "";
     letterBodyInput.style.setProperty("--letter-text-x", "0px");
     letterBodyInput.style.setProperty("--letter-text-y", "0px");
     moveTextState = { x: 0, y: 0 };
@@ -510,6 +621,8 @@ export function renderLetters(el, user, profile) {
     moveTextButton.textContent = "↔ Move text";
     letterBodyInput.classList.remove("is-move-mode");
     editorPaper.classList.remove("is-move-mode");
+    fontSizeSelect.value = "20px";
+    textColorInput.value = "#1e3150";
   }
 
   function renderLetterBody(target, body) {
@@ -537,10 +650,8 @@ export function renderLetters(el, user, profile) {
         const style = node.getAttribute("style") || "";
         const size = style.match(/font-size\s*:\s*(\d+(?:\.\d+)?(?:px|pt|em|rem|%))/i)?.[1];
         const family = style.match(/font-family\s*:\s*([^;]+)/i)?.[1] || node.getAttribute("face");
-        const color = style.match(/color\s*:\s*(#[0-9a-f]{3,8}|[a-z]+)/i)?.[1];
-        // Preserve alignment set by justifyLeft/Center/Right/Full
-        const align = style.match(/text-align\s*:\s*(left|right|center|justify)/i)?.[1]
-          || node.getAttribute("align");
+        const color = style.match(/color\s*:\s*(#[0-9a-f]{3,8}|[a-z]+)/i)?.[1] || node.getAttribute("color");
+        const align = style.match(/text-align\s*:\s*(left|right|center|justify)/i)?.[1] || node.getAttribute("align");
         const transform = style.match(/transform\s*:\s*translate\(\s*(-?\d+(?:\.\d+)?)px\s*,\s*(-?\d+(?:\.\d+)?)px\s*\)/i);
         if (size) copy.style.fontSize = size;
         if (family) copy.style.fontFamily = family.replace(/["']/g, "").slice(0, 80);
@@ -570,7 +681,6 @@ export function renderLetters(el, user, profile) {
   function closeModal(modal) {
     modal.classList.remove("is-open");
     modal.style.display = "none";
-    // Reset fullscreen state so re-opening starts in normal mode
     const box = modal.querySelector(".letter-modal-box");
     if (box?.classList.contains("is-fullscreen")) {
       box.classList.remove("is-fullscreen");
@@ -601,21 +711,36 @@ export function renderLetters(el, user, profile) {
   });
 
   $("#write-letter-btn", el).onclick = () => {
+    replyToId = null;
+    writeHeading.textContent = "Write a Letter ♡";
     recipientSelect.value = Object.keys(APP_CONFIG.profiles).find(key => key !== ownKey) || ownKey;
     openModal(writeModal);
   };
   $("#close-letter-modal", el).onclick = () => closeModal(writeModal);
   $("#cancel-letter-btn", el).onclick = () => {
-    // Clean up editor + move offset + fullscreen so nothing leaks into the next open
     resetLetterEditorState();
     $("#write-letter-form", el).reset();
     deliverGroup.style.display = "none";
     deliverInput.required = false;
     submitBtn.textContent = "Send with love ♡";
+    replyToId = null;
     closeModal(writeModal);
   };
   $("#close-read-modal", el).onclick = () => closeModal(readModal);
   $("#close-read-letter-btn", el).onclick = () => closeModal(readModal);
+
+  function updateReadScale() {
+    readPaper.style.setProperty("--letter-font-scale", String(readFontScale));
+    if (readFontValue) readFontValue.textContent = `${Math.round(readFontScale * 100)}%`;
+  }
+  $("#read-font-decrease", el).onclick = () => {
+    readFontScale = Math.max(0.75, Number((readFontScale - 0.1).toFixed(2)));
+    updateReadScale();
+  };
+  $("#read-font-increase", el).onclick = () => {
+    readFontScale = Math.min(1.8, Number((readFontScale + 0.1).toFixed(2)));
+    updateReadScale();
+  };
 
   deleteLetterBtn.onclick = async () => {
     if (!openedLetter?.id) return;
@@ -637,9 +762,12 @@ export function renderLetters(el, user, profile) {
   replyBtn.onclick = () => {
     const replyRecipient = replyBtn.dataset.recipient;
     if (!replyRecipient) return;
+    const replyToIdToUse = openedLetter?.id || null;
     closeModal(readModal);
     recipientSelect.value = replyRecipient;
     resetLetterEditorState();
+    replyToId = replyToIdToUse;
+    writeHeading.textContent = replyToId ? "Write a Reply ♡" : "Write a Letter ♡";
     openModal(writeModal);
     requestAnimationFrame(() => letterBodyInput.focus());
   };
@@ -666,29 +794,27 @@ export function renderLetters(el, user, profile) {
     const deliverDate = status === "Scheduled" ? new Date(deliverInput.value).toISOString() : new Date().toISOString();
 
     try {
-      const letter = await addLetter({
-        recipient,
-        body,
-        status,
-        deliverDate,
+      const payload = {
+        recipient, body, status, deliverDate,
         author: user.uid,
         authorName: profile.name,
         createdAt: new Date().toISOString()
-      });
+      };
+      if (replyToId) payload.replyTo = replyToId;
+
+      const letter = await addLetter(payload);
       if (status === "Sent" && recipient !== ownKey) {
-        void notifyPartnerSafely(ownKey, "letter", "New letter received.", letter.id, "letters");
+        const msg = replyToId ? "New reply received." : "New letter received.";
+        void notifyPartnerSafely(ownKey, "letter", msg, letter.id, "letters");
       }
 
-      // Capture an image of the letter body ONLY (before we reset the editor).
-      // If html2canvas isn't loaded, we skip the Telegram image entirely
-      // instead of uploading a blank placeholder.
       let letterImageData = null;
       if (typeof html2canvas !== "undefined") {
         try {
           const target = $("#letter-editor-paper", el);
           if (target) {
             const canvas = await html2canvas(target, {
-              backgroundColor: "#fffdf9",
+              backgroundColor: "#ffffff",
               useCORS: true,
               allowTaint: true,
               scale: 2,
@@ -701,16 +827,16 @@ export function renderLetters(el, user, profile) {
         }
       }
 
-      // Close + reset UI immediately — Telegram upload happens in the background
       closeModal(writeModal);
       $("#write-letter-form", el).reset();
       resetLetterEditorState();
       deliverGroup.style.display = "none";
       deliverInput.required = false;
       submitBtn.textContent = "Send with love ♡";
+      replyToId = null;
+      writeHeading.textContent = "Write a Letter ♡";
       toast(status === "Scheduled" ? "Letter scheduled ♡" : "Letter sent ♡");
 
-      // Fire-and-forget Telegram upload so slow networks don't block the UI
       if (letterImageData) {
         void (async () => {
           try {
@@ -739,7 +865,6 @@ export function renderLetters(el, user, profile) {
         const deliveryTime = item.deliverDate ? new Date(item.deliverDate).getTime() : 0;
         const isDelivered = !deliveryTime || deliveryTime <= now.getTime();
         const isAuthor = item.author === user.uid;
-
         if (currentTab === "Inbox") {
           return !isAuthor && recipientKey(item.recipient) === ownKey &&
             (item.status === "Sent" || (item.status === "Scheduled" && isDelivered));
@@ -750,7 +875,6 @@ export function renderLetters(el, user, profile) {
         }
         return true;
       })
-      // Sort newest-first by createdAt (was relying on Firestore order)
       .sort((a, b) => {
         const at = asDate(a.createdAt)?.getTime() || 0;
         const bt = asDate(b.createdAt)?.getTime() || 0;
@@ -763,6 +887,7 @@ export function renderLetters(el, user, profile) {
       container.innerHTML = filtered.map((item) => {
         const dateVal = asDate(item.deliverDate) || asDate(item.createdAt);
         const dateStr = dateVal ? dateVal.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Just now";
+        const timeStr = dateVal ? dateVal.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
         const deliveryTime = item.deliverDate ? new Date(item.deliverDate).getTime() : 0;
         const isScheduled = item.status === "Scheduled" && deliveryTime > now.getTime();
         const isLocked = isScheduled && item.author !== user.uid;
@@ -772,11 +897,11 @@ export function renderLetters(el, user, profile) {
           : `To ${recipientName(item.recipient)}`;
         const isUnread = isReceived && !item.readAt;
         const readDate = asDate(item.readAt);
-        // Only render the locked subtitle paragraph when there's something to show
+        const isReadPersistent = Boolean(item.readAt) && isReceived;
         const lockedHtml = isLocked ? `<p>🔒 <i>Scheduled Surprise (Hidden)</i></p>` : "";
 
         return `
-          <div class="letter-item" data-id="${item.id}">
+          <div class="letter-item${isReadPersistent ? " is-read" : ""}" data-id="${item.id}">
             <div class="letter-left">
               <div class="letter-envelope" aria-hidden="true">💌${isUnread ? '<span class="letter-unread-dot"></span>' : ""}</div>
               <div class="letter-info">
@@ -784,7 +909,10 @@ export function renderLetters(el, user, profile) {
                 ${lockedHtml}
               </div>
             </div>
-            <div class="letter-date">${isLocked ? "⏳ " : ""}${dateStr}${!isReceived && item.author === user.uid && !isScheduled ? `<span class="letter-read-receipt${readDate ? " is-read" : ""}" title="${readDate ? `Read ${esc(readDate.toLocaleString())}` : "Not read yet"}">${readDate ? "✓✓ Read" : "Sent ✓"}</span>` : ""}</div>
+            <div class="letter-date">
+              ${isLocked ? "⏳ " : ""}${dateStr}<br><span style="font-size:11px;color:#8c7180;">${timeStr}</span>
+              ${!isReceived && item.author === user.uid && !isScheduled ? `<span class="letter-read-receipt${readDate ? " is-read" : ""}" title="${readDate ? `Read ${esc(readDate.toLocaleString())}` : "Not read yet"}">${readDate ? "✓✓ Read" : "Sent ✓"}</span>` : ""}
+            </div>
           </div>
         `;
       }).join("");
@@ -815,8 +943,13 @@ export function renderLetters(el, user, profile) {
           const sentAt = asDate(letter.createdAt) || asDate(letter.deliverDate);
           const readAt = asDate(letter.readAt);
           const avatar = senderProfile?.avatar ? `<img src="${esc(senderProfile.avatar)}" alt="">` : esc(senderName[0] || "♡");
-          $("#read-letter-meta", el).innerHTML = `<span class="read-letter-sender-avatar">${avatar}</span><span class="read-letter-meta-copy"><strong>From ${esc(senderName)}</strong><time>${sentAt ? esc(sentAt.toLocaleString([], { dateStyle: "full", timeStyle: "short" })) : "A little note, written just for you"}</time></span>${letter.author === user.uid ? `<span class="letter-read-receipt${readAt ? " is-read" : ""}">${readAt ? "✓✓ Read" : "Sent ✓"}</span>` : ""}`;
+          const dateLine = sentAt
+            ? `${esc(sentAt.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long", year: "numeric" }))}`
+            : "A little note, written just for you";
+          const timeLine = sentAt ? esc(sentAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })) : "";
+          $("#read-letter-meta", el).innerHTML = `<span class="read-letter-sender-avatar">${avatar}</span><span class="read-letter-meta-copy"><strong>From ${esc(senderName)}</strong><time>${dateLine}</time>${timeLine ? `<time>${timeLine}</time>` : ""}</span>${letter.author === user.uid ? `<span class="letter-read-receipt${readAt ? " is-read" : ""}">${readAt ? "✓✓ Read" : "Sent ✓"}</span>` : ""}`;
           renderLetterBody($("#read-letter-paper-text", el), body);
+          renderLetterReplies(letter);
           const senderKey = senderProfile ? recipientKey(senderProfile.name) : "";
           const canReply = letter.author !== user.uid &&
             recipientKey(letter.recipient) === ownKey &&
@@ -824,9 +957,13 @@ export function renderLetters(el, user, profile) {
             senderKey !== ownKey;
           replyBtn.hidden = !canReply;
           replyBtn.dataset.recipient = canReply ? senderKey : "";
+          updateReadScale();
           openModal(readModal);
+
           if (shouldMarkRead) {
-            letter.readAt = new Date().toISOString();
+            const readAtIso = new Date().toISOString();
+            allLetters = allLetters.map(l => l.id === letter.id ? { ...l, readAt: readAtIso } : l);
+            if (openedLetter?.id === letter.id) openedLetter = { ...openedLetter, readAt: readAtIso };
             renderList();
             void markLetterRead(letter.id).catch(error => console.error("Could not mark letter as read:", error));
           }
@@ -848,12 +985,45 @@ export function renderLetters(el, user, profile) {
       : null;
   }
 
-  // Wrapped in try/catch because watchItems throws when Firebase isn't ready
+  function renderLetterReplies(letter) {
+    if (!repliesContainer) return;
+    if (!letter?.id) { repliesContainer.innerHTML = ""; return; }
+    const replies = allLetters
+      .filter(item => item.replyTo === letter.id)
+      .sort((a, b) => (asDate(a.createdAt)?.getTime() || 0) - (asDate(b.createdAt)?.getTime() || 0));
+
+    if (!replies.length) { repliesContainer.innerHTML = ""; return; }
+
+    repliesContainer.innerHTML = `
+      <p class="letter-replies-title">Replies (${replies.length})</p>
+      ${replies.map(reply => {
+        const when = asDate(reply.createdAt) || asDate(reply.deliverDate);
+        const whenStr = when ? when.toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "";
+        const who = getDisplayName(reply.author, reply.authorName || "Us");
+        return `<article class="letter-reply-card">
+          <p class="letter-reply-card-head">${esc(who)} · ${esc(whenStr)}</p>
+          <div class="letter-reply-card-body" data-reply-body-id="${esc(reply.id)}"></div>
+        </article>`;
+      }).join("")}
+    `;
+
+    replies.forEach(reply => {
+      const target = repliesContainer.querySelector(`[data-reply-body-id="${CSS.escape(reply.id)}"]`);
+      if (!target) return;
+      renderLetterBody(target, reply.body || "");
+      const body = target.querySelector(".letter-rich-text");
+      if (body) body.style.fontSize = "calc(19px * var(--letter-font-scale, 1))";
+    });
+  }
+
   try {
     stopLetters = watchItems("letter", (items) => {
       if (!active || !el.isConnected) return;
       allLetters = items;
       renderList();
+      if (openedLetter && !readModal.classList.contains("hidden")) {
+        renderLetterReplies(openedLetter);
+      }
       for (const letter of items) {
         const canMigrate = letter.author === user.uid || recipientKey(letter.recipient) === ownKey;
         if (letter.status !== "Scheduled" || !letter.body || !canMigrate || migratingLetters.has(letter.id)) continue;
