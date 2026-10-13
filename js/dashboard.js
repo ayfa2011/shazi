@@ -4,7 +4,6 @@ import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 import { formatSpecialDayDate, specialDayCountdown } from "./special-day-utils.js";
 import { ensureDailyQuestion, watchQuestionParticipants } from "./question-service.js";
-import { challengeForDay } from "./challenge-bank.js";
 
 let stopPosts = null, stopRelationship = null, stopDrawings = null, stopQuestionParticipants = null, stopSpecialDays = null, counterTimer = null, dayRolloverTimer = null, homeRenderToken = 0, postCommentStops = new Map();
 
@@ -24,7 +23,6 @@ export function renderHome(el, user, profile) {
   dayRolloverTimer = scheduleDubaiDayRollover(() => {
     if (isCurrent()) window.App?.navigate("home");
   });
-  const challenge = challengeForDay(todayKey());
   let dailyQuestion = null, questionParticipants = {};
   const commentsByPost = new Map();
 
@@ -72,6 +70,10 @@ export function renderHome(el, user, profile) {
       .today-card-copy strong { display: block; }
       .today-card-copy p { color: var(--muted); }
       .today-link { border: 0; background: none; cursor: pointer; }
+      .today-cards--image { align-items: stretch; }
+      .today-image-card { padding: 0 !important; border: 0 !important; background: transparent !important; box-shadow: none !important; overflow: hidden; }
+      .today-image-btn { display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 25px; background: transparent; cursor: pointer; overflow: hidden; }
+      .today-image-btn img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 25px; }
       .home-avatar {
         width: 38px;
         height: 38px;
@@ -223,22 +225,12 @@ export function renderHome(el, user, profile) {
         <div class="section-head">
           <div><p class="eyebrow">A LITTLE SOMETHING FOR TODAY</p><h2>Grow closer, every day</h2></div>
         </div>
-        <div class="today-cards">
-          <article class="card today-question">
-            <span class="today-icon" aria-hidden="true">♡</span>
-            <div class="today-card-copy">
-              <strong>Today's Question</strong>
-              <span class="today-question-category" id="home-question-category"></span>
-              <button type="button" class="today-link" id="home-question-link" aria-label="Answer now"><img src="./Asset/today-question-button.png" alt=""></button>
-            </div>
+        <div class="today-cards today-cards--image">
+          <article class="card today-question today-image-card">
+            <button type="button" class="today-image-btn" id="home-question-link" aria-label="Answer now"><img src="./Asset/Question.png" alt="Today's Question - Share, talk, and get closer"></button>
           </article>
-          <article class="card today-challenge" id="home-daily-challenge" role="link" tabindex="0" aria-label="Open Daily Challenges">
-            <span class="today-icon challenge-icon" aria-hidden="true">★</span>
-            <div class="today-card-copy">
-              <strong>Daily Challenge</strong>
-              <p><em>${esc(challenge.title)}</em></p>
-              <button type="button" class="today-link" id="home-challenge-link" aria-label="Take the challenge"><img src="./Asset/daily-challenge-button.png" alt=""></button>
-            </div>
+          <article class="card today-challenge today-image-card" id="home-daily-challenge" role="link" tabindex="0" aria-label="Open Daily Challenges">
+            <button type="button" class="today-image-btn" id="home-challenge-link" aria-label="Take the challenge"><img src="./Asset/Challenge.png" alt="Daily Challenge - Small steps, big memories"></button>
           </article>
         </div>
       </section>
@@ -342,10 +334,12 @@ export function renderHome(el, user, profile) {
     const questionText = $("#home-question-text", el);
     const category = $("#home-question-category", el);
     const button = $("#home-question-link", el);
-    if (!questionText || !category || !button || !dailyQuestion) return;
-    questionText.textContent = dailyQuestion.question;
-    category.textContent = dailyQuestion.category;
-    category.hidden = false;
+    if (!button || !dailyQuestion) return;
+    if (questionText) questionText.textContent = dailyQuestion.question;
+    if (category) {
+      category.textContent = dailyQuestion.category;
+      category.hidden = false;
+    }
     button.setAttribute("aria-label", questionParticipants[questionProfileKey] ? "View answers" : "Answer now");
   }
 
