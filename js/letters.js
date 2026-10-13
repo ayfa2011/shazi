@@ -37,10 +37,21 @@ export function renderLetters(el, user, profile) {
       /* ── Notebook paper colour palette ─────────────────── */
       :root {
         --nb-line: #bed8f0;       /* horizontal ruling */
-        --nb-margin: #e8a6af;     /* pink/red margin line */
-        --nb-bg: #f8faff;         /* off-white page */
-        --nb-ink: #1b365d;        /* dark-blue ballpoint ink */
-        --nb-line-h: 34px;        /* ruling pitch */
+        --nb-margin: #ef6d7a;     /* red/pink margin line */
+        --nb-bg: #fcfaf6;         /* warm ivory paper */
+        --nb-ink: #162e51;        /* dark-blue/navy ink */
+        --nb-line-h: 38px;        /* ruling pitch */
+      }
+      /* Warm ambient backdrop for full-screen mode */
+      .letter-modal-box.is-fullscreen {
+        width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; padding: 16px; margin: 0; position: fixed; inset: 0; z-index: 1000;
+        background: radial-gradient(ellipse at center, rgba(45, 22, 35, 0.92), rgba(20, 10, 16, 0.98));
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+      }
+      .letter-modal-box.is-fullscreen .letter-paper-wrapper {
+        width: 100%; max-width: 900px; height: 100%; max-height: 90vh;
+        background: #fbf8f2; box-shadow: 0 10px 50px rgba(0,0,0,0.5);
+        display: flex; flex-direction: column; position: relative;
       }
 
       /* ── Card shell ──────────────────────────────────────── */
@@ -110,26 +121,40 @@ export function renderLetters(el, user, profile) {
       }
       .letter-form select:focus,.letter-form input:focus { border-color:#db8eae; box-shadow:0 0 0 3px #ef6d9f16; }
 
-      /* ── NOTEBOOK PAPER textarea ─────────────────────────── */
+      /* ── Notebook paper textarea & paper styles (Shared ruling) ── */
+      .nb-ruling {
+        background-color: var(--nb-bg);
+        background-image:
+          /* left margin red line */
+          linear-gradient(90deg, transparent 0, transparent 40px, var(--nb-margin) 41px, var(--nb-margin) 42px, transparent 43px),
+          /* horizontal ruling */
+          repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--nb-line-h) - 1px), var(--nb-line) calc(var(--nb-line-h) - 1px), var(--nb-line) var(--nb-line-h));
+        background-attachment: local;
+        background-position: 0 32px; /* Calibrated to align baseline */
+      }
       .letter-form textarea {
-        width:100%; min-height:240px; resize:vertical; margin:0; padding:18px 17px 16px 44px;
+        width:100%; min-height:240px; resize:vertical; margin:0;
+        padding: 40px 17px 20px 60px; /* Top padding calibrated to ruling */
         box-sizing:border-box; outline:none;
         border:1px solid #c5d8ee;
         border-radius:4px 12px 10px 4px;
-        background-color: var(--nb-bg);
-        background-image:
-          /* left margin pink line */
-          linear-gradient(90deg, transparent 0, transparent 25px, var(--nb-margin) 26px, var(--nb-margin) 27px, transparent 28px),
-          /* horizontal ruling */
-          repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--nb-line-h) - 1px), var(--nb-line) calc(var(--nb-line-h) - 1px), var(--nb-line) var(--nb-line-h));
         color: var(--nb-ink);
         font-family: "Caveat", "Segoe Print", "Bradley Hand", cursive;
-        font-size: 20px;
+        font-size: 22px;
         line-height: var(--nb-line-h);
         box-shadow: inset 0 1px 8px rgba(50,90,150,.05), 2px 3px 12px rgba(30,60,120,.06);
       }
+      .letter-form textarea.nb-ruling {
+        padding-top: 40px;
+      }
       .letter-form textarea::placeholder { color:#88a8c8; opacity:1; font-style:italic; }
       .letter-form textarea:focus { border-color:#88b4d9; box-shadow:0 0 0 3px #bed8f028, inset 0 1px 8px rgba(50,90,150,.05); }
+
+      /* Fullscreen enhancements */
+      .letter-modal-box.is-fullscreen textarea {
+        min-height: 80vh;
+        font-size: 26px;
+      }
 
       .letter-prompt { margin:0; color:#9a7c89; font-size:10px; text-align:center; }
       .letter-modal-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:3px; justify-content:flex-end; }
@@ -152,18 +177,17 @@ export function renderLetters(el, user, profile) {
         position:relative; overflow:hidden;
         border:1px solid #c5d8ee;
         border-radius:4px 15px 12px 4px;
-        background-color: var(--nb-bg);
-        background-image:
-          linear-gradient(90deg, transparent 0, transparent 25px, var(--nb-margin) 26px, var(--nb-margin) 27px, transparent 28px),
-          repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--nb-line-h) - 1px), var(--nb-line) calc(var(--nb-line-h) - 1px), var(--nb-line) var(--nb-line-h));
         box-shadow: 2px 4px 18px rgba(30,60,120,.08), inset 0 0 24px rgba(100,130,180,.04);
         color: var(--nb-ink);
         font-family: "Caveat", "Segoe Print", "Bradley Hand", cursive;
-        font-size: 20px;
+        font-size: 22px;
         line-height: var(--nb-line-h);
         white-space: pre-wrap;
         overflow-wrap: anywhere;
         transform-origin: top center;
+      }
+      .letter-paper.nb-ruling {
+        padding: 4px 17px 20px 60px; /* Aligned with textarea */
       }
 
       /* top-right corner: sender avatar + name + timestamp */
@@ -266,7 +290,10 @@ export function renderLetters(el, user, profile) {
       <div class="letter-modal-box">
         <div class="letter-modal-head">
           <h3>Write a Letter ♡</h3>
-          <button id="close-letter-modal" class="letter-close-btn" type="button" aria-label="Close letter form">×</button>
+          <div style="display:flex; gap:8px;">
+            <button id="toggle-fullscreen-write" class="letter-close-btn" type="button" aria-label="Toggle Fullscreen">⛶</button>
+            <button id="close-letter-modal" class="letter-close-btn" type="button" aria-label="Close letter form">×</button>
+          </div>
         </div>
         <form id="write-letter-form" class="letter-form">
           <label>To
@@ -275,7 +302,7 @@ export function renderLetters(el, user, profile) {
           </select>
           </label>
           <label>Your letter
-          <textarea id="letter-body" rows="6" placeholder="My dearest…&#10;&#10;Write from your heart ♡" required></textarea>
+          <textarea id="letter-body" class="nb-ruling" rows="6" placeholder="My dearest…&#10;&#10;Write from your heart ♡" required></textarea>
           </label>
           <p class="letter-prompt">Take your time. The loveliest words are the ones that sound like you.</p>
           <label>When should it arrive?
@@ -304,10 +331,13 @@ export function renderLetters(el, user, profile) {
       <div class="letter-modal-box">
         <div class="letter-modal-head">
           <h3 id="read-letter-title">Letter</h3>
-          <button id="close-read-modal" class="letter-close-btn" type="button" aria-label="Close letter">×</button>
+          <div style="display:flex; gap:8px;">
+            <button id="toggle-fullscreen-read" class="letter-close-btn" type="button" aria-label="Toggle Fullscreen">⛶</button>
+            <button id="close-read-modal" class="letter-close-btn" type="button" aria-label="Close letter">×</button>
+          </div>
         </div>
         <div id="read-letter-meta" class="read-letter-meta"></div>
-        <div id="read-letter-body" class="letter-paper">
+        <div id="read-letter-body" class="letter-paper nb-ruling">
           <div id="read-letter-paper-header" class="letter-paper-header"></div>
           <div id="read-letter-paper-text" class="letter-paper-body"></div>
         </div>
@@ -320,7 +350,23 @@ export function renderLetters(el, user, profile) {
   `;
 
   const writeModal = $("#write-letter-modal", el);
+  const writeModalBox = writeModal.querySelector(".letter-modal-box");
+  const toggleFullscreenBtn = $("#toggle-fullscreen-write", el);
+
+  toggleFullscreenBtn.onclick = () => {
+    writeModalBox.classList.toggle("is-fullscreen");
+    toggleFullscreenBtn.textContent = writeModalBox.classList.contains("is-fullscreen") ? "🗗" : "⛶";
+  };
+
   const readModal = $("#read-letter-modal", el);
+  const readModalBox = readModal.querySelector(".letter-modal-box");
+  const toggleReadFullscreenBtn = $("#toggle-fullscreen-read", el);
+
+  toggleReadFullscreenBtn.onclick = () => {
+    readModalBox.classList.toggle("is-fullscreen");
+    toggleReadFullscreenBtn.textContent = readModalBox.classList.contains("is-fullscreen") ? "🗗" : "⛶";
+  };
+
   const statusSelect = $("#letter-status", el);
   const deliverGroup = $("#deliver-date-group", el);
   const deliverInput = $("#letter-deliver-date", el);
