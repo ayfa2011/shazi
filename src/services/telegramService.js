@@ -61,8 +61,20 @@ export async function getTelegramMediaBlob(fileId, mimeType = "application/octet
   url.searchParams.set("fileId", fileId);
   url.searchParams.set("mimeType", mimeType);
   const response = await authorizedRequest(url.toString());
-  if (!response.ok) throw new Error("Could not load this Telegram media.");
-  return response.blob();
+  if (!response.ok) throw new Error(`Could not load this Telegram media (HTTP ${response.status}).`);
+  const blob = await response.blob();
+
+  // Some Workers return application/octet-stream even when the media type is known.
+  // Restore the known MIME type so mobile browsers can identify supported video formats.
+  const requestedType = String(mimeType || "").trim().toLowerCase();
+  if (
+    requestedType &&
+    requestedType !== "application/octet-stream" &&
+    blob.type.toLowerCase() !== requestedType
+  ) {
+    return blob.slice(0, blob.size, requestedType);
+  }
+  return blob;
 }
 
 export const getTelegramGalleryMedia = getTelegramMediaBlob;
@@ -82,14 +94,20 @@ export function telegramMediaReferences(result) {
 /** Return a local URL backed by an authenticated Telegram Worker response. */
 export function getTelegramMediaUrl(fileId, mimeType = "application/octet-stream") {
   if (!fileId) return Promise.reject(new Error("Telegram media reference is missing."));
-  if (!mediaUrlCache.has(fileId)) {
-    const request = getTelegramMediaBlob(fileId, mimeType).then(blob => URL.createObjectURL(blob)).catch(error => {
-      mediaUrlCache.delete(fileId);
-      throw error;
-    });
-    mediaUrlCache.set(fileId, request);
+
+  // The same file id may be requested once with a generic MIME type and later with
+  // its actual type. Cache each MIME variant separately to avoid reusing a bad Blob URL.
+  const cacheKey = `${fileId}::${String(mimeType || "application/octet-stream").toLowerCase()}`;
+  if (!mediaUrlCache.has(cacheKey)) {
+    const request = getTelegramMediaBlob(fileId, mimeType)
+      .then(blob => URL.createObjectURL(blob))
+      .catch(error => {
+        mediaUrlCache.delete(cacheKey);
+        throw error;
+      });
+    mediaUrlCache.set(cacheKey, request);
   }
-  return mediaUrlCache.get(fileId);
+  return mediaUrlCache.get(cacheKey);
 }
 
 /**
@@ -97,10 +115,13 @@ export function getTelegramMediaUrl(fileId, mimeType = "application/octet-stream
  * Safe to call for unknown ids; a rejected or in-flight request is discarded.
  */
 export function revokeTelegramMediaUrl(fileId) {
-  const pending = mediaUrlCache.get(fileId);
-  if (!pending) return;
-  mediaUrlCache.delete(fileId);
-  pending.then(url => URL.revokeObjectURL(url)).catch(() => {});
+  if (!fileId) return;
+  // Remove every MIME-specific cache entry for this Telegram file id.
+  for (const [cacheKey, pending] of mediaUrlCache.entries()) {
+    if (!cacheKey.startsWith(`${fileId}::`)) continue;
+    mediaUrlCache.delete(cacheKey);
+    pending.then(url => URL.revokeObjectURL(url)).catch(() => {});
+  }
 }
 
 /** Ask Telegram to remove a Gallery message when its server-side retention rules allow it. */

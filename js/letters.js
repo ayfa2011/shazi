@@ -172,23 +172,50 @@ export function renderLetters(el, user, profile) {
       .letter-read-receipt { flex:none; color:#8796a4; font-size:11px; font-weight:700; white-space:nowrap; }
       .letter-read-receipt.is-read { color:#299bd0; }
 
-      /* ── NOTEBOOK PAPER reading view ─────────────────────── */
       .letter-paper {
-        position:relative; overflow:hidden;
-        border:1px solid #c5d8ee;
-        border-radius:4px 15px 12px 4px;
-        box-shadow: 2px 4px 18px rgba(30,60,120,.08), inset 0 0 24px rgba(100,130,180,.04);
-        color: var(--nb-ink);
+        background-color: #fdeef4;
+        background-image: url("./Asset/Letter Background.png");
+        background-size: cover;
+        background-position: center top;
+        background-repeat: no-repeat;
+        min-height: min(78dvh, 640px);
+        max-height: 82dvh;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        border-radius: 16px;
+        box-shadow: 0 12px 40px #30132126;
+      }
+      .letter-paper-header {
+        padding: 12px 16px;
+        border-bottom: 1px dashed #f0e1d0;
+        font-size: 11px;
+        color: #877a85;
+        flex: none;
+      }
+      .letter-paper-body {
+        padding: 16px 18px 8px 18px;
+        flex: 1;
+        min-height: 0;
+      }
+      .letter-stage-text {
+        line-height: 1.8;
+        font-size: 16px;
         font-family: "Caveat", "Segoe Print", "Bradley Hand", cursive;
-        font-size: 22px;
-        line-height: var(--nb-line-h);
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
-        transform-origin: top center;
+        color: #4a2438;
+        min-height: 55vh;
       }
-      .letter-paper.nb-ruling {
-        padding: 4px 17px 20px 60px; /* Aligned with textarea */
-      }
+      .letter-stage-text p { margin: 0 0 0.7em 0; }
+      .letter-stage-text b, .letter-stage-text strong { font-weight: 700; }
+      .letter-stage-text .align-left { text-align: left; }
+      .letter-stage-text .align-center { text-align: center; }
+      .letter-stage-text .align-right { text-align: right; }
+      .letter-stage-text .align-justify { text-align: justify; }
+      .letter-stage-text .fs-xs { font-size: 13px; }
+      .letter-stage-text .fs-sm { font-size: 15px; }
+      .letter-stage-text .fs-md { font-size: 18px; }
+      .letter-stage-text .fs-lg { font-size: 22px; }
+      .letter-stage-text .fs-xl { font-size: 28px; }
 
       /* top-right corner: sender avatar + name + timestamp */
       .letter-paper-header {

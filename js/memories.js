@@ -144,7 +144,8 @@ export function renderMemories(el, user, profile) {
       .memory-nav-position { color: #b08b9b; font-size: 10px; letter-spacing: .1em; white-space: nowrap; }
       .memory-image-lightbox { position:fixed; inset:0; z-index:1100; display:none; align-items:center; justify-content:center; padding:env(safe-area-inset-top,12px) env(safe-area-inset-right,12px) env(safe-area-inset-bottom,12px) env(safe-area-inset-left,12px); background:#1b1018ed; touch-action:pan-x pan-y pinch-zoom; }
       .memory-image-lightbox[aria-hidden="false"] { display:flex; }
-      .memory-image-lightbox img { display:block; max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; border-radius:8px; box-shadow:0 14px 50px #0007; touch-action:pan-x pan-y pinch-zoom; }
+      .memory-image-lightbox img, .memory-image-lightbox video { display:block; max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; border-radius:8px; box-shadow:0 14px 50px #0007; touch-action:pan-x pan-y pinch-zoom; }
+      .memory-image-lightbox video { width:100%; max-height:calc(100dvh - 36px); background:#080608; }
       .memory-image-lightbox-close { position:absolute; top:max(14px,env(safe-area-inset-top,14px)); right:max(14px,env(safe-area-inset-right,14px)); width:42px; height:42px; border:1px solid #ffffff55; border-radius:50%; background:#fff2; color:#fff; font-size:25px; cursor:pointer; }
 
       /* ───────── Animations ───────── */
@@ -268,6 +269,7 @@ export function renderMemories(el, user, profile) {
     <div id="memory-image-lightbox" class="memory-image-lightbox" role="dialog" aria-modal="true" aria-label="Full size memory photo" aria-hidden="true">
       <button id="memory-image-lightbox-close" class="memory-image-lightbox-close" type="button" aria-label="Close full size photo">×</button>
       <img id="memory-image-lightbox-img" alt="Full size memory photo">
+      <video id="memory-image-lightbox-video" controls playsinline webkit-playsinline preload="metadata" style="display:none" aria-label="Full size memory video"></video>
     </div>
   `;
 
@@ -278,6 +280,7 @@ export function renderMemories(el, user, profile) {
   const mediaGrid = $("#memory-gallery-grid", el);
   const imageLightbox = $("#memory-image-lightbox", el);
   const lightboxImage = $("#memory-image-lightbox-img", el);
+  const lightboxVideo = $("#memory-image-lightbox-video", el);
   let activeMemoryForView = null;
   let selectedGalleryMedia = null;
 
@@ -310,12 +313,46 @@ export function renderMemories(el, user, profile) {
   function closeImageLightbox() {
     imageLightbox.setAttribute("aria-hidden", "true");
     lightboxImage.removeAttribute("src");
+    lightboxImage.style.display = "none";
+    lightboxVideo.pause();
+    lightboxVideo.removeAttribute("src");
+    lightboxVideo.load();
+    lightboxVideo.style.display = "none";
   }
 
   function openImageLightbox(image) {
+    lightboxVideo.pause();
+    lightboxVideo.removeAttribute("src");
+    lightboxVideo.style.display = "none";
+    lightboxImage.style.display = "block";
     lightboxImage.src = image.currentSrc || image.src;
     lightboxImage.alt = image.alt || "Full size memory photo";
     imageLightbox.setAttribute("aria-hidden", "false");
+    $("#memory-image-lightbox-close", el).focus();
+  }
+
+  async function openGalleryMediaLightbox(item) {
+    if (!item) return;
+    imageLightbox.setAttribute("aria-hidden", "false");
+    lightboxImage.removeAttribute("src");
+    lightboxImage.style.display = "none";
+    lightboxVideo.pause();
+    lightboxVideo.removeAttribute("src");
+    if (item.type === "video") {
+      lightboxVideo.style.display = "block";
+      lightboxVideo.setAttribute("aria-label", item.name || "Memory video");
+      const url = item.url || (item.telegramFileId ? await getTelegramMediaUrl(item.telegramFileId, item.mimeType || "video/mp4") : "");
+      if (!url) { closeImageLightbox(); toast("This video is missing its media link."); return; }
+      lightboxVideo.src = url;
+      lightboxVideo.load();
+    } else {
+      lightboxVideo.style.display = "none";
+      const url = item.url || (item.telegramFileId ? await getTelegramMediaUrl(item.telegramFileId, item.mimeType || "image/jpeg") : "");
+      if (!url) { closeImageLightbox(); toast("This photo is missing its media link."); return; }
+      lightboxImage.style.display = "block";
+      lightboxImage.src = url;
+      lightboxImage.alt = item.name || "Full size memory photo";
+    }
     $("#memory-image-lightbox-close", el).focus();
   }
 
@@ -437,17 +474,21 @@ export function renderMemories(el, user, profile) {
     const isVideo = selected?.type === "video" || (!selected && memory.mediaType === "video");
     const mediaUrl = selected?.url || memory.photoUrl || "";
     const fileId = selected?.telegramFileId || (!selected ? memory.telegramFileId : "");
-    const mimeType = selected?.mimeType || memory.photoMimeType || "application/octet-stream";
+    const mimeType = selected?.mimeType || memory.photoMimeType || (isVideo ? "video/mp4" : "image/jpeg");
     imgWrap.querySelectorAll(".memory-view-main,.memory-view-placeholder").forEach(node => node.remove());
     if (isVideo && (mediaUrl || fileId)) {
       const video = document.createElement("video");
       video.className = "memory-view-main";
-      if (mediaUrl) video.src = mediaUrl;
-      else getTelegramMediaUrl(fileId, mimeType).then(url => { if (video.isConnected) video.src = url; }).catch(error => console.error("Memory video could not load:", error));
       video.controls = true;
       video.playsInline = true;
+      video.setAttribute("playsinline", "");
+      video.setAttribute("webkit-playsinline", "");
       video.preload = "metadata";
-      video.setAttribute("aria-label", selected.name || "Memory video");
+      video.setAttribute("aria-label", selected?.name || "Memory video");
+      video.setAttribute("controlslist", "nodownload");
+      if (mediaUrl) video.src = mediaUrl;
+      else getTelegramMediaUrl(fileId, mimeType).then(url => { if (video.isConnected) { video.src = url; video.load(); } }).catch(error => console.error("Memory video could not load:", error));
+      video.addEventListener("error", () => console.error("Memory video playback failed", video.error, { mimeType, mediaUrl }), { once: true });
       imgWrap.prepend(video);
     } else if (mediaUrl || fileId) {
       const image = document.createElement("img");
@@ -479,29 +520,37 @@ export function renderMemories(el, user, profile) {
     const videos = media.filter(item => item.type === "video").length + (hasPrimaryMedia && primaryIsVideo ? 1 : 0);
     $("#memory-gallery-count", el).textContent = `${photos} ${photos === 1 ? "photo" : "photos"} and ${videos} ${videos === 1 ? "video" : "videos"}`;
     mediaGrid.innerHTML = media.map((item, index) => {
-      const thumbnail = item.thumbnailUrl || item.url;
-      if (!thumbnail && !item.telegramFileId) return "";
-      return `<button class="memory-gallery-item" type="button" data-media-index="${index}" aria-label="View ${item.type === "video" ? "video" : "photo"}${item.name ? `: ${esc(item.name)}` : ""}"><img ${thumbnail ? `src="${esc(thumbnail)}"` : `data-memory-file-id="${esc(item.telegramFileId)}" data-memory-mime="${esc(item.mimeType || "application/octet-stream")}" data-memory-kind="${esc(item.type || "photo")}"`} alt="" loading="lazy" decoding="async">${item.type === "video" ? `<span class="memory-video-indicator" aria-hidden="true">▶</span>` : ""}</button>`;
+      const isVideo = item.type === "video";
+      const thumbnail = item.thumbnailUrl || (!isVideo ? item.url : "");
+      if (!thumbnail && !item.telegramFileId && !item.url) return "";
+      const mediaAttrs = thumbnail ? `src="${esc(thumbnail)}"` : item.telegramFileId ? `data-memory-file-id="${esc(item.telegramFileId)}" data-memory-mime="${esc(item.mimeType || (isVideo ? "video/mp4" : "image/jpeg"))}" data-memory-kind="${esc(item.type || "photo")}"` : `data-memory-src="${esc(item.url)}" data-memory-mime="${esc(item.mimeType || "video/mp4")}" data-memory-kind="${esc(item.type || "photo")}"`;
+      return `<button class="memory-gallery-item" type="button" data-media-index="${index}" aria-label="Open full-size ${isVideo ? "video" : "photo"}${item.name ? `: ${esc(item.name)}` : ""}"><img ${mediaAttrs} alt="" loading="lazy" decoding="async">${isVideo ? `<span class="memory-video-indicator" aria-hidden="true">▶</span>` : ""}</button>`;
     }).join("");
     mediaGrid.querySelectorAll("[data-media-index]").forEach(button => {
       button.onclick = () => {
         selectedGalleryMedia = media[Number(button.dataset.mediaIndex)] || null;
-        if (selectedGalleryMedia) renderMemoryHero(memory, selectedGalleryMedia);
+        if (selectedGalleryMedia) void openGalleryMediaLightbox(selectedGalleryMedia).catch(error => { console.error("Could not open memory media:", error); toast("Could not open this media. Please try again."); });
       };
     });
     hydrateMemoryThumbnails(mediaGrid);
   }
 
   function hydrateMemoryThumbnails(container) {
-    container.querySelectorAll("img[data-memory-file-id]").forEach(async image => {
+    const pending = [...container.querySelectorAll("img[data-memory-file-id], img[data-memory-src]")];
+    pending.forEach(async image => {
       try {
-        const source = await getTelegramMediaUrl(image.dataset.memoryFileId, image.dataset.memoryMime);
+        const source = image.dataset.memorySrc || await getTelegramMediaUrl(image.dataset.memoryFileId, image.dataset.memoryMime);
         if (!image.isConnected) return;
         if (image.dataset.memoryKind === "video") {
-          const blob = await (await fetch(source)).blob();
+          const response = await fetch(source);
+          if (!response.ok) throw new Error(`Video thumbnail request failed (${response.status})`);
+          const blob = await response.blob();
           image.src = await createVideoThumbnail(blob);
         } else image.src = source;
-      } catch (error) { console.error("Memory thumbnail could not load:", error); }
+      } catch (error) {
+        console.error("Memory thumbnail could not load:", error);
+        if (image.isConnected && image.dataset.memoryKind === "video") image.alt = "Video preview unavailable — tap to play";
+      }
     });
   }
 
@@ -555,20 +604,29 @@ export function renderMemories(el, user, profile) {
       video.preload = "metadata";
       video.muted = true;
       video.playsInline = true;
-      video.onloadeddata = () => {
-        const scale = Math.min(1, 1280 / Math.max(video.videoWidth, video.videoHeight));
-        const width = Math.max(1, Math.round(video.videoWidth * scale));
-        const height = Math.max(1, Math.round(video.videoHeight * scale));
-        const thumbnail = document.createElement("canvas");
-        thumbnail.width = width;
-        thumbnail.height = height;
-        const context = thumbnail.getContext("2d");
-        if (!context) { cleanup(); reject(new Error("Could not create a video thumbnail.")); return; }
-        context.drawImage(video, 0, 0, width, height);
-        const dataUrl = thumbnail.toDataURL("image/jpeg", 0.64);
-        cleanup();
-        resolve(dataUrl);
+      const captureFrame = () => {
+        try {
+          if (!video.videoWidth || !video.videoHeight) throw new Error("Video frame is not ready.");
+          const scale = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight));
+          const width = Math.max(1, Math.round(video.videoWidth * scale));
+          const height = Math.max(1, Math.round(video.videoHeight * scale));
+          const thumbnail = document.createElement("canvas");
+          thumbnail.width = width;
+          thumbnail.height = height;
+          const context = thumbnail.getContext("2d");
+          if (!context) throw new Error("Could not create a video thumbnail.");
+          context.drawImage(video, 0, 0, width, height);
+          const dataUrl = thumbnail.toDataURL("image/jpeg", 0.68);
+          cleanup();
+          resolve(dataUrl);
+        } catch (error) { cleanup(); reject(error); }
       };
+      video.onloadeddata = () => {
+        if (Number.isFinite(video.duration) && video.duration > 0.4) {
+          try { video.currentTime = Math.min(0.5, video.duration / 3); } catch { captureFrame(); }
+        } else captureFrame();
+      };
+      video.onseeked = captureFrame;
       video.onerror = () => { cleanup(); reject(new Error("Could not read this video. Choose another file.")); };
       video.src = objectUrl;
     });
