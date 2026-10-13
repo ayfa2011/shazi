@@ -5,7 +5,6 @@ import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { mountFindTheWordsGame } from "./find-the-words.js";
 import { onDisconnect, onValue, ref, remove, runTransaction, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
-const ticTacToeRef = () => ref(rtdb, "couples/our-little-world/games/ticTacToe");
 const sosGameRef = () => ref(rtdb, "couples/our-little-world/games/sos");
 const sosPresenceRef = uid => ref(rtdb, `couples/our-little-world/games/sosPresence/${uid}`);
 const gameMatchRef = game => ref(rtdb, `couples/our-little-world/games/matches/${game}`);
@@ -14,7 +13,6 @@ const SOS_COLUMNS = 7;
 const SOS_CELL_COUNT = SOS_ROWS * SOS_COLUMNS;
 const SOS_DIRECTIONS = [[0, 1], [1, 0], [1, 1], [1, -1]];
 const symbols = ["🌸", "🌙", "🍓", "🐻", "💌", "🦋", "✨", "🧸", "🌻", "💖"];
-const EMOJI_PALETTE = ["❤️", "💖", "🌙", "✨", "🍓", "🧸", "💌", "🌹", "🎬", "🍿", "🛋️", "✈️", "☕", "🏖️", "🍕", "🍫", "🍩", "🥞", "🍣", "💍", "🕯️", "🥂", "🎶", "🫧", "🍯", "🥑"];
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 const challenges = [
   "Choose today's movie.",
@@ -42,14 +40,8 @@ const triviaQuestions = [
   { prompt: "Which kind of date sounds best right now?", options: ["A cozy movie night", "A yummy dinner out", "A little adventure", "A quiet day together"] },
   { prompt: "Who gives the best hugs?", options: ["Keby", "Shazy", "It's a tie", "We need a rematch"] }
 ];
-const winningLines = [
-  [0, 1, 2], [3, 4, 5], [6, 7, 8],
-  [0, 3, 6], [1, 4, 7], [2, 5, 8],
-  [0, 4, 8], [2, 4, 6]
-];
 
 let stopGames = null;
-let stopTicTacToe = null;
 let stopSosGame = null;
 let stopSosPresence = null;
 let stopSosConnection = null;
@@ -92,7 +84,6 @@ const gameTitles = {
   "emoji-quiz": "Emoji Quiz",
   "spin-wheel": "Spin Wheel",
   "couple-trivia": "Couple Trivia",
-  "tic-tac-toe": "Tic Tac Toe",
   sos: "SOS",
   "daily-hidden-heart": "Today's Hidden Heart"
 };
@@ -220,6 +211,123 @@ function uniqueMatchResults(items) {
   });
 }
 
+/* ------------------------------------------------------------------ */
+/*  Scoreboard summary (both partners: wins / losses / games)         */
+/* ------------------------------------------------------------------ */
+
+function emptyStats() {
+  return { wins: 0, losses: 0, draws: 0, games: 0 };
+}
+
+function computeGameStats(items) {
+  const stats = new Map();
+  const get = uid => {
+    if (!stats.has(uid)) stats.set(uid, emptyStats());
+    return stats.get(uid);
+  };
+  const seen = new Set();
+  for (const item of items || []) {
+    if (!item || (item.result !== "won" && item.result !== "draw")) continue;
+    if (item.matchId) {
+      const key = `${item.game || ""}:${item.matchId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    const players = Array.isArray(item.players) && item.players.length === 2 ? item.players : null;
+    if (players) {
+      const winnerUid = item.winnerUid || "";
+      for (const uid of players) {
+        if (!uid) continue;
+        const entry = get(uid);
+        entry.games++;
+        if (!winnerUid) entry.draws++;
+        else if (winnerUid === uid) entry.wins++;
+        else entry.losses++;
+      }
+    } else {
+      const uid = item.winnerUid || item.author;
+      if (uid) {
+        const entry = get(uid);
+        entry.games++;
+        if (item.result === "draw") entry.draws++;
+        else entry.wins++;
+      }
+    }
+  }
+  return stats;
+}
+
+function findPartnerUid(items, myUid) {
+  if (!myUid) return "";
+  for (const item of items || []) {
+    if (Array.isArray(item?.players) && item.players.includes(myUid)) {
+      const other = item.players.find(uid => uid && uid !== myUid);
+      if (other) return other;
+    }
+  }
+  for (const item of items || []) {
+    const uid = item?.winnerUid || item?.author;
+    if (uid && uid !== myUid) return uid;
+  }
+  return "";
+}
+
+function scoreboardSummaryMarkup(items, user) {
+  const myUid = user?.uid || "";
+  const stats = computeGameStats(items);
+  const partnerUid = findPartnerUid(items, myUid);
+  const mine = stats.get(myUid) || emptyStats();
+  const theirs = partnerUid ? (stats.get(partnerUid) || emptyStats()) : emptyStats();
+  const partnerName = partnerUid ? getDisplayName(partnerUid, "Partner") : "Partner";
+  const totalMatches = Math.max(mine.games, theirs.games);
+  const totalWins = mine.wins + theirs.wins;
+  const myShare = totalWins > 0 ? Math.round((mine.wins / totalWins) * 100) : 50;
+  const partnerShare = 100 - myShare;
+  const hasData = totalMatches > 0;
+  const headerSub = hasData
+    ? `${totalMatches} ${totalMatches === 1 ? "match" : "matches"} played together`
+    : "No matches yet — start playing!";
+  return `<section class="games-scoreboard-card" aria-label="Game scoreboard summary">
+    <div class="games-scoreboard-head">
+      <div>
+        <p class="eyebrow">OUR SCOREBOARD</p>
+        <h2>Wins &amp; Losses</h2>
+      </div>
+      <span class="games-scoreboard-total">${esc(headerSub)}</span>
+    </div>
+    <div class="games-scoreboard-grid">
+      <div class="games-scoreboard-player me">
+        <span class="games-scoreboard-name">You</span>
+        <strong class="games-scoreboard-wins">${mine.wins}</strong>
+        <span class="games-scoreboard-label">${mine.wins === 1 ? "win" : "wins"}</span>
+        <div class="games-scoreboard-meta">
+          <span><b>${mine.losses}</b> losses</span>
+          <span><b>${mine.games}</b> games</span>
+        </div>
+      </div>
+      <span class="games-scoreboard-vs" aria-hidden="true">VS</span>
+      <div class="games-scoreboard-player partner">
+        <span class="games-scoreboard-name">${esc(partnerName)}</span>
+        <strong class="games-scoreboard-wins">${theirs.wins}</strong>
+        <span class="games-scoreboard-label">${theirs.wins === 1 ? "win" : "wins"}</span>
+        <div class="games-scoreboard-meta">
+          <span><b>${theirs.losses}</b> losses</span>
+          <span><b>${theirs.games}</b> games</span>
+        </div>
+      </div>
+    </div>
+    <div class="games-scoreboard-bar" role="img" aria-label="Win share between partners">
+      <span class="me" style="width:${myShare}%"></span>
+      <span class="partner" style="width:${partnerShare}%"></span>
+    </div>
+    ${hasData ? "" : `<p class="games-scoreboard-empty">Play a match together to fill this scoreboard 💞</p>`}
+  </section>`;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Games hub markup                                                  */
+/* ------------------------------------------------------------------ */
+
 function gameCard(id, emoji, title, description, label = "") {
   return `<button class="games-hub-card" type="button" data-start-game="${id}">
     <span class="games-card-emoji" aria-hidden="true">${emoji}</span>
@@ -229,15 +337,50 @@ function gameCard(id, emoji, title, description, label = "") {
   </button>`;
 }
 
+const scoreboardStyles = `<style>
+  .games-scoreboard-card{margin:0 0 20px;padding:18px 16px 16px;border-radius:20px;
+    background:linear-gradient(135deg,#fff5f9 0%,#fdeaf3 55%,#f6e2ff 100%);
+    border:1px solid #f3d5e2;box-shadow:0 14px 30px -20px rgba(182,79,123,.55)}
+  .games-scoreboard-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:14px}
+  .games-scoreboard-head .eyebrow{margin:0 0 3px}
+  .games-scoreboard-head h2{margin:0;font-size:17px;color:#75435a;letter-spacing:.01em}
+  .games-scoreboard-total{font-size:11px;color:#8c7480;text-align:right;max-width:45%;line-height:1.3}
+  .games-scoreboard-grid{display:grid;grid-template-columns:1fr auto 1fr;align-items:stretch;gap:10px}
+  .games-scoreboard-player{display:flex;flex-direction:column;gap:1px;padding:12px 12px;border-radius:14px;
+    background:rgba(255,255,255,.8);border:1px solid #f3d5e2}
+  .games-scoreboard-player.partner{text-align:right;align-items:flex-end}
+  .games-scoreboard-name{font-size:11px;font-weight:700;color:#75435a;text-transform:uppercase;letter-spacing:.08em;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .games-scoreboard-wins{font-size:34px;line-height:1.05;font-weight:800;color:#b64f7b;margin-top:2px}
+  .games-scoreboard-player.partner .games-scoreboard-wins{color:#7c5cc4}
+  .games-scoreboard-label{font-size:11px;color:#8c7480;letter-spacing:.04em}
+  .games-scoreboard-meta{display:flex;gap:10px;margin-top:8px;font-size:11px;color:#8c7480;flex-wrap:wrap}
+  .games-scoreboard-meta b{color:#75435a;font-weight:700}
+  .games-scoreboard-player.partner .games-scoreboard-meta{justify-content:flex-end}
+  .games-scoreboard-vs{align-self:center;font-size:10px;font-weight:800;color:#b64f7b;background:#fff;
+    border:1px solid #f3d5e2;border-radius:999px;padding:6px 8px;letter-spacing:.1em}
+  .games-scoreboard-bar{display:flex;height:8px;margin-top:14px;border-radius:999px;overflow:hidden;background:#f6e2ff}
+  .games-scoreboard-bar span{display:block;height:100%;transition:width .45s ease}
+  .games-scoreboard-bar .me{background:linear-gradient(90deg,#f7b6cf,#b64f7b)}
+  .games-scoreboard-bar .partner{background:linear-gradient(90deg,#c9b6f7,#7c5cc4)}
+  .games-scoreboard-empty{font-size:12px;color:#8c7480;text-align:center;margin:12px 0 0}
+  @media (max-width:420px){
+    .games-scoreboard-wins{font-size:28px}
+    .games-scoreboard-grid{gap:6px}
+    .games-scoreboard-player{padding:10px}
+  }
+</style>`;
+
 function gamesHome() {
   return `<section class="games-page">
+    ${scoreboardStyles}
     <header class="games-intro">
       <p class="eyebrow">A LITTLE FRIENDLY COMPETITION</p>
       <h1>Our Games <span aria-hidden="true">🎮</span></h1>
       <p class="muted">Start a match on one device, then join it from your partner's device.</p>
     </header>
+    <div id="games-scoreboard"></div>
     <div class="games-hub-grid">
-      ${gameCard("tic-tac-toe", "⭕", "Tic Tac Toe", "A real-time game for two", "LIVE")}
       ${gameCard("sos", "🔠", "SOS", "Make SOS lines, earn points, and play live", "LIVE")}
       ${gameCard("memory-match", "🧠", "Memory Match", "Take turns finding matching pairs", "2P")}
       ${gameCard("word-guess", "🔤", "Word Guess", "Set words for each other to guess", "2P")}
@@ -286,10 +429,6 @@ function miniScoreboardMarkup(game, state, user, liveMatch) {
   } else if (game === "spin-wheel") {
     label = "Challenges"; value = `${Math.min(state.completedChallenges || 0, 3)}/3`;
     detail = "Complete three challenges";
-  } else if (game === "tic-tac-toe") {
-    label = "Match";
-    value = state.status === "finished" ? (state.winnerUid ? (state.winnerUid === user?.uid ? "You won" : "Partner won") : "Draw") : state.status === "playing" ? "In progress" : "Waiting";
-    detail = "First to three in a row";
   } else return "";
   return `<aside class="game-mini-scoreboard" aria-label="Current game score" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 10px;padding:9px 12px;border:1px solid #f3d5e2;border-radius:12px;background:#fff8fb;font-size:12px"><span style="font-weight:700;color:#75435a">${esc(label)}</span><strong style="font-size:15px;color:#b64f7b">${esc(String(value))}</strong><span style="margin-left:auto;color:#8c7480;text-align:right">${esc(detail)}</span></aside>`;
 }
@@ -306,7 +445,7 @@ function renderActiveGame(el, game, user, profile, state, liveMatch = false) {
 function renderActiveGameBody(el, game, user, profile, state, liveMatch = false) {
   const content = $("#games-active-content", el);
   if (!content) return;
-  if (game !== "tic-tac-toe" && !isValidActiveGameState(game, state)) {
+  if (!isValidActiveGameState(game, state)) {
     content.innerHTML = `<div class="game-panel"><p class="error">This game's saved progress is invalid. Please start a new match.</p></div>`;
     return;
   }
@@ -365,51 +504,6 @@ function renderActiveGameBody(el, game, user, profile, state, liveMatch = false)
     content.innerHTML = `<div class="game-panel quiz-panel"><p class="games-instructions">${liveMatch ? "Choose your honest answer. Your partner will guess from their device." : `First, ${esc(getDisplayName(user.uid, profile?.name))} answers honestly. Your partner will guess after you pass the device.`}</p><h2 class="trivia-question">${esc(question.prompt)}</h2><div class="quiz-options">${question.options.map((option, index) => `<button type="button" class="quiz-option" data-trivia-answer="${index}">${esc(option)}</button>`).join("")}</div></div>`;
     return;
   }
-
-  if (game === "tic-tac-toe") renderTicTacToe(content, user, state);
-}
-
-function renderTicTacToe(content, user, gameState) {
-  const uid = user?.uid;
-  const state = gameState || null;
-  if (state && !isValidTicTacToeState(state)) {
-    content.innerHTML = `<div class="game-panel tic-tac-toe-panel"><p class="error">This match has invalid game data. Start a new match to continue.</p><button type="button" class="primary" data-ttt-start>Start a new match</button></div>`;
-    return;
-  }
-  const cells = state?.board || Array(9).fill("");
-  const mark = state?.xUid === uid ? "X" : state?.oUid === uid ? "O" : "";
-  const isPlaying = state?.status === "playing";
-  const isFinished = state?.status === "finished";
-  const waitingForOpponent = state?.status === "waiting" && state.xUid === uid;
-  const canJoin = state?.status === "waiting" && state.xUid !== uid && !state.oUid;
-  const turnText = !state
-    ? "Start a match or join your partner's waiting game."
-    : isFinished
-      ? state.cancelled
-        ? "The waiting match was canceled."
-        : state.endedByUid
-          ? "This match was ended."
-          : state.winnerUid
-            ? state.winnerUid === uid ? "You won! 🎉" : "Your partner won this round!"
-            : "It's a draw! 🤝"
-      : waitingForOpponent
-        ? "Waiting for your partner to join…"
-        : canJoin
-          ? "Your partner is waiting. Join the match!"
-          : !mark
-            ? "This match is for your partner. Start a new game after it ends."
-            : isPlaying
-              ? state.turnUid === uid ? "Your turn!" : "Waiting for your partner's move…"
-              : "Waiting for your partner to join…";
-
-  content.innerHTML = `<div class="game-panel tic-tac-toe-panel">
-    <p class="games-instructions">Play live against your partner. Your moves appear on both screens.</p>
-    <p class="tic-tac-toe-status" aria-live="polite">${esc(turnText)}</p>
-    ${state?.status === "waiting" || isPlaying || isFinished ? `<div class="tic-tac-toe-board" role="grid" aria-label="Tic Tac Toe board">${cells.map((cell, index) => `<button type="button" class="tic-tac-toe-cell${cell ? ` played played-${cell.toLocaleLowerCase()}` : ""}" data-ttt-cell="${index}" aria-label="Row ${Math.floor(index / 3) + 1}, column ${index % 3 + 1}${cell ? `, ${cell}` : ""}"${!isPlaying || state.turnUid !== uid || cell || !mark ? " disabled" : ""}>${esc(cell)}</button>`).join("")}</div>` : ""}
-    ${!state || isFinished ? `<button type="button" class="primary" data-ttt-start>${isFinished ? "Start a new match" : "Start a match"}</button>` : canJoin ? `<button type="button" class="primary" data-ttt-start>Join your partner</button>` : ""}
-    ${(state?.status === "waiting" && state.xUid === uid) || (isPlaying && (state.xUid === uid || state.oUid === uid)) ? `<button type="button" class="secondary" data-ttt-reset>${state.status === "waiting" ? "Cancel waiting match" : "End this match"}</button>` : ""}
-    <p class="tic-tac-toe-legend">${mark ? `You are ${mark} · ${mark === "X" ? "❌" : "⭕"}` : "❌ goes first"}</p>
-  </div>`;
 }
 
 function renderSosGame(content, user, gameState, presence, selectedLetter) {
@@ -514,24 +608,6 @@ function resetActiveGame(game) {
   return {};
 }
 
-function hasWinningLine(board, mark) {
-  return winningLines.some(line => line.every(index => board[index] === mark));
-}
-
-function isValidTicTacToeState(state) {
-  if (!state ||
-      !["waiting", "playing", "finished"].includes(state.status) ||
-      typeof state.xUid !== "string" || !state.xUid ||
-      typeof state.oUid !== "string" ||
-      typeof state.turnUid !== "string" ||
-      typeof state.winnerUid !== "string" ||
-      !Array.isArray(state.board) || state.board.length !== 9 ||
-      !state.board.every(cell => cell === "" || cell === "X" || cell === "O")) return false;
-  if (state.status === "waiting") return !state.oUid && state.turnUid === state.xUid;
-  if (state.status === "playing") return Boolean(state.oUid && state.oUid !== state.xUid && [state.xUid, state.oUid].includes(state.turnUid));
-  return !state.turnUid && (!state.winnerUid || [state.xUid, state.oUid].includes(state.winnerUid));
-}
-
 function isValidGameRoom(room, game) {
   if (!room || room.game !== game || typeof room.matchId !== "string" ||
       !["waiting", "playing", "finished", "cancelled"].includes(room.status) ||
@@ -565,15 +641,12 @@ export function renderGames(el, user, profile) {
   dailyRolloverTimer = null;
   stopGames?.();
   stopGames = null;
-  stopTicTacToe?.();
-  stopTicTacToe = null;
   if (memoryTimer) clearTimeout(memoryTimer);
   memoryTimer = null;
 
   let activeGame = "";
   let renderedShellGame = "";
   let activeState = null;
-  let ticTacToeState = null;
   let sosGameState = null;
   let sosPresence = {};
   let selectedSosLetter = "S";
@@ -587,6 +660,12 @@ export function renderGames(el, user, profile) {
   let savingDailyWin = false;
 
   el.innerHTML = gamesHome();
+
+  function renderScoreboard() {
+    const container = $("#games-scoreboard", el);
+    if (!container) return;
+    container.innerHTML = scoreboardSummaryMarkup(dailyGameItems || [], user);
+  }
 
   function ownDailyWin() {
     return (dailyGameItems || []).find(win => {
@@ -966,6 +1045,7 @@ export function renderGames(el, user, profile) {
       el.innerHTML = gamesHome();
       renderedShellGame = "";
       buildDailyBoard();
+      renderScoreboard();
       if (dailyGameItems) renderDailyWins(dailyGameItems);
       listenForDailyWins();
       return;
@@ -995,7 +1075,6 @@ export function renderGames(el, user, profile) {
       return;
     }
     const gameInfo = {
-      "tic-tac-toe": ["Tic Tac Toe", "Play a live match from two devices.", "⭕"],
       "memory-match": ["Memory Match", "Flip the cards and find all six pairs.", "🧠"],
       "word-guess": ["Word Guess", "Pick a secret word, then let your partner guess.", "🔤"],
       "emoji-quiz": ["Emoji Quiz", "Can you read the message in these emojis?", "🌙"],
@@ -1006,15 +1085,7 @@ export function renderGames(el, user, profile) {
       el.innerHTML = activeShell(activeGame, ...gameInfo);
       renderedShellGame = activeGame;
     }
-    if (activeGame === "tic-tac-toe" && !rtdb) {
-      $("#games-active-content", el).innerHTML = `<div class="game-panel"><p class="error">Live Tic Tac Toe is unavailable because Firebase Realtime Database is not configured.</p></div>`;
-      return;
-    }
-    if (activeGame !== "tic-tac-toe") {
-      renderGameRoom();
-      return;
-    }
-    renderActiveGame(el, activeGame, user, profile, activeGame === "tic-tac-toe" ? ticTacToeState : activeState);
+    renderGameRoom();
   }
 
   function listenForDailyWins() {
@@ -1028,7 +1099,10 @@ export function renderGames(el, user, profile) {
       stopGames = watchItems("game", items => {
         dailyGameItems = items || [];
         if (activeGame) renderCurrentGame();
-        else renderDailyWins(dailyGameItems);
+        else {
+          renderDailyWins(dailyGameItems);
+          renderScoreboard();
+        }
       }, error => {
         console.error("Game scores could not be loaded:", error);
         const listEl = $("#game-scores-list", el);
@@ -1094,8 +1168,7 @@ export function renderGames(el, user, profile) {
       "data-memory-card", "data-word-letter", "data-emoji-answer", "data-next-emoji",
       "data-spin-wheel", "data-complete-challenge", "data-trivia-answer", "data-trivia-guess", "data-next-trivia"
     ];
-    if (activeGame && activeGame !== "tic-tac-toe" &&
-        turnOnlyActions.some(attribute => target.hasAttribute(attribute)) &&
+    if (activeGame && turnOnlyActions.some(attribute => target.hasAttribute(attribute)) &&
         (gameRoomState?.status !== "playing" || gameRoomState.turnUid !== user.uid)) {
       toast("Please wait for your turn.");
       renderCurrentGame();
@@ -1111,66 +1184,18 @@ export function renderGames(el, user, profile) {
       if (memoryTimer) clearTimeout(memoryTimer);
       memoryTimer = null;
       clearSosSession();
-      stopTicTacToe?.();
-      stopTicTacToe = null;
       stopGameMatch?.();
       stopGameMatch = null;
       disposeFindTheWords?.();
       disposeFindTheWords = null;
       activeGame = target.dataset.startGame;
       activeState = resetActiveGame(activeGame);
-      ticTacToeState = null;
       sosGameState = null;
       sosPresence = {};
       selectedSosLetter = "S";
       gameRoomState = null;
       if (activeGame === "sos") {
         startSosSession();
-      } else if (activeGame === "tic-tac-toe") {
-        if (rtdb) {
-          stopTicTacToe = onValue(ticTacToeRef(), snapshot => {
-            const previousState = ticTacToeState;
-            ticTacToeState = snapshot.val();
-            const content = $("#games-active-content", el);
-            if (activeGame === "tic-tac-toe" && content) renderTicTacToe(content, user, ticTacToeState);
-            if (isValidTicTacToeState(ticTacToeState) &&
-                ticTacToeState.status === "finished" &&
-                previousState?.status === "playing" &&
-                previousState.matchId === ticTacToeState.matchId &&
-                !ticTacToeState.endedByUid &&
-                ticTacToeState.xUid &&
-                ticTacToeState.oUid) {
-              const matchId = ticTacToeState.matchId || `${ticTacToeState.updatedAt}-${ticTacToeState.xUid}`;
-              if (!savedMatchResults.has(matchId) && firebaseReady) {
-                savedMatchResults.add(matchId);
-                recordGameMatchResult({
-                  uid: user.uid,
-                  authorId: profile?.id || user.uid,
-                  matchId,
-                  game: gameTitles["tic-tac-toe"],
-                  winnerUid: ticTacToeState.winnerUid,
-                  players: [ticTacToeState.xUid, ticTacToeState.oUid],
-                  scores: {
-                    [ticTacToeState.xUid]: ticTacToeState.winnerUid === ticTacToeState.xUid ? 1 : 0,
-                    [ticTacToeState.oUid]: ticTacToeState.winnerUid === ticTacToeState.oUid ? 1 : 0
-                  }
-                }).then(() => {
-                  if (ticTacToeState.winnerUid === user.uid) void notifyPartnerSafely(getProfileKey(profile), "game", `${profile.name} won Tic Tac Toe!`, matchId, "games");
-                }).catch(error => {
-                  savedMatchResults.delete(matchId);
-                  console.error("Could not save Tic Tac Toe result:", error);
-                  toast("The match ended, but its result could not be saved.");
-                });
-              }
-            }
-          }, error => {
-            console.error("Tic Tac Toe could not be loaded:", error);
-            const content = $("#games-active-content", el);
-            if (content) content.innerHTML = `<div class="game-panel"><p class="error">The live game could not be loaded. Please try again.</p></div>`;
-          });
-        } else {
-          ticTacToeState = null;
-        }
       } else if (rtdb && activeGame !== "find-words") {
         stopGameMatch = onValue(gameMatchRef(activeGame), snapshot => {
           gameRoomState = snapshot.val();
@@ -1195,7 +1220,7 @@ export function renderGames(el, user, profile) {
       try {
         const transaction = await runTransaction(gameMatchRef(activeGame), current => {
           if (!current || current.status === "finished" || current.status === "cancelled") {
-                const matchId = `${Date.now()}-${user.uid}`;
+            const matchId = `${Date.now()}-${user.uid}`;
             return {
               matchId,
               game: activeGame,
@@ -1278,37 +1303,37 @@ export function renderGames(el, user, profile) {
       try {
         const transaction = await runTransaction(gameMatchRef(activeGame), current => {
           if (!current || current.matchId !== room.matchId || current.status !== "playing" ||
-                current.turnUid !== user.uid) return;
-            if (activeGame === "word-guess") {
-              if (current.wordPhase !== "guessing" || !gameIsComplete(activeGame, current.wordRound)) return;
-              const setterUid = current.wordSetterUid;
-              const guesserScore = (current.players[user.uid].score || 0) +
-                (gameScore(activeGame, current.wordRound) ? 1 : 0);
-              const setterScore = (current.players[setterUid].score || 0) +
-                (gameScore(activeGame, current.wordRound) ? 0 : 1);
-              const players = {
-                ...current.players,
-                [user.uid]: { ...current.players[user.uid], score: guesserScore, completed: false, state: null },
-                [setterUid]: { ...current.players[setterUid], score: setterScore, completed: false, state: null }
-              };
-              if (current.wordRoundNumber === 1) {
-                players[user.uid].completed = true;
-                players[setterUid].completed = true;
-                const winnerUid = gameWinner(activeGame, current.playerUids, players);
-                return { ...current, players, status: "finished", winnerUid, turnUid: "", wordPhase: "result", updatedAt: Date.now() };
-              }
-              return {
-                ...current,
-                players,
-                wordRound: null,
-                wordRoundNumber: 1,
-                wordPhase: "setter",
-                wordSetterUid: user.uid,
-                turnUid: user.uid,
-                updatedAt: Date.now()
-              };
+              current.turnUid !== user.uid) return;
+          if (activeGame === "word-guess") {
+            if (current.wordPhase !== "guessing" || !gameIsComplete(activeGame, current.wordRound)) return;
+            const setterUid = current.wordSetterUid;
+            const guesserScore = (current.players[user.uid].score || 0) +
+              (gameScore(activeGame, current.wordRound) ? 1 : 0);
+            const setterScore = (current.players[setterUid].score || 0) +
+              (gameScore(activeGame, current.wordRound) ? 0 : 1);
+            const players = {
+              ...current.players,
+              [user.uid]: { ...current.players[user.uid], score: guesserScore, completed: false, state: null },
+              [setterUid]: { ...current.players[setterUid], score: setterScore, completed: false, state: null }
+            };
+            if (current.wordRoundNumber === 1) {
+              players[user.uid].completed = true;
+              players[setterUid].completed = true;
+              const winnerUid = gameWinner(activeGame, current.playerUids, players);
+              return { ...current, players, status: "finished", winnerUid, turnUid: "", wordPhase: "result", updatedAt: Date.now() };
             }
-            if (!gameIsComplete(activeGame, current.players?.[user.uid]?.state)) return;
+            return {
+              ...current,
+              players,
+              wordRound: null,
+              wordRoundNumber: 1,
+              wordPhase: "setter",
+              wordSetterUid: user.uid,
+              turnUid: user.uid,
+              updatedAt: Date.now()
+            };
+          }
+          if (!gameIsComplete(activeGame, current.players?.[user.uid]?.state)) return;
           const players = {
             ...current.players,
             [user.uid]: {
@@ -1335,13 +1360,10 @@ export function renderGames(el, user, profile) {
     if (target.hasAttribute("data-back-games")) {
       if (memoryTimer) clearTimeout(memoryTimer);
       memoryTimer = null;
-      stopTicTacToe?.();
-      stopTicTacToe = null;
       stopGameMatch?.();
       stopGameMatch = null;
       activeGame = "";
       activeState = null;
-      ticTacToeState = null;
       gameRoomState = null;
       renderCurrentGame();
       return;
@@ -1533,90 +1555,6 @@ export function renderGames(el, user, profile) {
       renderAndSavePlayerProgress();
       return;
     }
-
-    if (target.hasAttribute("data-ttt-start")) {
-      if (!rtdb) {
-        toast("Live Tic Tac Toe is unavailable because Firebase Realtime Database is not configured.");
-        return;
-      }
-      try {
-        const transaction = await runTransaction(ticTacToeRef(), current => {
-          if (!isValidTicTacToeState(current) || current.status === "finished" || (current.status === "waiting" && current.xUid === user.uid)) {
-            return { status: "waiting", matchId: `${Date.now()}-${user.uid}`, xUid: user.uid, oUid: "", board: Array(9).fill(""), turnUid: user.uid, winnerUid: "", endedByUid: "", updatedAt: Date.now() };
-          }
-          if (current.status === "waiting" && current.xUid !== user.uid && !current.oUid) {
-            return { ...current, oUid: user.uid, status: "playing", turnUid: current.xUid, updatedAt: Date.now() };
-          }
-          return;
-        });
-        if (!transaction.committed) toast("That match changed before your action. Please try again.");
-      } catch (error) {
-        console.error("Could not start Tic Tac Toe:", error);
-        toast("Could not start the live game. Please try again.");
-      }
-      return;
-    }
-
-    if (target.hasAttribute("data-ttt-reset")) {
-      if (!rtdb) {
-        toast("Live Tic Tac Toe is unavailable because Firebase Realtime Database is not configured.");
-        return;
-      }
-      try {
-        const transaction = await runTransaction(ticTacToeRef(), current => {
-          if (!isValidTicTacToeState(current)) return;
-          const isWaitingOwner = current.status === "waiting" && current.xUid === user.uid;
-          const isActivePlayer = current.status === "playing" && (current.xUid === user.uid || current.oUid === user.uid);
-          if (!isWaitingOwner && !isActivePlayer) return;
-          return {
-            ...current,
-            status: "finished",
-            turnUid: "",
-            winnerUid: "",
-            endedByUid: user.uid,
-            cancelled: isWaitingOwner,
-            updatedAt: Date.now()
-          };
-        });
-        if (!transaction.committed) toast("This match can no longer be ended.");
-      } catch (error) {
-        console.error("Could not end Tic Tac Toe:", error);
-        toast("The match could not be ended. Please try again.");
-      }
-      return;
-    }
-
-    if (target.hasAttribute("data-ttt-cell")) {
-      const index = Number(target.dataset.tttCell);
-      if (!rtdb) {
-        toast("Live Tic Tac Toe is unavailable because Firebase Realtime Database is not configured.");
-        return;
-      }
-      try {
-        const transaction = await runTransaction(ticTacToeRef(), current => {
-          if (!isValidTicTacToeState(current) || !Number.isInteger(index) || index < 0 || index >= 9 ||
-              current.status !== "playing" || current.turnUid !== user.uid || current.board[index] !== "") return;
-          const mark = current.xUid === user.uid ? "X" : current.oUid === user.uid ? "O" : "";
-          if (!mark) return;
-          const nextBoard = [...current.board];
-          nextBoard[index] = mark;
-          const winnerUid = hasWinningLine(nextBoard, mark) ? user.uid : "";
-          const isDraw = !winnerUid && nextBoard.every(Boolean);
-          return {
-            ...current,
-            board: nextBoard,
-            turnUid: winnerUid || isDraw ? "" : mark === "X" ? current.oUid : current.xUid,
-            status: winnerUid || isDraw ? "finished" : "playing",
-            winnerUid,
-            updatedAt: Date.now()
-          };
-        });
-        if (!transaction.committed) toast("That move was not accepted. The board may have changed.");
-      } catch (error) {
-        console.error("Could not make Tic Tac Toe move:", error);
-        toast("Your move could not be saved. Please try again.");
-      }
-    }
   };
 
   el.onsubmit = async event => {
@@ -1665,8 +1603,6 @@ export function renderGames(el, user, profile) {
 export function disposeGames() {
   stopGames?.();
   stopGames = null;
-  stopTicTacToe?.();
-  stopTicTacToe = null;
   stopGameMatch?.();
   stopGameMatch = null;
   if (memoryTimer) clearTimeout(memoryTimer);
