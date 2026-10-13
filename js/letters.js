@@ -1,5 +1,5 @@
 import { $, esc, toast } from "./utils.js";
-import { watchItems, addLetter, markLetterRead, getScheduledLetterBody, migrateScheduledLetterBody, notifyPartnerSafely } from "./firestore.js";
+import { watchItems, addLetter, markLetterRead, getScheduledLetterBody, migrateScheduledLetterBody, notifyPartnerSafely, removeItem } from "./firestore.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { sendToTelegram, telegramMediaReferences } from "../src/services/telegramService.js";
@@ -102,8 +102,8 @@ export function renderLetters(el, user, profile) {
       .letter-info { min-width:0; }
       .letter-info h4 { margin:0; font-size:14px; font-weight:700; color:#5a3445; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .letter-info p { margin:3px 0 0; font-size:11px; color:#8e7a83; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px; }
-      .letter-date { flex:none; color:#9b8790; font-size:10px; white-space:nowrap; }
-      .letter-date .letter-read-receipt { display:block; margin-top:4px; text-align:right; }
+      .letter-date { flex:none; color:#9b8790; font-size:13px; font-weight:700; white-space:nowrap; }
+      .letter-date .letter-read-receipt { display:block; margin-top:4px; text-align:right; font-size:11px; }
 
       /* ── Modals ──────────────────────────────────────────── */
       .letter-modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; padding:18px; display:flex; align-items:center; justify-content:center; overflow-y:auto; background:rgba(49,20,36,.56); opacity:0; backdrop-filter:blur(5px); z-index:1000; }
@@ -172,6 +172,10 @@ export function renderLetters(el, user, profile) {
       .letter-editor-paper.is-move-mode { border-color:#d982a7; }
       .letter-modal-box.is-fullscreen { position:fixed; inset:0; z-index:1000; width:100vw; max-width:none; max-height:100dvh; height:100dvh; overflow-y:auto; border-radius:0; padding:max(12px,env(safe-area-inset-top)) 14px max(16px,env(safe-area-inset-bottom)); }
       .letter-modal-box.is-fullscreen .letter-editor-paper { height:calc(100dvh - 270px); min-height:300px; }
+      .letter-delete-btn { background:#fff0f2 !important; color:#b4234e !important; border:1px solid #f2c3d0 !important; }
+      .letter-delete-btn:hover { background:#ffe0e8 !important; }
+      .letter-modal-box, .letter-editor-paper, .letter-editor-content { touch-action: pan-y; }
+      @media (max-width:480px) { .letter-date { font-size:12px; } .letter-modal-box.is-fullscreen .letter-editor-paper { height:calc(100dvh - 245px); min-height:250px; } .letter-modal-box.is-fullscreen .letter-editor-content { padding:25px 18px; font-size:17px; } }
       .letter-modal-box.is-fullscreen .letter-editor-content { padding:30px 24px; }
       .letter-modal-box.is-fullscreen .letter-form { gap:10px; }
       .letter-modal-box.is-fullscreen .letter-prompt { display:none; }
@@ -427,6 +431,7 @@ export function renderLetters(el, user, profile) {
         </div>
         <div class="read-letter-actions">
           <button id="reply-letter-btn" class="letter-reply-btn" type="button" hidden>Write a reply ♡</button>
+          <button id="delete-letter-btn" class="letter-delete-btn" type="button">Delete letter</button>
           <button id="close-read-letter-btn" class="letter-read-close" type="button">Close letter</button>
         </div>
       </div>
@@ -521,6 +526,8 @@ export function renderLetters(el, user, profile) {
   letterBodyInput.addEventListener("pointerup", stopDrag);
   letterBodyInput.addEventListener("pointercancel", stopDrag);
   const replyBtn = $("#reply-letter-btn", el);
+  const deleteLetterBtn = $("#delete-letter-btn", el);
+  let openedLetterId = null;
   const migratingLetters = new Set();
 
   function asDate(value) {
@@ -616,6 +623,26 @@ export function renderLetters(el, user, profile) {
   $("#cancel-letter-btn", el).onclick = () => closeModal(writeModal);
   $("#close-read-modal", el).onclick = () => closeModal(readModal);
   $("#close-read-letter-btn", el).onclick = () => closeModal(readModal);
+  deleteLetterBtn.onclick = async () => {
+    if (!openedLetterId) return;
+    const letter = allLetters.find(item => item.id === openedLetterId);
+    if (!letter) return;
+    if (!window.confirm("Delete this letter? This cannot be undone.")) return;
+    deleteLetterBtn.disabled = true;
+    try {
+      await removeItem(openedLetterId);
+      allLetters = allLetters.filter(item => item.id !== openedLetterId);
+      openedLetterId = null;
+      closeModal(readModal);
+      renderList();
+      toast("Letter deleted ♡");
+    } catch (error) {
+      console.error("Could not delete letter:", error);
+      toast("Could not delete letter. Check your connection and permissions.");
+    } finally {
+      deleteLetterBtn.disabled = false;
+    }
+  };
   replyBtn.onclick = () => {
     const replyRecipient = replyBtn.dataset.recipient;
     if (!replyRecipient) return;
@@ -781,6 +808,8 @@ export function renderLetters(el, user, profile) {
             return;
           }
           try {
+            openedLetterId = letter.id;
+            deleteLetterBtn.hidden = false;
             const shouldMarkRead = letter.author !== user.uid && recipientKey(letter.recipient) === ownKey && !letter.readAt;
             if (shouldMarkRead) {
               row.classList.add("is-opening");
@@ -805,7 +834,16 @@ export function renderLetters(el, user, profile) {
             replyBtn.hidden = !canReply;
             replyBtn.dataset.recipient = canReply ? senderKey : "";
             openModal(readModal);
-            if (shouldMarkRead) void markLetterRead(letter.id).catch(error => console.error("Could not mark letter as read:", error));
+            if (shouldMarkRead) {
+              // Remove the unread dot immediately; the realtime snapshot will confirm the read receipt.
+              row.querySelector(".letter-unread-dot")?.remove();
+              row.classList.remove("is-opening");
+              void markLetterRead(letter.id).then(() => {
+                const current = allLetters.find(item => item.id === letter.id);
+                if (current) current.readAt = new Date();
+                renderList();
+              }).catch(error => console.error("Could not mark letter as read:", error));
+            }
           } catch (error) {
             console.error("Could not open letter:", error);
             toast(error.message || "Could not open this letter.");
