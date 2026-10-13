@@ -33,56 +33,7 @@ function formatClock(seconds) {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
-  async function uploadAndAddTrack(file) {
-    const status = $("#music-upload-status");
-    try {
-      status.textContent = `Uploading ${file.name}...`;
-      const response = await sendToTelegram(file);
-      if (!response.ok) {
-        throw new Error(`Telegram upload failed: ${response.statusText}`);
-      }
-      const result = await response.json();
-      const message = result?.result;
-      const fileId = message?.audio?.file_id || message?.video?.file_id || message?.document?.file_id;
-
-      if (!fileId) {
-        throw new Error("Could not get a file_id from Telegram.");
-      }
-
-      status.textContent = `Adding ${file.name} to the playlist...`;
-      await addItem("musicTrack", {
-        ownerUid: uid,
-        ownerName: auth.currentUser.displayName,
-        name: file.name,
-        telegramFileId: fileId,
-        mimeType: file.type,
-        uploadedAt: serverTimestamp(),
-      });
-
-      status.textContent = ``;
-      toast(`${file.name} has been added to the music collection.`);
-      notifyPartnerSafely("A new song was just added!", "/music");
-
-    } catch (error) {
-      console.error("Track upload failed:", error);
-      toast.error(`Could not upload ${file.name}.`);
-      status.textContent = `Upload failed.`;
-    }
-  }
-
-  function handleFiles(files) {
-    for (const file of files) {
-      if (file.size > MAX_FILE_SIZE) {
-        toast.error(`${file.name} is too large. The limit is ${MAX_FILE_SIZE / 1024 / 1024} MB.`);
-        continue;
-      }
-      if (!AUDIO_EXTENSIONS.test(file.name)) {
-        toast.error(`${file.name} doesn\'t look like an audio or video file.`);
-        continue;
-      }
-      uploadAndAddTrack(file);
-    }
-  }
+// Removed obsolete upload helpers. The active uploader is uploadSong() inside initMusic().
 let cleanupCurrent = null;
 
 function setStatus(message) {
@@ -725,10 +676,7 @@ export function initMusic(user) {
   };
   startPresence();
 
-  uploadInput.addEventListener("change", (event) => {
-    handleFiles(event.target.files);
-    event.target.value = "";
-  });
+
 
   return () => cleanupCurrent?.();
 }
