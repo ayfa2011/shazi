@@ -13,6 +13,7 @@ export function renderLetters(el, user, profile) {
   active = true;
   const ownKey = getProfileKey(profile);
   let currentTab = "Inbox";
+  let allLetters = [];
 
   function recipientKey(recipient) {
     const normalized = String(recipient || "").trim().toLocaleLowerCase();
@@ -156,6 +157,38 @@ export function renderLetters(el, user, profile) {
         font-size: 26px;
       }
 
+      /* Instagram-inspired letter editor */
+      .letter-editor-label { font-size:12px; font-weight:800; color:#754258; }
+      .letter-editor-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:8px; border:1px solid #f0dce6; border-radius:14px; background:#fffafd; }
+      .letter-editor-toolbar button { min-width:34px; min-height:34px; padding:6px 9px; border-radius:9px; background:#fff; color:#754258; border:1px solid #f0dce6; font-size:13px; }
+      .letter-editor-toolbar button[aria-pressed="true"] { background:#f8dce8; border-color:#d982a7; }
+      .letter-editor-toolbar select { min-width:0; max-width:145px; flex:1; padding:8px 6px; border-radius:9px; font-size:11px; }
+      .letter-editor-paper { position:relative; width:100%; height:min(56dvh,540px); min-height:310px; overflow:auto; border:1px solid #d8c8d1; border-radius:12px; background-color:#fff8fb; background-image:url("./Letter%20Background.png"); background-size:cover; background-position:center top; box-shadow:0 4px 16px #30132112; -webkit-overflow-scrolling:touch; }
+      .letter-editor-content { min-height:100%; width:100%; padding:28px 22px; outline:none; color:#4a2438; font-family:"Caveat",cursive; font-size:17px; line-height:1.65; overflow-wrap:anywhere; white-space:pre-wrap; transform:translate(var(--letter-text-x,0px),var(--letter-text-y,0px)); transform-origin:top left; }
+      .letter-editor-content:empty:before { content:attr(data-placeholder); color:#b99aa9; white-space:pre-wrap; pointer-events:none; }
+      .letter-editor-content p { margin:0 0 .7em; }
+      .letter-editor-content.is-move-mode { cursor:grab; touch-action:none; user-select:none; }
+      .letter-editor-content.is-move-mode:active { cursor:grabbing; }
+      .letter-editor-paper.is-move-mode { border-color:#d982a7; }
+      .letter-modal-box.is-fullscreen { position:fixed; inset:0; z-index:1000; width:100vw; max-width:none; max-height:100dvh; height:100dvh; overflow-y:auto; border-radius:0; padding:max(12px,env(safe-area-inset-top)) 14px max(16px,env(safe-area-inset-bottom)); }
+      .letter-modal-box.is-fullscreen .letter-editor-paper { height:calc(100dvh - 270px); min-height:300px; }
+      .letter-modal-box.is-fullscreen .letter-editor-content { padding:30px 24px; }
+      .letter-modal-box.is-fullscreen .letter-form { gap:10px; }
+      .letter-modal-box.is-fullscreen .letter-prompt { display:none; }
+      .letter-modal-box.is-fullscreen .letter-modal-head { position:sticky; top:0; z-index:2; background:#fff; }
+      .letter-editor-toolbar button, .letter-editor-toolbar select { touch-action:manipulation; }
+      .letter-modal-box.is-fullscreen #read-letter-body { min-height:calc(100dvh - 205px); max-height:calc(100dvh - 185px); }
+      .letter-paper-body .letter-rich-text { white-space:pre-wrap; overflow-wrap:anywhere; }
+      .letter-paper-body .letter-rich-text p { margin:0 0 .8em; }
+      @media(max-width:480px) {
+        .letter-editor-paper { height:52dvh; min-height:280px; }
+        .letter-editor-toolbar { gap:5px; padding:6px; }
+        .letter-editor-toolbar select { max-width:125px; }
+        .letter-editor-content { padding:24px 18px; font-size:17px; }
+        .letter-modal-box.is-fullscreen { padding-left:10px; padding-right:10px; }
+        .letter-modal-box.is-fullscreen .letter-editor-paper { height:calc(100dvh - 260px); }
+      }
+
       .letter-prompt { margin:0; color:#9a7c89; font-size:10px; text-align:center; }
       .letter-modal-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:3px; justify-content:flex-end; }
       .letter-modal-actions button,.read-letter-actions button { min-height:40px; padding:9px 14px; border-radius:12px; font-size:12px; font-weight:700; cursor:pointer; border:none; }
@@ -174,7 +207,7 @@ export function renderLetters(el, user, profile) {
 
       .letter-paper {
         background-color: #fdeef4;
-        background-image: url("./Asset/Letter Background.png");
+        background-image: url("./Letter%20Background.png");
         background-size: cover;
         background-position: center top;
         background-repeat: no-repeat;
@@ -328,9 +361,33 @@ export function renderLetters(el, user, profile) {
             ${Object.entries(APP_CONFIG.profiles).map(([key, person]) => `<option value="${esc(key)}">To ${esc(person.name)}</option>`).join("")}
           </select>
           </label>
-          <label>Your letter
-          <textarea id="letter-body" class="nb-ruling" rows="6" placeholder="My dearest…&#10;&#10;Write from your heart ♡" required></textarea>
-          </label>
+          <div class="letter-editor-label">Your letter</div>
+          <div class="letter-editor-toolbar" role="toolbar" aria-label="Letter text formatting">
+            <button type="button" data-letter-command="bold" aria-label="Bold"><strong>B</strong></button>
+            <button type="button" data-letter-command="italic" aria-label="Italic"><em>I</em></button>
+            <button type="button" data-letter-command="underline" aria-label="Underline"><u>U</u></button>
+            <select id="letter-font-family" aria-label="Font style">
+              <option value="Caveat">Handwritten</option>
+              <option value="Arial">Classic</option>
+              <option value="Georgia">Elegant</option>
+              <option value="Verdana">Clean</option>
+              <option value="monospace">Typewriter</option>
+            </select>
+            <select id="letter-font-size" aria-label="Text size">
+              <option value="14px">Small</option>
+              <option value="17px" selected>Normal</option>
+              <option value="21px">Large</option>
+              <option value="27px">Extra large</option>
+              <option value="34px">Huge</option>
+            </select>
+            <button type="button" data-letter-command="justifyLeft" aria-label="Align left">≡</button>
+            <button type="button" data-letter-command="justifyCenter" aria-label="Center text">☰</button>
+            <button type="button" data-letter-command="justifyRight" aria-label="Align right">☷</button>
+            <button type="button" id="letter-move-text" aria-pressed="false" title="Drag to reposition text">↔ Move text</button>
+          </div>
+          <div class="letter-editor-paper nb-ruling" id="letter-editor-paper">
+            <div id="letter-body" class="letter-editor-content" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Write your letter" data-placeholder="My dearest…&#10;&#10;Write from your heart ♡"></div>
+          </div>
           <p class="letter-prompt">Take your time. The loveliest words are the ones that sound like you.</p>
           <label>When should it arrive?
           <select id="letter-status">
@@ -400,6 +457,69 @@ export function renderLetters(el, user, profile) {
   const submitBtn = $("#submit-letter-btn", el);
   const recipientSelect = $("#letter-to", el);
   const letterBodyInput = $("#letter-body", el);
+  const editorPaper = $("#letter-editor-paper", el);
+  const fontFamilySelect = $("#letter-font-family", el);
+  const fontSizeSelect = $("#letter-font-size", el);
+  const moveTextButton = $("#letter-move-text", el);
+  let moveTextState = { x: 0, y: 0 };
+  let dragState = null;
+
+  function focusLetterEditor() {
+    letterBodyInput.focus({ preventScroll: true });
+  }
+
+  function applyLetterCommand(command) {
+    focusLetterEditor();
+    document.execCommand(command, false, null);
+  }
+
+  el.querySelectorAll("[data-letter-command]").forEach(button => {
+    button.addEventListener("mousedown", event => event.preventDefault());
+    button.addEventListener("click", () => applyLetterCommand(button.dataset.letterCommand));
+  });
+
+  fontFamilySelect.onchange = () => {
+    focusLetterEditor();
+    document.execCommand("fontName", false, fontFamilySelect.value);
+  };
+
+  fontSizeSelect.onchange = () => {
+    focusLetterEditor();
+    document.execCommand("fontSize", false, "7");
+    letterBodyInput.querySelectorAll('font[size="7"]').forEach(node => {
+      const span = document.createElement("span");
+      span.style.fontSize = fontSizeSelect.value;
+      while (node.firstChild) span.appendChild(node.firstChild);
+      node.replaceWith(span);
+    });
+    letterBodyInput.style.fontSize = fontSizeSelect.value;
+  };
+
+  moveTextButton.onclick = () => {
+    const enabled = moveTextButton.getAttribute("aria-pressed") !== "true";
+    moveTextButton.setAttribute("aria-pressed", String(enabled));
+    moveTextButton.textContent = enabled ? "✓ Drag text" : "↔ Move text";
+    letterBodyInput.classList.toggle("is-move-mode", enabled);
+    editorPaper.classList.toggle("is-move-mode", enabled);
+    if (enabled) toast("Drag the text to reposition it. Tap Move text again to type.");
+  };
+
+  letterBodyInput.addEventListener("pointerdown", event => {
+    if (!letterBodyInput.classList.contains("is-move-mode")) return;
+    dragState = { x: event.clientX, y: event.clientY, startX: moveTextState.x, startY: moveTextState.y };
+    letterBodyInput.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  });
+  letterBodyInput.addEventListener("pointermove", event => {
+    if (!dragState) return;
+    moveTextState.x = Math.max(-120, Math.min(120, dragState.startX + event.clientX - dragState.x));
+    moveTextState.y = Math.max(-120, Math.min(240, dragState.startY + event.clientY - dragState.y));
+    letterBodyInput.style.setProperty("--letter-text-x", `${moveTextState.x}px`);
+    letterBodyInput.style.setProperty("--letter-text-y", `${moveTextState.y}px`);
+  });
+  const stopDrag = () => { dragState = null; };
+  letterBodyInput.addEventListener("pointerup", stopDrag);
+  letterBodyInput.addEventListener("pointercancel", stopDrag);
   const replyBtn = $("#reply-letter-btn", el);
   const migratingLetters = new Set();
 
@@ -408,6 +528,52 @@ export function renderLetters(el, user, profile) {
     if (!value) return null;
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  function renderLetterBody(target, body) {
+    target.innerHTML = "";
+    const text = String(body || "");
+    // Older letters were stored as plain text. Rich-text letters are sanitized before display.
+    const looksLikeHtml = /<\/?(?:p|div|br|b|strong|i|em|u|span|font)\b/i.test(text);
+    if (!looksLikeHtml) {
+      const content = document.createElement("div");
+      content.className = "letter-rich-text";
+      content.textContent = text;
+      target.appendChild(content);
+      return;
+    }
+    const parsed = new DOMParser().parseFromString(text, "text/html");
+    const allowedTags = new Set(["P", "DIV", "BR", "B", "STRONG", "I", "EM", "U", "SPAN", "FONT"]);
+    const copySafe = node => {
+      if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.nodeValue || "");
+      if (node.nodeType !== Node.ELEMENT_NODE || !allowedTags.has(node.tagName)) {
+        const fragment = document.createDocumentFragment();
+        [...(node.childNodes || [])].forEach(child => fragment.appendChild(copySafe(child)));
+        return fragment;
+      }
+      const copy = document.createElement(node.tagName.toLowerCase());
+      if (["SPAN", "FONT", "DIV"].includes(node.tagName)) {
+        const style = node.getAttribute("style") || "";
+        const size = style.match(/font-size\s*:\s*(\d+(?:\.\d+)?(?:px|pt|em|rem|%))/i)?.[1];
+        const family = style.match(/font-family\s*:\s*([^;]+)/i)?.[1] || node.getAttribute("face");
+        const color = style.match(/color\s*:\s*(#[0-9a-f]{3,8}|[a-z]+)/i)?.[1];
+        const transform = style.match(/transform\s*:\s*translate\(\s*(-?\d+(?:\.\d+)?)px\s*,\s*(-?\d+(?:\.\d+)?)px\s*\)/i);
+        if (size) copy.style.fontSize = size;
+        if (family) copy.style.fontFamily = family.replace(/["']/g, "").slice(0, 80);
+        if (color) copy.style.color = color;
+        if (transform) {
+          const x = Math.max(-120, Math.min(120, Number(transform[1])));
+          const y = Math.max(-120, Math.min(240, Number(transform[2])));
+          copy.style.transform = `translate(${x}px, ${y}px)`;
+        }
+      }
+      [...node.childNodes].forEach(child => copy.appendChild(copySafe(child)));
+      return copy;
+    };
+    const content = document.createElement("div");
+    content.className = "letter-rich-text";
+    [...parsed.body.childNodes].forEach(node => content.appendChild(copySafe(node)));
+    target.appendChild(content);
   }
 
   function openModal(modal) {
@@ -455,7 +621,7 @@ export function renderLetters(el, user, profile) {
     if (!replyRecipient) return;
     closeModal(readModal);
     recipientSelect.value = replyRecipient;
-    letterBodyInput.value = "";
+    letterBodyInput.innerHTML = "";
     openModal(writeModal);
     requestAnimationFrame(() => letterBodyInput.focus());
   };
@@ -468,7 +634,14 @@ export function renderLetters(el, user, profile) {
   $("#write-letter-form", el).onsubmit = async (e) => {
     e.preventDefault();
     const recipient = $("#letter-to", el).value;
-    const body = $("#letter-body", el).value.trim();
+    const plainBody = letterBodyInput.innerText.trim();
+    const bodyContent = letterBodyInput.innerHTML.trim();
+    const body = `<div style="transform:translate(${moveTextState.x}px, ${moveTextState.y}px)">${bodyContent}</div>`;
+    if (!plainBody) {
+      toast("Please write your letter first ♡");
+      focusLetterEditor();
+      return;
+    }
     const status = statusSelect.value;
     const deliverDate = status === "Scheduled" ? new Date(deliverInput.value).toISOString() : new Date().toISOString();
 
@@ -528,6 +701,15 @@ export function renderLetters(el, user, profile) {
 
       closeModal(writeModal);
       $("#write-letter-form", el).reset();
+      letterBodyInput.innerHTML = "";
+      letterBodyInput.style.fontSize = "";
+      letterBodyInput.style.setProperty("--letter-text-x", "0px");
+      letterBodyInput.style.setProperty("--letter-text-y", "0px");
+      moveTextState = { x: 0, y: 0 };
+      moveTextButton.setAttribute("aria-pressed", "false");
+      moveTextButton.textContent = "↔ Move text";
+      letterBodyInput.classList.remove("is-move-mode");
+      editorPaper.classList.remove("is-move-mode");
       deliverGroup.style.display = "none";
       submitBtn.textContent = "Send with love ♡";
       toast(status === "Scheduled" ? "Letter scheduled ♡" : "Letter sent ♡");
@@ -614,7 +796,7 @@ export function renderLetters(el, user, profile) {
             const readAt = asDate(letter.readAt);
             const avatar = senderProfile?.avatar ? `<img src="${esc(senderProfile.avatar)}" alt="">` : esc(senderName[0] || "♡");
             $("#read-letter-meta", el).innerHTML = `<span class="read-letter-sender-avatar">${avatar}</span><span class="read-letter-meta-copy"><strong>From ${esc(senderName)}</strong><time>${sentAt ? esc(sentAt.toLocaleString([], { dateStyle: "full", timeStyle: "short" })) : "A little note, written just for you"}</time></span>${letter.author === user.uid ? `<span class="letter-read-receipt${readAt ? ' is-read' : ''}">${readAt ? '✓✓ Read' : 'Sent ✓'}</span>` : ""}`;
-            $("#read-letter-body", el).textContent = body;
+            renderLetterBody($("#read-letter-paper-text", el), body);
             const senderKey = senderProfile ? recipientKey(senderProfile.name) : "";
             const canReply = letter.author !== user.uid &&
               recipientKey(letter.recipient) === ownKey &&
