@@ -419,9 +419,15 @@ export function renderMemories(el, user, profile) {
         await setItem(editId, payload);
         toast("Memory updated ♡");
       } else {
-        const memory = await addItem("memory", { ...payload, author: user.uid });
+        const payloadData = { ...payload, author: user.uid };
+        const memoryRef = await addItem("memory", payloadData);
+        // Optimistically add to allMemories
+        const newMemory = { id: memoryRef.id, ...payloadData, author: user.uid, createdAt: { toMillis: () => Date.now() }, isOptimistic: true };
+        allMemories = [newMemory, ...allMemories];
+        renderGrid();
+
         const profileKey = getProfileKey(profile);
-        if (profileKey) void notifyPartnerSafely(profileKey, "memory", `${profile?.name || "Your partner"} added a new memory.`, memory.id, "memories");
+        if (profileKey) void notifyPartnerSafely(profileKey, "memory", `${profile?.name || "Your partner"} added a new memory.`, memoryRef.id, "memories");
         toast("Memory saved ♡");
       }
 
@@ -568,13 +574,21 @@ export function renderMemories(el, user, profile) {
     addButton.disabled = true;
     addButton.textContent = "Uploading…";
     try {
-      const uploadedMedia = await Promise.all(files.map(async file => {
-        const type = file.type.startsWith("video/") ? "video" : "photo";
-        const createdAtMs = Date.now();
-        const timestamp = new Date(createdAtMs).toLocaleString();
-        const result = await sendToTelegram(file, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`, new Date(createdAtMs).toISOString().slice(0, 10), getProfileKey(profile), { storeForReveal: false });
-        return { ...telegramMediaReferences(result), type, mimeType: telegramUploadMimeType(file), name: file.name || (type === "video" ? "Video" : "Photo"), createdAtMs };
-      }));
+      const uploadedMedia = [];
+      // Chunk uploads to avoid browser/network limits
+      for (let i = 0; i < files.length; i += 3) {
+        const chunk = files.slice(i, i + 3);
+        const chunkResults = await Promise.all(chunk.map(async file => {
+          const type = file.type.startsWith("video/") ? "video" : "photo";
+          const createdAtMs = Date.now();
+          const timestamp = new Date(createdAtMs).toLocaleString();
+          const result = await sendToTelegram(file, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`, new Date(createdAtMs).toISOString().slice(0, 10), getProfileKey(profile), { storeForReveal: false });
+          return { ...telegramMediaReferences(result), type, mimeType: telegramUploadMimeType(file), name: file.name || (type === "video" ? "Video" : "Photo"), createdAtMs };
+        }));
+        uploadedMedia.push(...chunkResults);
+        addButton.textContent = `Uploading (${uploadedMedia.length}/${files.length})…`;
+      }
+
       const current = allMemories.find(item => item.id === memory.id) || memory;
       await addMemoryMedia(memory.id, uploadedMedia);
       const mediaItems = [...(current.mediaItems || []), ...uploadedMedia];
@@ -748,9 +762,12 @@ export function renderMemories(el, user, profile) {
         // Keep media just uploaded in the current view if Firestore briefly
         // delivers an older snapshot before the mediaItems update is visible.
         const incomingItems = items || [];
-        allMemories = incomingItems.map(item => {
+        const incomingIds = new Set(incomingItems.map(i => i.id));
+        const optimisticItems = allMemories.filter(i => i.isOptimistic && !incomingIds.has(i.id));
+
+        const updatedItems = incomingItems.map(item => {
           const previous = allMemories.find(existing => existing.id === item.id);
-          if (!previous || !Array.isArray(previous.mediaItems) || !previous.mediaItems.length) return item;
+          if (!previous || !Array.isArray(previous.mediaItems) || !previous.mediaItems.length) return { ...item, isOptimistic: false };
           const savedMedia = Array.isArray(item.mediaItems) ? item.mediaItems : [];
           const mediaKey = media => media.telegramFileId || media.url || `${media.name || ""}:${media.createdAtMs || ""}`;
           const mergedMedia = [...savedMedia];
@@ -762,8 +779,11 @@ export function renderMemories(el, user, profile) {
               knownKeys.add(key);
             }
           }
-          return { ...item, mediaItems: mergedMedia };
+          return { ...item, mediaItems: mergedMedia, isOptimistic: false };
         });
+
+        allMemories = [...updatedItems, ...optimisticItems];
+
         if (activeMemoryForView) {
           const refreshed = allMemories.find(item => item.id === activeMemoryForView.id);
           if (refreshed) activeMemoryForView = refreshed;

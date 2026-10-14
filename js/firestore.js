@@ -17,7 +17,7 @@ function recipientProfileKey(recipient) {
 }
 
 export async function addItem(type, data) {
-  return addDoc(root(), { type, ...data, createdAt: serverTimestamp() });
+  return addDoc(root(), { type, ...data, createdAt: serverTimestamp(), clientCreatedAt: Date.now() });
 }
 
 export async function addLetter(data) {

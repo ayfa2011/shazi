@@ -148,40 +148,79 @@ function renderPostFeed(el, user, profile) {
         background: #ffffff;
         display: flex;
         gap: 12px;
+        position: relative;
       }
       .tw-post-card .tw-post-actions {
-        display: flex;
+        position: absolute;
+        top: 10px;
+        right: 12px;
+      }
+      .tw-post-menu-btn {
+        min-width: 0;
+        min-height: 0;
+        width: 28px;
+        height: 28px;
+        border: 0;
+        border-radius: 50%;
+        background: transparent;
+        color: #536471;
+        font-size: 16px;
+        font-weight: 800;
+        line-height: 1;
+        letter-spacing: 1px;
+        text-indent: 1px;
+        cursor: pointer;
+        display: inline-flex;
         align-items: center;
-        gap: 8px;
-        margin-left: auto;
+        justify-content: center;
+      }
+      .tw-post-menu-btn:hover {
+        background: #f0f6fa;
+        color: #d74482;
+      }
+      .tw-post-menu {
+        display: none;
+        position: absolute;
+        top: 30px;
+        right: 0;
+        z-index: 20;
+        min-width: 130px;
+        padding: 6px;
+        border: 1px solid #eff3f4;
+        border-radius: 12px;
+        background: #ffffff;
+        box-shadow: 0 8px 24px rgba(15, 20, 25, 0.12);
+      }
+      .tw-post-menu.open {
+        display: grid;
+        gap: 2px;
       }
       .tw-post-card .tw-edit-btn,
       .tw-post-card .tw-del-btn {
         min-width: 0;
         min-height: 0;
-        padding: 6px 9px;
+        padding: 8px 10px;
         border: 0;
-        border-radius: 999px;
-        font: 700 11px "DM Sans", sans-serif;
+        border-radius: 8px;
+        background: transparent;
+        font: 700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        text-align: left;
         cursor: pointer;
-        display: inline-flex;
+        display: flex;
         align-items: center;
-        justify-content: center;
-        gap: 4px;
+        gap: 8px;
       }
       .tw-post-card .tw-edit-btn {
-        background: #f7edf1;
-        color: #7d2d51;
+        color: #0f1419;
       }
       .tw-post-card .tw-edit-btn:hover {
-        background: #e9c9d6;
+        background: #f0f6fa;
       }
       .tw-post-card .tw-del-btn {
-        background: #fff0f2;
         color: #bd3158;
       }
       .tw-post-card .tw-del-btn:hover {
-        background: #fbe2e8;
+        background: #fff0f2;
       }
       .tw-post-content {
         flex: 1;
@@ -628,6 +667,7 @@ function renderPostFeed(el, user, profile) {
     feed.innerHTML = visiblePosts.map((post) => {
       const isLiked = (post.likedBy || []).includes(user.uid);
       const likeCount = (post.likedBy || []).length;
+      const isAuthor = getPostAuthorKey(post) === getProfileKey(profile);
       const authorName = getDisplayName(post.authorId, post.authorName || "Us");
       const authorProfile = findProfileForAuthor(post.authorId, post.authorName || "");
       const handle = `@${authorName.toLowerCase().replace(/\s+/g, "")}`;
@@ -660,10 +700,15 @@ function renderPostFeed(el, user, profile) {
             </div>
           </div>
 
+          ${isAuthor ? `
           <div class="tw-post-actions">
-            <button type="button" class="tw-edit-btn" data-edit-post="${post.id}" aria-label="Edit post">✏️ Edit</button>
-            <button type="button" class="tw-del-btn" data-delete-post="${post.id}" aria-label="Delete post">🗑 Delete</button>
+            <button type="button" class="tw-post-menu-btn" data-menu-post="${post.id}" aria-label="Post options" aria-haspopup="menu" aria-expanded="false">⋯</button>
+            <div class="tw-post-menu" role="menu" data-menu-list="${post.id}">
+              <button type="button" class="tw-edit-btn" role="menuitem" data-edit-post="${post.id}" aria-label="Edit post">✏️ Edit</button>
+              <button type="button" class="tw-del-btn" role="menuitem" data-delete-post="${post.id}" aria-label="Delete post">🗑 Delete</button>
+            </div>
           </div>
+          ` : ''}
         </div>
       `;
     }).join("");
@@ -700,9 +745,29 @@ function renderPostFeed(el, user, profile) {
         openPostDetail(post.id);
       });
 
+      const menuBtn = feed.querySelector(`.tw-post-menu-btn[data-menu-post="${post.id}"]`);
+      if (menuBtn) {
+        menuBtn.onclick = event => {
+          event.stopPropagation();
+          const menu = feed.querySelector(`.tw-post-menu[data-menu-list="${post.id}"]`);
+          const isOpen = menu?.classList.contains("open");
+          feed.querySelectorAll(".tw-post-menu.open").forEach(m => m.classList.remove("open"));
+          feed.querySelectorAll(".tw-post-menu-btn[aria-expanded='true']").forEach(b => b.setAttribute("aria-expanded", "false"));
+          if (menu && !isOpen) {
+            menu.classList.add("open");
+            menuBtn.setAttribute("aria-expanded", "true");
+          }
+        };
+      }
+      const closeMenu = () => {
+        const menu = feed.querySelector(`.tw-post-menu[data-menu-list="${post.id}"]`);
+        menu?.classList.remove("open");
+        menuBtn?.setAttribute("aria-expanded", "false");
+      };
       const editBtn = feed.querySelector(`.tw-edit-btn[data-edit-post="${post.id}"]`);
       if (editBtn) {
         editBtn.onclick = async () => {
+          closeMenu();
           if (getPostAuthorKey(post) !== getProfileKey(profile)) return toast("Only you can edit your own post.");
           const text = prompt("Edit your post:", post.text || "");
           if (text === null || text.trim() === (post.text || "")) return;
@@ -719,6 +784,7 @@ function renderPostFeed(el, user, profile) {
       const deleteBtn = feed.querySelector(`.tw-del-btn[data-delete-post="${post.id}"]`);
       if (deleteBtn) {
         deleteBtn.onclick = async () => {
+          closeMenu();
           if (getPostAuthorKey(post) !== getProfileKey(profile)) return toast("Only you can delete your own post.");
           if (!confirm("Delete this post?")) return;
           try {
@@ -745,6 +811,11 @@ function renderPostFeed(el, user, profile) {
   }
 
   detailModal.addEventListener("click", event => { if (event.target === detailModal) closePostDetail(); });
+  el.addEventListener("click", event => {
+    if (event.target.closest?.(".tw-post-actions,[data-voice-record]")) return;
+    feed.querySelectorAll(".tw-post-menu.open").forEach(m => m.classList.remove("open"));
+    feed.querySelectorAll(".tw-post-menu-btn[aria-expanded='true']").forEach(b => b.setAttribute("aria-expanded", "false"));
+  });
   $("#tw-detail-close", el).onclick = closePostDetail;
   imageViewer.addEventListener("click", () => { imageViewer.classList.remove("open"); imageViewer.setAttribute("aria-hidden", "true"); });
   feed.addEventListener("click", event => {
