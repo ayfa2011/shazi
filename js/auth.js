@@ -1,7 +1,7 @@
 import { auth, firebaseReady } from "./firebase.js";
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 import { APP_CONFIG } from "../config/app-config.js";
-import {$} from "./utils.js";
+import { $, toastError } from "./utils.js";
 
 export function initAuth(onLogin,onLogout){
   $("#login-form").addEventListener("submit",async e=>{
@@ -20,7 +20,7 @@ export function initAuth(onLogin,onLogout){
         "auth/operation-not-allowed":"Email/Password sign-in is disabled in Firebase Authentication.",
         "auth/network-request-failed":"Could not reach Firebase. Check your internet connection and try again."
       };
-      $("#auth-error").textContent=messages[err.code]||`Login failed (${err.code||"unknown error"}). Check Firebase Authentication settings.`;
+      toastError(messages[err.code]||`Login failed (${err.code||"unknown error"}). Check Firebase Authentication settings.`);
     }
   });
   if(firebaseReady) onAuthStateChanged(auth,user=>{

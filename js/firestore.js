@@ -1,4 +1,5 @@
 import { db, firebaseReady } from "./firebase.js";
+import { toastError } from "./utils.js";
 import { collection, doc, addDoc, setDoc, getDoc, getDocs, deleteDoc, updateDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp, arrayUnion, arrayRemove, runTransaction, writeBatch, deleteField, Timestamp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 
@@ -137,7 +138,7 @@ export async function notifyPartnerSafely(actorKey, type, message, sourceId, rou
   try {
     return await notifyPartner(actorKey, type, message, sourceId, route);
   } catch (error) {
-    console.error(`Could not create the ${type} notification:`, error);
+    toastError(`Could not create the ${type} notification: ${error.message}`);
     return false;
   }
 }

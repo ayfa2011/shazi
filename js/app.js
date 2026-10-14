@@ -1,5 +1,6 @@
 import { initAuth, logout } from "./auth.js";
-import { $,$$, esc, toast } from "./utils.js";
+import { $, $$, esc, toast } from "./utils.js";
+import { postCardComponent, commentComponent } from "./components.js";
 import { initPresence, watchAllPresence } from "./presence.js";
 import { renderHome, disposeHome } from "./dashboard.js";
 import { renderMemories, disposeMemories } from "./memories.js";
@@ -531,7 +532,7 @@ function renderPostFeed(el, user, profile) {
     const comments = commentsByPost.get(post.id) || [];
     const image = post.photoUrl ? `<div class="tw-post-photo-frame tw-post-detail-photo-frame"><img src="${esc(post.photoUrl)}" class="tw-post-photo" alt="Post photo" data-post-image></div>` : post.telegramFileId ? `<div class="tw-post-photo-frame tw-post-detail-photo-frame"><img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Post photo" data-post-image></div>` : "";
     const isAuthor = getPostAuthorKey(post) === getProfileKey(profile);
-    detailBody.innerHTML = `<article><div class="tw-post-header"><strong>${esc(getDisplayName(post.authorId, post.authorName || "Us"))}</strong><time class="tw-post-time">${esc(post.createdAt?.toDate ? post.createdAt.toDate().toLocaleString() : post.createdAt ? new Date(post.createdAt).toLocaleString() : "Just now")}</time></div><p class="tw-post-text">${esc(post.text || "")}</p>${image}${voiceMarkup(post)}<div class="tw-actions-bar"><span>❤️ ${(post.likedBy || []).length} likes</span><span>💬 ${comments.length} comments</span></div>${isAuthor ? `<div class="tw-detail-comment-actions"><button type="button" class="tw-edit-btn" data-id="${esc(post.id)}">✏️ Edit post</button><button type="button" class="tw-del-btn" data-id="${esc(post.id)}">🗑 Delete post</button></div>` : ""}</article><h3>Replies</h3><div class="tw-detail-comments">${comments.map(comment => `<div class="tw-detail-comment" id="tw-comment-${comment.id}"><strong>${esc(getDisplayName(comment.authorId, comment.authorName || "Us"))}</strong><div>${esc(comment.text || "")}</div>${voiceMarkup(comment, "tw-comment-voice")}${comment.authorId === user.uid ? `<div class="tw-detail-comment-actions"><button type="button" class="tw-comment-edit-btn" data-id="${esc(comment.id)}">Edit</button><button type="button" class="tw-comment-del-btn" data-id="${esc(comment.id)}">Delete</button></div>` : ""}</div>`).join("") || `<p style="color:#8c737d">No replies yet. Start the conversation ♡</p>`}</div><form class="tw-detail-reply" id="tw-detail-reply-form"><input name="reply" placeholder="Write a reply…"><button class="tw-post-btn" type="submit">Reply</button></form><button type="button" class="tw-voice-recorder" data-voice-record="comment" aria-label="Record reply voice note">🎙 Record voice note</button><span id="tw-comment-voice-state" class="tw-photo-name"></span>`;
+    detailBody.innerHTML = `<article><div class="tw-post-header"><strong>${esc(getDisplayName(post.authorId, post.authorName || "Us"))}</strong><time class="tw-post-time">${esc(post.createdAt?.toDate ? post.createdAt.toDate().toLocaleString() : post.createdAt ? new Date(post.createdAt).toLocaleString() : "Just now")}</time></div><p class="tw-post-text">${esc(post.text || "")}</p>${image}${voiceMarkup(post)}<div class="tw-actions-bar"><span>❤️ ${(post.likedBy || []).length} likes</span><span>💬 ${comments.length} comments</span></div>${isAuthor ? `<div class="tw-detail-comment-actions"><button type="button" class="tw-edit-btn" data-id="${esc(post.id)}">✏️ Edit post</button><button type="button" class="tw-del-btn" data-id="${esc(post.id)}">🗑 Delete post</button></div>` : ""}</article><h3>Replies</h3><div class="tw-detail-comments">${comments.map(comment => commentComponent(comment, user, voiceMarkup)).join("") || `<p style="color:#8c737d">No replies yet. Start the conversation ♡</p>`}</div><form class="tw-detail-reply" id="tw-detail-reply-form"><input name="reply" placeholder="Write a reply…"><button class="tw-post-btn" type="submit">Reply</button></form><button type="button" class="tw-voice-recorder" data-voice-record="comment" aria-label="Record reply voice note">🎙 Record voice note</button><span id="tw-comment-voice-state" class="tw-photo-name"></span>`;
     detailBody.querySelectorAll("img[data-telegram-file-id]").forEach(img => getTelegramMediaUrl(img.dataset.telegramFileId, img.dataset.telegramMime).then(url => { if (img.isConnected) img.src = url; }).catch(() => {}));
     hydrateVoicePlayers(detailBody);
     detailBody.querySelector("#tw-detail-reply-form").onsubmit = async event => {
@@ -676,41 +677,7 @@ function renderPostFeed(el, user, profile) {
         ? createdAt.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
         : "Just now";
 
-      return `
-        <div class="tw-post-card" id="post-${post.id}">
-          <div class="tw-avatar">${authorProfile?.avatar ? `<img src="${esc(authorProfile.avatar)}" alt="">` : esc(authorName[0])}</div>
-          <div class="tw-post-content">
-            <div class="tw-post-header">
-              <div class="tw-user-info">
-                <span class="tw-user-name">${esc(authorName)}</span>
-                <span class="tw-user-handle">${handle}</span>
-                <time class="tw-post-time">${timeStr}</time>
-              </div>
-            </div>
-
-            <p class="tw-post-text" id="post-text-${post.id}">${esc(post.text || '')}</p>
-            ${post.photoUrl ? `<div class="tw-post-photo-frame"><img src="${esc(post.photoUrl)}" class="tw-post-photo" alt="Photo attached to post" data-post-image style="object-position:${cropPositionStyle(post)}"></div>` : post.telegramFileId ? `<div class="tw-post-photo-frame"><img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Photo attached to post" data-post-image style="object-position:${cropPositionStyle(post)}" loading="lazy"></div>` : ''}
-            ${voiceMarkup(post)}
-
-            <div class="tw-actions-bar">
-              <button class="tw-action-btn tw-reply-btn" data-id="${post.id}">💬 ${(commentsByPost.get(post.id) || []).length} comments</button>
-              <button class="tw-action-btn ${isLiked ? 'liked' : ''} tw-like-btn" data-id="${post.id}">
-                ${isLiked ? '❤️' : '🤍'} ${likeCount}
-              </button>
-            </div>
-          </div>
-
-          ${isAuthor ? `
-          <div class="tw-post-actions">
-            <button type="button" class="tw-post-menu-btn" data-menu-post="${post.id}" aria-label="Post options" aria-haspopup="menu" aria-expanded="false">⋯</button>
-            <div class="tw-post-menu" role="menu" data-menu-list="${post.id}">
-              <button type="button" class="tw-edit-btn" role="menuitem" data-edit-post="${post.id}" aria-label="Edit post">✏️ Edit</button>
-              <button type="button" class="tw-del-btn" role="menuitem" data-delete-post="${post.id}" aria-label="Delete post">🗑 Delete</button>
-            </div>
-          </div>
-          ` : ''}
-        </div>
-      `;
+      return postCardComponent(post, isLiked, likeCount, isAuthor, authorName, authorProfile, handle, timeStr, voiceMarkup, (commentsByPost.get(post.id) || []).length, cropPositionStyle);
     }).join("");
 
     feed.querySelectorAll("img[data-telegram-file-id]").forEach(image => {
@@ -1065,20 +1032,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const hardRefreshButton = $("#hard-refresh-btn");
   hardRefreshButton?.addEventListener("click", async () => {
     hardRefreshButton.disabled = true;
-    toast("Refreshing latest version…");
-
-    const cleanupTasks = [];
-    if ("caches" in window) {
-      cleanupTasks.push(caches.keys().then(keys => Promise.all(keys.map(key => caches.delete(key)))));
-    }
-    if ("serviceWorker" in navigator) {
-      cleanupTasks.push(navigator.serviceWorker.getRegistrations().then(registrations => Promise.all(registrations.map(registration => registration.unregister()))));
-    }
-    await Promise.allSettled(cleanupTasks);
-
-    const refreshUrl = new URL(window.location.href);
-    refreshUrl.searchParams.set("v", Date.now().toString());
-    window.location.replace(refreshUrl.toString());
+    toast("Syncing latest data…");
+    navigate(currentRoute);
+    setTimeout(() => { hardRefreshButton.disabled = false; }, 2000);
   });
 
   if ("serviceWorker" in navigator) {

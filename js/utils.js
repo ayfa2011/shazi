@@ -10,6 +10,11 @@ export function toast(msg) {
   }
 }
 
+export function toastError(msg) {
+  console.error(msg);
+  toast("⚠️ " + msg);
+}
+
 export function todayKey(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
   return `${parts.find(x => x.type === "year").value}-${parts.find(x => x.type === "month").value}-${parts.find(x => x.type === "day").value}`;
@@ -25,4 +30,24 @@ export function dailyIndex(length, date = new Date()) {
   if (!length) return 0;
   const day = Date.parse(`${todayKey(date)}T00:00:00Z`) / 86400000;
   return Math.floor(day) % length;
+}
+
+export function generateThumbnail(file, maxWidth = 30) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const scale = maxWidth / img.width;
+        canvas.width = maxWidth;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.5));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }

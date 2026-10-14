@@ -1,4 +1,4 @@
-import { $, esc, toast } from "./utils.js";
+import { $, esc, toast, generateThumbnail } from "./utils.js";
 import { watchItems, addItem, removeItem, setItem, addMemoryMedia, notifyPartnerSafely } from "./firestore.js";
 import { getProfileKey } from "./profile-data.js";
 import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
@@ -66,7 +66,8 @@ export function renderMemories(el, user, profile) {
       .memory-item:focus-visible { outline: 2px solid #cc7093; outline-offset: 3px; }
       .memory-tape { display:none; }
       .memory-thumb-box { position: absolute; inset: 0; display: grid; width: 100%; height: 100%; place-items: center; overflow: hidden; background: linear-gradient(135deg, #fff1f6 0%, #f9dde8 50%, #f7e8da 100%); color: #d9789b; font-size: 32px; }
-      .memory-thumb-box img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; transition: transform .45s ease; }
+      .memory-thumb-box img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; transition: opacity .4s ease, transform .45s ease; opacity: 0; }
+      .memory-thumb-box img[src] { opacity: 1; }
       .memory-item:hover .memory-thumb-box img { transform: scale(1.04); }
       .memory-thumb-box::after { content: ""; position: absolute; inset: 35% 0 0; background: linear-gradient(to top, rgba(0,0,0,.72), rgba(0,0,0,0)); pointer-events: none; }
       .memory-badge { position: absolute; top: 9px; left: 9px; z-index: 2; padding: 4px 10px; border-radius: 999px; background: #ffffffd9; color: #b04b72; font-size: 10px; font-weight: 700; letter-spacing: .05em; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 4px 12px #0000001a; }
@@ -582,8 +583,9 @@ export function renderMemories(el, user, profile) {
           const type = file.type.startsWith("video/") ? "video" : "photo";
           const createdAtMs = Date.now();
           const timestamp = new Date(createdAtMs).toLocaleString();
+          const thumbnail = type === "photo" ? await generateThumbnail(file) : null;
           const result = await sendToTelegram(file, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`, new Date(createdAtMs).toISOString().slice(0, 10), getProfileKey(profile), { storeForReveal: false });
-          return { ...telegramMediaReferences(result), type, mimeType: telegramUploadMimeType(file), name: file.name || (type === "video" ? "Video" : "Photo"), createdAtMs };
+          return { ...telegramMediaReferences(result), thumbnail, type, mimeType: telegramUploadMimeType(file), name: file.name || (type === "video" ? "Video" : "Photo"), createdAtMs };
         }));
         uploadedMedia.push(...chunkResults);
         addButton.textContent = `Uploading (${uploadedMedia.length}/${files.length})…`;
@@ -647,15 +649,17 @@ export function renderMemories(el, user, profile) {
   }
 
   function memoryCardHtml(item, index) {
+    const isVideo = item.mediaType === "video";
+    const thumbnail = item.thumbnail || "";
     const photo = item.photoUrl
-      ? `<img src="${esc(item.photoUrl)}" alt="" loading="lazy" decoding="async">`
+      ? `<img src="${esc(item.photoUrl)}" alt="" loading="lazy" decoding="async" style="background:${thumbnail ? `url('${esc(thumbnail)}') center/cover` : '#f9dde8'}">`
       : item.telegramFileId
-        ? `<img data-memory-file-id="${esc(item.telegramFileId)}" data-memory-mime="${esc(item.photoMimeType || "application/octet-stream")}" data-memory-kind="${esc(item.mediaType || "image")}" alt="" loading="lazy" decoding="async">`
+        ? `<img data-memory-file-id="${esc(item.telegramFileId)}" data-memory-mime="${esc(item.photoMimeType || "application/octet-stream")}" data-memory-kind="${esc(item.mediaType || "image")}" alt="" loading="lazy" decoding="async" style="background:${thumbnail ? `url('${esc(thumbnail)}') center/cover` : '#f9dde8'}">`
       : `💖`;
     return `
-      <button class="memory-item${index === 0 ? " is-hero" : ""}" type="button" data-id="${esc(item.id)}" style="--i:${index}" aria-label="Open memory: ${esc(item.title || "Our Memory")}${item.mediaType === "video" ? ", video" : ""}">
+      <button class="memory-item${index === 0 ? " is-hero" : ""}" type="button" data-id="${esc(item.id)}" style="--i:${index}" aria-label="Open memory: ${esc(item.title || "Our Memory")}${isVideo ? ", video" : ""}">
         <span class="memory-tape" aria-hidden="true"></span>
-        <div class="memory-thumb-box">${index === 0 ? `<span class="memory-badge">✧ Latest</span>` : ""}${photo}${item.mediaType === "video" ? `<span class="memory-video-indicator" aria-label="Video">▶</span>` : ""}</div>
+        <div class="memory-thumb-box">${index === 0 ? `<span class="memory-badge">✧ Latest</span>` : ""}${photo}${isVideo ? `<span class="memory-video-indicator" aria-label="Video">▶</span>` : ""}</div>
         <div class="memory-meta"><span>${esc(item.title || "Memory")}</span></div>
         ${item.date ? `<small><i>♡</i>${esc(item.date)}</small>` : ""}
       </button>`;
