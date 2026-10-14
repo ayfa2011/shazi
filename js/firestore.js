@@ -82,6 +82,15 @@ export async function removeItem(id) {
   return deleteDoc(doc(root(), id));
 }
 
+// Post helpers (lightweight: no extra fields, no transactions)
+export async function updatePost(postId, data) {
+  return setItem(postId, data);
+}
+
+export async function deletePost(postId) {
+  return removeItem(postId);
+}
+
 // Optimized with backend type query filter
 export async function listItems(type) {
   const q = query(root(), where("type", "==", type), orderBy("createdAt", "desc"));

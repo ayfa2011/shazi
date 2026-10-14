@@ -81,7 +81,6 @@ function makeTriviaQuestions() {
 const gameTitles = {
   "memory-match": "Memory Match",
   "word-guess": "Word Guess",
-  "emoji-quiz": "Emoji Quiz",
   "spin-wheel": "Spin Wheel",
   "couple-trivia": "Couple Trivia",
   sos: "SOS",
@@ -385,7 +384,6 @@ function gamesHome() {
       ${gameCard("memory-match", "🧠", "Memory Match", "Take turns finding matching pairs", "2P")}
       ${gameCard("word-guess", "🔤", "Word Guess", "Set words for each other to guess", "2P")}
       ${gameCard("find-words", "🔎", "Find the Words", "Race to find 16 new words together", "LIVE")}
-      ${gameCard("emoji-quiz", "🌙", "Emoji Quiz", "Take turns decoding love in emojis", "2P")}
       ${gameCard("spin-wheel", "🎡", "Spin Wheel", "Complete three surprise challenges fastest", "2P")}
       ${gameCard("couple-trivia", "💞", "Couple Trivia", "Answer, then let your partner guess", "2P")}
     </div>
@@ -399,7 +397,6 @@ function gamesHome() {
         <div id="game-board" class="game-board" aria-label="Find the hidden heart"></div>
         <p id="game-result" class="game-result" aria-live="polite"></p>
       </div>
-      <div class="score-history"><h3>Recent Game Wins 🏆</h3><div id="game-scores-list"><p class="muted">Loading wins…</p></div></div>
       <div id="games-leaderboards"></div>
     </section>
   </section>`;
@@ -881,10 +878,22 @@ export function renderGames(el, user, profile) {
     if (room.status === "waiting") {
       const isCreator = room.playerUids[0] === user.uid;
       statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${isCreator ? "Waiting for your partner to join from their device…" : `${esc(opponentName)} is waiting. Join the match to play!`}</p>${isCreator ? `<button type="button" class="secondary" data-room-cancel>Cancel match</button>` : `<button type="button" class="primary" data-room-start>Join match</button>`}</div>${matchLeaderboard(activeGame)}`;
-      content.replaceChildren();
+      if (isCreator && activeState) {
+        content.innerHTML = `<div class="games-preview-note muted">Game preview · Waiting for your partner to join. You can look around, but play starts after they join.</div>`;
+        renderActiveGame(el, activeGame, user, profile, activeState, true);
+        content.querySelectorAll("button, input, form").forEach(control => {
+          control.disabled = true;
+          control.setAttribute("aria-disabled", "true");
+        });
+        content.style.opacity = "0.88";
+      } else {
+        content.replaceChildren();
+        content.style.opacity = "";
+      }
       return;
     }
 
+    content.style.opacity = "";
     const isTurn = room.turnUid === user.uid;
     if (!room.playerUids.includes(user.uid)) {
       statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">This match is already in progress with your partner.</p></div>${matchLeaderboard(activeGame)}`;
@@ -1077,7 +1086,6 @@ export function renderGames(el, user, profile) {
     const gameInfo = {
       "memory-match": ["Memory Match", "Flip the cards and find all six pairs.", "🧠"],
       "word-guess": ["Word Guess", "Pick a secret word, then let your partner guess.", "🔤"],
-      "emoji-quiz": ["Emoji Quiz", "Can you read the message in these emojis?", "🌙"],
       "spin-wheel": ["Spin Wheel", "Spin for a sweet little challenge.", "🎡"],
       "couple-trivia": ["Couple Trivia", "Answer, pass the device, and see if your partner knows.", "💞"]
     }[activeGame];
@@ -1116,13 +1124,13 @@ export function renderGames(el, user, profile) {
   }
 
   function renderDailyWins(items) {
-    const listEl = $("#game-scores-list", el);
-    if (!listEl) return;
     const leaderboards = $("#games-leaderboards", el);
     if (leaderboards) leaderboards.innerHTML = Object.keys(gameTitles)
       .map(game => matchLeaderboard(game))
       .join("");
+    const listEl = $("#game-scores-list", el);
     refreshDailyTarget();
+    if (!listEl) return;
     if (items.length === 0) {
       listEl.innerHTML = `<p class="muted">No wins recorded yet.</p>`;
       return;
@@ -1560,6 +1568,10 @@ export function renderGames(el, user, profile) {
   el.onsubmit = async event => {
     if (event.target.id !== "word-guess-setup") return;
     event.preventDefault();
+    if (gameRoomState?.status !== "playing" || gameRoomState.turnUid !== user.uid) {
+      toast("Waiting for your partner to join before playing.");
+      return;
+    }
     const input = $("#word-guess-word", el);
     const word = input.value.trim().replace(/\s+/g, " ");
     const error = $(".game-form-error", event.target);

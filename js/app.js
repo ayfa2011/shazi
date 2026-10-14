@@ -6,7 +6,7 @@ import { renderMemories, disposeMemories } from "./memories.js";
 import { renderGames, disposeGames } from "./games.js";
 import { renderLetters, disposeLetters } from "./letters.js";
 import { renderQuestions, disposeQuestions } from "./questions.js";
-import { watchItems, watchDiaryPosts, toggleDiaryLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, addDiaryPost, updateDiaryPost, deleteDiaryPost, notifyPartnerSafely } from "./firestore.js";
+import { watchItems, watchDiaryPosts, toggleDiaryLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, addDiaryPost, updatePost, deletePost, notifyPartnerSafely } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { renderBucket, disposeBucket } from "./bucket-list.js";
 import { renderActivities } from "./activities.js";
@@ -66,6 +66,10 @@ function renderPostFeed(el, user, profile) {
   let selectedPostVoice = null;
   let selectedPhotoPosition = { x: 50, y: 50 };
   let selectedPhotoPreviewUrl = "";
+  const getPostAuthorKey = (post) => {
+    const author = findProfileForAuthor(post.authorId, post.authorName || "Us");
+    return author ? getProfileKey(author) : null;
+  };
 
   el.innerHTML = `
     <style>
@@ -144,6 +148,40 @@ function renderPostFeed(el, user, profile) {
         background: #ffffff;
         display: flex;
         gap: 12px;
+      }
+      .tw-post-card .tw-post-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+      }
+      .tw-post-card .tw-edit-btn,
+      .tw-post-card .tw-del-btn {
+        min-width: 0;
+        min-height: 0;
+        padding: 6px 9px;
+        border: 0;
+        border-radius: 999px;
+        font: 700 11px "DM Sans", sans-serif;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+      }
+      .tw-post-card .tw-edit-btn {
+        background: #f7edf1;
+        color: #7d2d51;
+      }
+      .tw-post-card .tw-edit-btn:hover {
+        background: #e9c9d6;
+      }
+      .tw-post-card .tw-del-btn {
+        background: #fff0f2;
+        color: #bd3158;
+      }
+      .tw-post-card .tw-del-btn:hover {
+        background: #fbe2e8;
       }
       .tw-post-content {
         flex: 1;
@@ -454,7 +492,7 @@ function renderPostFeed(el, user, profile) {
     if (!post || !detailPostId) return;
     const comments = commentsByPost.get(post.id) || [];
     const image = post.photoUrl ? `<div class="tw-post-photo-frame tw-post-detail-photo-frame"><img src="${esc(post.photoUrl)}" class="tw-post-photo" alt="Post photo" data-post-image></div>` : post.telegramFileId ? `<div class="tw-post-photo-frame tw-post-detail-photo-frame"><img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Post photo" data-post-image></div>` : "";
-    const isAuthor = post.authorId === user.uid || post.authorId === profile.id;
+    const isAuthor = getPostAuthorKey(post) === getProfileKey(profile);
     detailBody.innerHTML = `<article><div class="tw-post-header"><strong>${esc(getDisplayName(post.authorId, post.authorName || "Us"))}</strong><time class="tw-post-time">${esc(post.createdAt?.toDate ? post.createdAt.toDate().toLocaleString() : post.createdAt ? new Date(post.createdAt).toLocaleString() : "Just now")}</time></div><p class="tw-post-text">${esc(post.text || "")}</p>${image}${voiceMarkup(post)}<div class="tw-actions-bar"><span>❤️ ${(post.likedBy || []).length} likes</span><span>💬 ${comments.length} comments</span></div>${isAuthor ? `<div class="tw-detail-comment-actions"><button type="button" class="tw-edit-btn" data-id="${esc(post.id)}">✏️ Edit post</button><button type="button" class="tw-del-btn" data-id="${esc(post.id)}">🗑 Delete post</button></div>` : ""}</article><h3>Replies</h3><div class="tw-detail-comments">${comments.map(comment => `<div class="tw-detail-comment" id="tw-comment-${comment.id}"><strong>${esc(getDisplayName(comment.authorId, comment.authorName || "Us"))}</strong><div>${esc(comment.text || "")}</div>${voiceMarkup(comment, "tw-comment-voice")}${comment.authorId === user.uid ? `<div class="tw-detail-comment-actions"><button type="button" class="tw-comment-edit-btn" data-id="${esc(comment.id)}">Edit</button><button type="button" class="tw-comment-del-btn" data-id="${esc(comment.id)}">Delete</button></div>` : ""}</div>`).join("") || `<p style="color:#8c737d">No replies yet. Start the conversation ♡</p>`}</div><form class="tw-detail-reply" id="tw-detail-reply-form"><input name="reply" placeholder="Write a reply…"><button class="tw-post-btn" type="submit">Reply</button></form><button type="button" class="tw-voice-recorder" data-voice-record="comment" aria-label="Record reply voice note">🎙 Record voice note</button><span id="tw-comment-voice-state" class="tw-photo-name"></span>`;
     detailBody.querySelectorAll("img[data-telegram-file-id]").forEach(img => getTelegramMediaUrl(img.dataset.telegramFileId, img.dataset.telegramMime).then(url => { if (img.isConnected) img.src = url; }).catch(() => {}));
     hydrateVoicePlayers(detailBody);
@@ -474,8 +512,16 @@ function renderPostFeed(el, user, profile) {
     };
     detailBody.querySelectorAll(".tw-comment-del-btn").forEach(button => button.onclick = async () => { if (confirm("Delete this comment?")) await deleteDiaryComment(post.id, button.dataset.id); });
     detailBody.querySelectorAll(".tw-comment-edit-btn").forEach(button => button.onclick = async () => { const item = comments.find(comment => comment.id === button.dataset.id); const text = prompt("Edit comment:", item?.text || ""); if (text?.trim()) await updateDiaryComment(post.id, item.id, { text: text.trim() }); });
-    detailBody.querySelector(".tw-del-btn")?.addEventListener("click", async () => { if (!confirm("Delete this post?")) return; try { await deleteDiaryPost(post.id); closePostDetail(); toast("Deleted post"); } catch (error) { console.error(error); toast("Could not delete post."); } });
-    detailBody.querySelector(".tw-edit-btn")?.addEventListener("click", async () => { const text = prompt("Edit your post:", post.text || ""); if (text === null || text.trim() === (post.text || "")) return; if (!text.trim() && !post.photoUrl && !post.telegramFileId && !post.telegramAudioFileId) return toast("A post needs text or media."); try { await updateDiaryPost(post.id, { text: text.trim() }); toast("Post updated!"); } catch (error) { console.error(error); toast("Could not update post."); } });
+    detailBody.querySelectorAll(".tw-del-btn").forEach(button => button.onclick = async () => { if (confirm("Delete this post?")) await deletePost(button.dataset.id); });
+    detailBody.querySelectorAll(".tw-edit-btn").forEach(button => button.onclick = async () => {
+      const postId = button.dataset.id;
+      const item = posts.find(p => p.id === postId);
+      if (!item) return;
+      const text = prompt("Edit your post:", item.text || "");
+      if (text === null || text.trim() === (item.text || "")) return;
+      if (!text.trim() && !item.photoUrl && !item.telegramFileId && !item.telegramAudioFileId) return toast("A post needs text or media.");
+      try { await updatePost(postId, { text: text.trim() }); toast("Post updated!"); } catch (error) { console.error(error); toast("Could not update post."); }
+    });
   }
   let selectedCommentVoice = null;
   detailBody.addEventListener("click", event => {
@@ -614,6 +660,11 @@ function renderPostFeed(el, user, profile) {
               </button>
             </div>
           </div>
+
+          <div class="tw-post-actions">
+            <button type="button" class="tw-edit-btn" data-edit-post="${post.id}" aria-label="Edit post">✏️ Edit</button>
+            <button type="button" class="tw-del-btn" data-delete-post="${post.id}" aria-label="Delete post">🗑 Delete</button>
+          </div>
         </div>
       `;
     }).join("");
@@ -650,6 +701,36 @@ function renderPostFeed(el, user, profile) {
         openPostDetail(post.id);
       });
 
+      const editBtn = feed.querySelector(`.tw-edit-btn[data-edit-post="${post.id}"]`);
+      if (editBtn) {
+        editBtn.onclick = async () => {
+          if (getPostAuthorKey(post) !== getProfileKey(profile)) return toast("Only you can edit your own post.");
+          const text = prompt("Edit your post:", post.text || "");
+          if (text === null || text.trim() === (post.text || "")) return;
+          if (!text.trim() && !post.photoUrl && !post.telegramFileId && !post.telegramAudioFileId) return toast("A post needs text or media.");
+          try {
+            await updatePost(post.id, { text: text.trim() });
+            toast("Post updated!");
+          } catch (error) {
+            console.error(error);
+            toast("Could not update post.");
+          }
+        };
+      }
+      const deleteBtn = feed.querySelector(`.tw-del-btn[data-delete-post="${post.id}"]`);
+      if (deleteBtn) {
+        deleteBtn.onclick = async () => {
+          if (getPostAuthorKey(post) !== getProfileKey(profile)) return toast("Only you can delete your own post.");
+          if (!confirm("Delete this post?")) return;
+          try {
+            await deletePost(post.id);
+            toast("Post deleted.");
+          } catch (error) {
+            console.error(error);
+            toast("Could not delete post.");
+          }
+        };
+      }
       if (!postCommentStops.has(post.id)) {
         const stop = watchDiaryComments(post.id, (comments) => {
           if (!active) return;

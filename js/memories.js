@@ -745,8 +745,33 @@ export function renderMemories(el, user, profile) {
       stopMemories = watchItems("memory", (items) => {
         if (!active || !el.isConnected || generation !== memoryWatchGeneration) return;
         clearTimeout(memoryLoadTimer);
-        allMemories = items || [];
+        // Keep media just uploaded in the current view if Firestore briefly
+        // delivers an older snapshot before the mediaItems update is visible.
+        const incomingItems = items || [];
+        allMemories = incomingItems.map(item => {
+          const previous = allMemories.find(existing => existing.id === item.id);
+          if (!previous || !Array.isArray(previous.mediaItems) || !previous.mediaItems.length) return item;
+          const savedMedia = Array.isArray(item.mediaItems) ? item.mediaItems : [];
+          const mediaKey = media => media.telegramFileId || media.url || `${media.name || ""}:${media.createdAtMs || ""}`;
+          const mergedMedia = [...savedMedia];
+          const knownKeys = new Set(savedMedia.map(mediaKey));
+          for (const media of previous.mediaItems) {
+            const key = mediaKey(media);
+            if (!knownKeys.has(key)) {
+              mergedMedia.push(media);
+              knownKeys.add(key);
+            }
+          }
+          return { ...item, mediaItems: mergedMedia };
+        });
+        if (activeMemoryForView) {
+          const refreshed = allMemories.find(item => item.id === activeMemoryForView.id);
+          if (refreshed) activeMemoryForView = refreshed;
+        }
         renderGrid();
+        if (viewModal.style.display !== "none" && activeMemoryForView) {
+          renderMemoryGallery(activeMemoryForView);
+        }
       }, error => {
         console.error("Memories could not be loaded:", error);
         clearTimeout(memoryLoadTimer);
