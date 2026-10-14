@@ -12,12 +12,7 @@
   "hosting": {
     "site": "our-little-world-e9cbb",
     "public": ".",
-    "rewrites": [
-      {
-        "source": "/api/telegram-love-photo",
-        "function": "telegramLovePhoto"
-      }
-    ],
+    "rewrites": [],
     "ignore": [
       "firebase.json",
       "**/.*",
