@@ -583,9 +583,20 @@ export function renderMemories(el, user, profile) {
           const type = file.type.startsWith("video/") ? "video" : "photo";
           const createdAtMs = Date.now();
           const timestamp = new Date(createdAtMs).toLocaleString();
+
+          // Generate thumbnail before uploading
           const thumbnail = type === "photo" ? await generateThumbnail(file) : null;
+
           const result = await sendToTelegram(file, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`, new Date(createdAtMs).toISOString().slice(0, 10), getProfileKey(profile), { storeForReveal: false });
-          return { ...telegramMediaReferences(result), thumbnail, type, mimeType: telegramUploadMimeType(file), name: file.name || (type === "video" ? "Video" : "Photo"), createdAtMs };
+
+          return {
+            ...telegramMediaReferences(result),
+            thumbnailUrl: thumbnail, // Ensure key matches usage in renderGrid
+            type,
+            mimeType: telegramUploadMimeType(file),
+            name: file.name || (type === "video" ? "Video" : "Photo"),
+            createdAtMs
+          };
         }));
         uploadedMedia.push(...chunkResults);
         addButton.textContent = `Uploading (${uploadedMedia.length}/${files.length})…`;

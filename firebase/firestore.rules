@@ -175,7 +175,7 @@ service cloud.firestore {
             && resource.data.get('type', '') != 'customChallenge'
             && resource.data.get('type', '') != 'loveYouChallenge'
             && ownsAuthoredFields(resource.data)
-            && ownsAuthoredFields(request.resource.data)
+            && (!request.resource.data.keys().hasAny(['author', 'authorId']) || ownsAuthoredFields(request.resource.data))
             && ownsDiaryPost(collectionName, request.resource.data))
           || (collectionName == 'items'
             && resource.data.get('type', '') == 'specialDay'
