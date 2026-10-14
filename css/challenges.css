@@ -967,3 +967,142 @@
   .challenge-icon { width: 36px; height: 36px; font-size: 18px; }
   .water-bottle { width: 50px; height: 84px; }
 }
+
+/* ── Couple challenge hub: sent + received + full status ── */
+.custom-hub {
+  margin: 22px 0 8px;
+  padding: 16px;
+  border: 1px solid #f0dce6;
+  border-radius: 22px;
+  background: linear-gradient(160deg, #fff 0%, #fff8fb 100%);
+  box-shadow: 0 8px 26px rgba(143, 49, 93, 0.055);
+}
+.custom-hub-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.custom-eyebrow {
+  margin: 0 0 5px;
+  color: #c05a87;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .13em;
+}
+.custom-hub-head h2 {
+  margin: 0;
+  color: #51283d;
+  font: 800 17px/1.25 "DM Sans", sans-serif;
+  letter-spacing: -.025em;
+}
+.custom-hub-head h2 span { color: #e65391; }
+.custom-hub-subtitle {
+  margin: 5px 0 0;
+  color: #987d8b;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.custom-total-pill {
+  flex: none;
+  padding: 6px 9px;
+  border: 1px solid #f1d6e3;
+  border-radius: 999px;
+  background: #fff;
+  color: #9b3d68;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.custom-pending-note {
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  border: 1px solid #f5d5a9;
+  border-radius: 12px;
+  background: #fff8ec;
+  color: #94601f;
+  font-size: 11px;
+  font-weight: 700;
+}
+.custom-hub-filters {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  margin: 0 0 12px;
+  overflow-x: auto;
+  border: 1px solid #f1e4ea;
+  border-radius: 13px;
+  background: #f9f1f5;
+  scrollbar-width: none;
+}
+.custom-hub-filters::-webkit-scrollbar { display: none; }
+.custom-hub-filters button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #866b79;
+  font: 700 11px "DM Sans", sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .18s ease, color .18s ease, box-shadow .18s ease;
+}
+.custom-hub-filters button.selected {
+  background: #fff;
+  color: #8f315d;
+  box-shadow: 0 2px 7px rgba(88, 35, 60, .09);
+}
+.custom-card.is-completed { border-color: #d9ecdf; }
+.custom-card.is-completed .custom-tag.done { box-shadow: inset 0 0 0 1px rgba(31,122,71,.05); }
+.custom-meta .deadline-today { background: #fff0e9; color: #a64d29; }
+.custom-hub-empty {
+  padding: 24px 14px;
+  border-style: dashed;
+  background: rgba(255,255,255,.75);
+}
+.custom-hub-empty strong {
+  display: block;
+  color: #65334c;
+  font-size: 13px;
+}
+.custom-hub-empty p {
+  margin: 5px auto 0;
+  max-width: 260px;
+  color: #967d8b;
+  font-size: 11px;
+}
+.custom-empty-cta {
+  margin-top: 12px;
+  min-height: 40px;
+  padding: 9px 14px;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #e65391, #c83272);
+  color: #fff;
+  font: 700 12px "DM Sans", sans-serif;
+  box-shadow: 0 4px 12px rgba(200, 50, 114, .2);
+  cursor: pointer;
+}
+.give-challenge-btn {
+  border-style: solid;
+  box-shadow: 0 5px 16px rgba(200, 50, 114, .075);
+}
+.give-challenge-btn:focus-visible,
+.custom-hub-filters button:focus-visible,
+.custom-empty-cta:focus-visible {
+  outline: 3px solid rgba(230, 83, 145, .3);
+  outline-offset: 3px;
+}
+@media (max-width: 420px) {
+  .custom-hub { padding: 13px; border-radius: 18px; }
+  .custom-hub-head h2 { font-size: 15px; }
+  .custom-total-pill { font-size: 9px; padding: 5px 7px; }
+  .custom-card { padding: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .custom-hub-filters button,
+  .give-challenge-btn { transition: none; }
+}

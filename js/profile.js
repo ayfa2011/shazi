@@ -24,9 +24,26 @@ export function renderProfile(el, user, profile) {
       .profile-back { width:34px; height:34px; border-radius:50%; background:transparent; color:#8f315d; font-size:20px; }
       .profile-cover { height:132px; background:linear-gradient(125deg,#f6c3d7,#fff0f6 56%,#e99dbb); }
       .profile-edit-card { position:relative; padding:0 20px 18px; }
-      .profile-photo-preview { position:relative; width:124px; height:124px; display:grid; place-items:center; overflow:hidden; border:5px solid #fff; border-radius:50%; background:linear-gradient(145deg,#ffe9f1,#ffd4e4); color:#8f315d; font-size:42px; font-weight:700; margin-top:-62px; box-shadow:0 0 0 3px #f8c9db,0 9px 24px #a43f6c26; }
-      .profile-photo-preview::after { content:"♡"; position:absolute; right:1px; bottom:4px; width:29px; height:29px; display:grid; place-items:center; border:2px solid #fff; border-radius:50%; background:#e65391; color:#fff; font-size:17px; line-height:1; box-shadow:0 3px 9px #a43f6c30; pointer-events:none; }
-      .profile-photo-preview img { width:100%; height:100%; object-fit:cover; border-radius:50%; }
+      .profile-photo-preview { position:relative; width:172px; height:172px; padding:0; display:grid; place-items:center; overflow:hidden; border:5px solid #fff; border-radius:50%; background:linear-gradient(145deg,#ffe9f1,#ffd4e4); color:#8f315d; font:700 54px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin-top:-86px; box-shadow:0 0 0 3px #f8c9db,0 12px 30px #a43f6c2b; cursor:pointer; transition:transform .25s ease,box-shadow .25s ease; -webkit-tap-highlight-color:transparent; }
+      .profile-photo-preview:hover { transform:translateY(-2px); box-shadow:0 0 0 4px #f4b8d0,0 16px 36px #a43f6c35; }
+      .profile-photo-preview:focus-visible { outline:3px solid #d94f8a; outline-offset:5px; }
+      .profile-photo-preview::after { content:"✎"; position:absolute; right:5px; bottom:6px; width:38px; height:38px; display:grid; place-items:center; border:3px solid #fff; border-radius:50%; background:#e65391; color:#fff; font-size:19px; line-height:1; box-shadow:0 4px 12px #a43f6c35; pointer-events:none; }
+      .profile-photo-preview img { width:100%; height:100%; object-fit:cover; border-radius:50%; transition:transform .35s ease; }
+      .profile-photo-preview:hover img { transform:scale(1.04); }
+      .profile-photo-picker { display:none !important; }
+      .profile-photo-dialog { position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:22px; background:#29151f75; backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px); opacity:0; visibility:hidden; transition:opacity .22s ease,visibility .22s ease; }
+      .profile-photo-dialog.is-open { opacity:1; visibility:visible; }
+      .profile-photo-dialog-card { width:min(100%,330px); padding:24px 20px 18px; text-align:center; border:1px solid #f6d6e3; border-radius:24px; background:linear-gradient(155deg,#fffafd,#fff0f6); box-shadow:0 22px 70px #31132335; transform:translateY(12px) scale(.97); transition:transform .22s ease; }
+      .profile-photo-dialog.is-open .profile-photo-dialog-card { transform:translateY(0) scale(1); }
+      .profile-photo-dialog-icon { width:58px; height:58px; display:grid; place-items:center; margin:0 auto 12px; border-radius:20px; color:#c7437e; background:#ffe0ec; font-size:26px; }
+      .profile-photo-dialog h3 { margin:0 0 7px; color:#492b3a; font-size:18px; }
+      .profile-photo-dialog p { margin:0 0 20px; color:#8c6c7c; font-size:13px; }
+      .profile-photo-dialog-actions { display:grid; gap:9px; }
+      .profile-photo-dialog-actions button { min-height:44px; border-radius:999px; font:600 14px/1.2 inherit; cursor:pointer; }
+      .profile-photo-choose { border:0; color:#fff; background:linear-gradient(120deg,#e65391,#c83c79); box-shadow:0 6px 16px #d94f8a35; }
+      .profile-photo-cancel { border:1px solid #f0d3df; color:#8f315d; background:#fff; }
+      .profile-edit-card > .profile-photo-preview { margin-left:2px; }
+      @media(prefers-reduced-motion:reduce) { .profile-photo-preview,.profile-photo-preview img,.profile-photo-dialog,.profile-photo-dialog-card { transition:none !important; } }
       .profile-form-fields { min-width:0; }
       .profile-form-fields form { margin:12px 0 0; gap:12px; }
       .profile-form-fields label { font-size:12px; color:#795364; }
@@ -36,15 +53,15 @@ export function renderProfile(el, user, profile) {
       .profile-photo-picker input { padding:7px; font-size:11px; }
       .profile-handle { margin:5px 0 14px; color:#8c737d; font-size:13px; }
       .profile-save { justify-self:end; padding:9px 16px; border-radius:999px; }
-      @media(max-width:420px) { .profile-cover { height:116px; } .profile-edit-card { padding-right:16px; padding-left:16px; } .profile-photo-preview { width:112px; height:112px; margin-top:-56px; font-size:38px; } }
+      @media(max-width:420px) { .profile-cover { height:116px; } .profile-edit-card { padding-right:16px; padding-left:16px; } .profile-photo-preview { width:152px; height:152px; margin-top:-76px; font-size:48px; } .profile-photo-preview::after { width:34px; height:34px; right:3px; bottom:4px; } }
     </style>
     <section class="profile-settings">
       <header class="profile-topbar"><button type="button" class="profile-back" aria-label="Back">←</button><h2>Profile</h2></header>
       <div class="profile-cover" aria-hidden="true"></div>
       <article class="profile-edit-card">
-        <div class="profile-photo-preview" data-preview="${esc(ownProfileKey)}">
-          ${avatar ? `<img src="${esc(avatar)}" alt="${esc(person.name)}">` : esc((person.name || "♡")[0])}
-        </div>
+        <button type="button" class="profile-photo-preview" data-preview="${esc(ownProfileKey)}" aria-label="Change profile photo" aria-haspopup="dialog">
+          ${avatar ? `<img src="${esc(avatar)}" alt="">` : esc((person.name || "♡")[0])}
+        </button>
         <div class="profile-form-fields">
           <form data-profile-form="${esc(ownProfileKey)}">
             <label>Display name
@@ -61,6 +78,17 @@ export function renderProfile(el, user, profile) {
         </div>
       </article>
     </section>
+    <div class="profile-photo-dialog" data-photo-dialog role="dialog" aria-modal="true" aria-labelledby="profile-photo-dialog-title">
+      <div class="profile-photo-dialog-card">
+        <div class="profile-photo-dialog-icon" aria-hidden="true">♡</div>
+        <h3 id="profile-photo-dialog-title">Update your photo</h3>
+        <p>Choose a photo that feels like you.</p>
+        <div class="profile-photo-dialog-actions">
+          <button type="button" class="profile-photo-choose" data-photo-choose>Choose a photo</button>
+          <button type="button" class="profile-photo-cancel" data-photo-cancel>Cancel</button>
+        </div>
+      </div>
+    </div>
   `;
 
   const form = el.querySelector("[data-profile-form]");
@@ -68,9 +96,33 @@ export function renderProfile(el, user, profile) {
     const key = ownProfileKey;
     const photoInput = form.elements.photo;
     const preview = $(`[data-preview="${key}"]`, el);
+    const photoDialog = $("[data-photo-dialog]", el);
+    const openPhotoDialog = () => {
+      photoDialog?.classList.add("is-open");
+      photoDialog?.setAttribute("aria-hidden", "false");
+      $("[data-photo-choose]", photoDialog)?.focus();
+    };
+    const closePhotoDialog = () => {
+      photoDialog?.classList.remove("is-open");
+      photoDialog?.setAttribute("aria-hidden", "true");
+      preview?.focus();
+    };
     let selectedPhoto = null;
 
     $(".profile-back", el).onclick = () => window.App?.navigate("more");
+    preview.onclick = openPhotoDialog;
+    $("[data-photo-choose]", photoDialog).onclick = () => {
+      closePhotoDialog();
+      photoInput.click();
+    };
+    $("[data-photo-cancel]", photoDialog).onclick = closePhotoDialog;
+    photoDialog.onclick = event => {
+      if (event.target === photoDialog) closePhotoDialog();
+    };
+    photoDialog.setAttribute("aria-hidden", "true");
+    photoDialog.addEventListener("keydown", event => {
+      if (event.key === "Escape") closePhotoDialog();
+    });
     photoInput.onchange = () => {
       selectedPhoto = photoInput.files[0] || null;
       if (!selectedPhoto) return;

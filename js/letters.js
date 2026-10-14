@@ -14,6 +14,8 @@ export function renderLetters(el, user, profile) {
   const ownKey = getProfileKey(profile);
   let currentTab = "Inbox";
   let allLetters = [];
+  // Optimistic local state prevents the unread dot flashing back while Firestore syncs.
+  const locallyReadLetterIds = new Set();
   let readFontScale = 1.0;
   let replyToId = null;
 
@@ -104,6 +106,9 @@ export function renderLetters(el, user, profile) {
         transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease;
       }
       .letter-item:hover { transform:translateY(-2px); border-color:#edbfd2; box-shadow:0 9px 20px #74314912; }
+      .letter-item:focus-visible { outline:3px solid #e9a4c0; outline-offset:3px; }
+      .letter-item.is-unread { border-color:#efc1d4; background:linear-gradient(115deg,#fff 45%,#fff5f9); box-shadow:0 5px 18px #c84d7d10; }
+      .letter-item.is-unread::after { content:""; position:absolute; left:0; top:13px; bottom:13px; width:3px; border-radius:0 4px 4px 0; background:linear-gradient(#f28ab1,#d94e88); }
       .letter-left { display:flex; align-items:center; min-width:0; gap:11px; }
       .letter-envelope { position:relative; width:48px; height:38px; flex:none; display:grid; place-items:center; overflow:visible; border:1px solid #f0bfd1; border-radius:7px; background:linear-gradient(145deg,#fff9fc,#ffe4ee); color:#cc4b7b; font-size:20px; box-shadow:0 3px 8px #9a476313; transition:transform .2s ease; }
       .letter-envelope::before { content:""; position:absolute; z-index:1; inset:0 0 auto; height:52%; border-radius:6px 6px 50% 50%; background:linear-gradient(150deg,#ffedf4,#f9c9dc); clip-path:polygon(0 0,100% 0,50% 100%); transform-origin:top; transition:transform .36s cubic-bezier(.2,.75,.2,1); }
@@ -117,6 +122,9 @@ export function renderLetters(el, user, profile) {
       .letter-info { min-width:0; flex:1; }
       .letter-info h4 { margin:0; font-size:14px; font-weight:700; color:#5a3445; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .letter-info p { margin:3px 0 0; font-size:11px; color:#8e7a83; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px; }
+      .letter-open-hint { display:inline-flex; align-items:center; gap:5px; margin-top:6px; color:#c04479; font-size:11px; font-weight:700; letter-spacing:.01em; animation:letter-hint-glow 2s ease-in-out infinite; }
+      .letter-open-hint .hint-arrow { display:inline-block; animation:letter-hint-nudge 1.2s ease-in-out infinite; }
+      .letter-item.is-unread .letter-envelope { animation:letter-envelope-float 2.6s ease-in-out infinite; }
       .letter-date { flex:none; color:#9b8790; font-size:12px; line-height:1.35; white-space:nowrap; text-align:right; }
       .letter-date .letter-read-receipt { display:block; margin-top:4px; text-align:right; }
 
@@ -124,6 +132,8 @@ export function renderLetters(el, user, profile) {
       .letter-modal-overlay { position:fixed; inset:0; padding:clamp(8px,2vw,24px); display:flex; align-items:center; justify-content:center; overflow-y:auto; background:rgba(49,20,36,.56); opacity:0; backdrop-filter:blur(5px); z-index:1000; }
       .letter-modal-overlay.is-open { animation:letter-overlay-in .25s ease forwards; }
       .letter-modal-box { width:min(780px,100%); max-height:calc(100dvh - 24px); overflow-y:auto; padding:clamp(16px,2.5vw,30px); border:1px solid #f2dce6; border-radius:23px; background:#fffafd; box-shadow:0 25px 80px #30132144; }
+      .letter-read-modal-box { width:min(920px,100%); background:linear-gradient(145deg,#fffafd,#fff5f9); }
+      .letter-read-modal-box .letter-paper { width:min(100%,680px); max-height:84dvh; }
       .letter-modal-overlay.is-open .letter-modal-box { animation:letter-modal-in .55s cubic-bezier(.2,.8,.2,1) both; }
       .letter-modal-box.is-fullscreen { position:fixed; inset:0; z-index:1000; width:100vw; max-width:none; max-height:100dvh; height:100dvh; overflow-y:auto; border-radius:0; padding:max(12px,env(safe-area-inset-top)) 14px max(16px,env(safe-area-inset-bottom)); }
       .letter-modal-box.is-fullscreen .letter-editor-paper { height:calc(100dvh - 270px); min-height:300px; }
@@ -353,6 +363,9 @@ export function renderLetters(el, user, profile) {
         55% { opacity:1; transform:perspective(900px) rotateX(3deg) translateY(0) scale(1); }
         100% { opacity:1; transform:perspective(900px) rotateX(0) translateY(0) scale(1); }
       }
+      @keyframes letter-envelope-float { 0%,100% { transform:translateY(0) rotate(0); } 50% { transform:translateY(-3px) rotate(-2deg); } }
+      @keyframes letter-hint-glow { 0%,100% { opacity:.78; } 50% { opacity:1; } }
+      @keyframes letter-hint-nudge { 0%,100% { transform:translateX(0); } 50% { transform:translateX(3px); } }
 
       /* ── Mobile ─────────────────────────────────────── */
       @media (max-width:480px) {
@@ -379,7 +392,7 @@ export function renderLetters(el, user, profile) {
       }
       @media (prefers-reduced-motion:reduce) {
         .letter-modal-overlay.is-open,.letter-modal-overlay.is-open .letter-modal-box,.letter-modal-overlay.is-open .letter-paper { animation-duration:.01ms; animation-delay:0ms; }
-        .letter-item,.write-letter-btn,.letter-envelope,.letter-unread-dot { transition:none; animation:none; }
+        .letter-item,.write-letter-btn,.letter-envelope,.letter-unread-dot,.letter-open-hint,.letter-open-hint .hint-arrow { transition:none; animation:none; }
       }
     </style>
 
@@ -474,7 +487,7 @@ export function renderLetters(el, user, profile) {
 
     <!-- Read Letter Modal -->
     <div id="read-letter-modal" class="letter-modal-overlay" style="display: none;">
-      <div class="letter-modal-box">
+      <div class="letter-modal-box letter-read-modal-box">
         <div class="letter-modal-head">
           <h3 id="read-letter-title">Letter</h3>
           <div style="display:flex; gap:8px;">
@@ -894,18 +907,19 @@ export function renderLetters(el, user, profile) {
         const heading = isReceived
           ? `From ${getDisplayName(item.author, item.authorName || "Us")}`
           : `To ${recipientName(item.recipient)}`;
-        const isUnread = isReceived && !item.readAt;
+        const isUnread = isReceived && !item.readAt && !locallyReadLetterIds.has(item.id);
         const readDate = asDate(item.readAt);
         const isReadPersistent = Boolean(item.readAt) && isReceived;
         const lockedHtml = isLocked ? `<p>🔒 <i>Scheduled Surprise (Hidden)</i></p>` : "";
 
         return `
-          <div class="letter-item${isReadPersistent ? " is-read" : ""}" data-id="${item.id}">
+          <div class="letter-item${isReadPersistent ? " is-read" : ""}${isUnread ? " is-unread" : ""}" data-id="${esc(item.id)}" role="button" tabindex="0" aria-label="${isUnread ? "Open new love letter" : "Open letter"}">
             <div class="letter-left">
               <div class="letter-envelope" aria-hidden="true">💌${isUnread ? '<span class="letter-unread-dot"></span>' : ""}</div>
               <div class="letter-info">
                 <h4>${esc(heading)}</h4>
                 ${lockedHtml}
+                ${isUnread && !isLocked ? '<span class="letter-open-hint">Open your love letter <span class="hint-arrow" aria-hidden="true">→</span></span>' : ""}
               </div>
             </div>
             <div class="letter-date">
@@ -918,7 +932,7 @@ export function renderLetters(el, user, profile) {
     }
 
     container.querySelectorAll(".letter-item").forEach((row) => {
-      row.onclick = async () => {
+      const openLetterFromRow = async () => {
         const letter = allLetters.find((l) => l.id === row.dataset.id);
         if (!letter) return;
         openedLetter = letter;
@@ -961,14 +975,25 @@ export function renderLetters(el, user, profile) {
 
           if (shouldMarkRead) {
             const readAtIso = new Date().toISOString();
+            locallyReadLetterIds.add(letter.id);
             allLetters = allLetters.map(l => l.id === letter.id ? { ...l, readAt: readAtIso } : l);
             if (openedLetter?.id === letter.id) openedLetter = { ...openedLetter, readAt: readAtIso };
             renderList();
-            void markLetterRead(letter.id).catch(error => console.error("Could not mark letter as read:", error));
+            void markLetterRead(letter.id).catch(error => {
+              console.error("Could not mark letter as read:", error);
+              if (active && el.isConnected) toast("Letter opened, but read status could not sync. Please check your connection.");
+            });
           }
         } catch (error) {
           console.error("Could not open letter:", error);
           toast(error.message || "Could not open this letter.");
+        }
+      };
+      row.onclick = openLetterFromRow;
+      row.onkeydown = event => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openLetterFromRow();
         }
       };
     });

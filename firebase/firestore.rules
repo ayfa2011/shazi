@@ -172,8 +172,13 @@ service cloud.firestore {
             && request.resource.data.readAt == request.time)
           ||
           (collectionName == 'items'
+            && resource.data.get('type', '') == 'memory'
+            && isCoupleMember())
+          ||
+          (collectionName == 'items'
             && resource.data.get('type', '') != 'customChallenge'
             && resource.data.get('type', '') != 'loveYouChallenge'
+            && resource.data.get('type', '') != 'memory'
             && ownsAuthoredFields(resource.data)
             && (!request.resource.data.keys().hasAny(['author', 'authorId']) || ownsAuthoredFields(request.resource.data))
             && ownsDiaryPost(collectionName, request.resource.data))
@@ -209,10 +214,15 @@ service cloud.firestore {
         && resource.data.get('type', '') != 'answer'
         && (
           ((collectionName == 'items'
+              && resource.data.get('type', '') in ['memory', 'music']
+              && isCoupleMember())
+            || (collectionName == 'items'
               && resource.data.get('type', '') != 'customChallenge'
               && resource.data.get('type', '') != 'loveYouChallenge'
-              && ownsAuthoredFields(resource.data))
-            && ownsDiaryPost(collectionName, resource.data))
+              && resource.data.get('type', '') != 'memory'
+              && resource.data.get('type', '') != 'music'
+              && ownsAuthoredFields(resource.data)
+              && ownsDiaryPost(collectionName, resource.data)))
           || (collectionName == 'items' && resource.data.get('type', '') == 'specialDay')
           || (collectionName == 'items' && resource.data.get('type', '') == 'customChallenge'
             && resource.data.get('author', '') == request.auth.uid

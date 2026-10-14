@@ -49,6 +49,7 @@ export function renderChallenges(el, user, profile) {
   const reconcilingDailyPoints = new Set();
   let selectedTab = "today";
   let historyFilter = "all"; // all | snap | water | love
+  let customFilter = "all"; // all | received | sent | active | completed
 
   el.innerHTML = `
     <section class="challenge-page">
@@ -64,7 +65,7 @@ export function renderChallenges(el, user, profile) {
         <button type="button" role="tab" class="challenge-tab" data-tab="history">History</button>
       </nav>
 
-      <button type="button" class="give-challenge-btn" id="give-challenge-btn">
+      <button type="button" class="give-challenge-btn" id="give-challenge-btn" aria-haspopup="dialog" aria-controls="give-challenge-modal-root">
         <span class="give-icon" aria-hidden="true">💌</span>
         <span class="give-copy">
           <strong>Give a Challenge / Punishment</strong>
@@ -270,6 +271,7 @@ export function renderChallenges(el, user, profile) {
     if (lovePhotoUrls.has(cacheKey) || lovePhotoMissing.has(cacheKey)) return;
     lovePhotoUrls.set(cacheKey, "loading");
     getTelegramLovePhoto(day, key, ownKey).then(blob => {
+      if (!isCurrent()) return;
       lovePhotoUrls.set(cacheKey, URL.createObjectURL(blob));
       if (isCurrent()) scheduleRender();
     }).catch(error => {
@@ -468,27 +470,74 @@ export function renderChallenges(el, user, profile) {
 
   /* ─── Custom challenges (received + sent) ────────── */
   function renderCustomSection() {
-    if (!customAllChallenges.length) {
-      customListsRoot.innerHTML = "";
-      return;
-    }
     const received = customAllChallenges.filter(i => i.recipientKey === ownKey);
     const sent = customAllChallenges.filter(i => i.author === user.uid);
-    const pendingReceived = received.filter(i => i.status === "upcoming" || i.status === "in-progress");
-    const activeSent = sent.filter(i => i.status === "upcoming" || i.status === "in-progress");
     const all = [
-      ...pendingReceived.map(i => ({ item: i, received: true })),
-      ...activeSent.map(i => ({ item: i, received: false }))
-    ].sort((a, b) => Number(b.item.sentAtMs || b.item.createdAtMs || 0) - Number(a.item.sentAtMs || a.item.createdAtMs || 0));
+      ...received.map(item => ({ item, received: true })),
+      ...sent.filter(item => !received.some(r => r.id === item.id)).map(item => ({ item, received: false }))
+    ].sort((a, b) =>
+      Number(b.item.sentAtMs || b.item.createdAtMs || b.item.assignedAtMs || 0) -
+      Number(a.item.sentAtMs || a.item.createdAtMs || a.item.assignedAtMs || 0)
+    );
 
-    if (!all.length) {
-      customListsRoot.innerHTML = "";
-      return;
-    }
+    const activeCount = all.filter(({ item }) => item.status === "upcoming" || item.status === "in-progress").length;
+    const pendingCount = all.filter(({ item, received }) => received && item.status === "upcoming").length;
+    const completedCount = all.filter(({ item }) => item.status === "completed").length;
+
+    const filters = [
+      ["all", `All (${all.length})`],
+      ["received", `Received (${received.length})`],
+      ["sent", `Sent (${sent.length})`],
+      ["active", `Active (${activeCount})`],
+      ["completed", `Completed (${completedCount})`]
+    ];
+
+    const visible = all.filter(({ item, received: isReceived }) => {
+      if (customFilter === "received") return isReceived;
+      if (customFilter === "sent") return !isReceived;
+      if (customFilter === "active") return item.status === "upcoming" || item.status === "in-progress";
+      if (customFilter === "completed") return item.status === "completed";
+      return true;
+    });
+
     customListsRoot.innerHTML = `
-      <h3 class="custom-section-title">From your partner & you</h3>
-      <div class="custom-list">${all.map(({ item, received }) => customCard(item, received)).join("")}</div>
+      <section class="custom-hub" aria-labelledby="custom-hub-title">
+        <div class="custom-hub-head">
+          <div>
+            <p class="custom-eyebrow">JUST FOR THE TWO OF YOU</p>
+            <h2 id="custom-hub-title">Our Challenges & Punishments <span aria-hidden="true">♡</span></h2>
+            <p class="custom-hub-subtitle">Everything you send each other, with its latest status.</p>
+          </div>
+          <span class="custom-total-pill">${all.length} total</span>
+        </div>
+        ${pendingCount ? `<div class="custom-pending-note">💌 ${pendingCount} waiting for your response</div>` : ""}
+        <div class="custom-hub-filters" role="group" aria-label="Filter challenges">
+          ${filters.map(([key, label]) => `
+            <button type="button" data-custom-filter="${key}" class="${customFilter === key ? "selected" : ""}" aria-pressed="${customFilter === key}">
+              ${label}
+            </button>
+          `).join("")}
+        </div>
+        ${visible.length
+          ? `<div class="custom-list">${visible.map(({ item, received }) => customCard(item, received)).join("")}</div>`
+          : `<div class="challenge-empty custom-hub-empty">
+              <span class="empty-heart" aria-hidden="true">${all.length ? "♡" : "💌"}</span>
+              <strong>${all.length ? "Nothing in this filter yet" : "Your little challenge story starts here"}</strong>
+              <p>${all.length ? "Try another filter to see more." : "Send your partner a sweet challenge or a playful punishment to get started."}</p>
+              ${all.length ? "" : `<button type="button" class="custom-empty-cta" data-open-give>＋ Create your first challenge</button>`}
+            </div>`
+        }
+      </section>
     `;
+
+    customListsRoot.querySelectorAll("[data-custom-filter]").forEach(button => {
+      button.onclick = () => {
+        customFilter = button.dataset.customFilter;
+        renderCustomSection();
+        hydrateTelegramImages();
+      };
+    });
+    customListsRoot.querySelector("[data-open-give]")?.addEventListener("click", () => openGiveModal());
   }
 
   function customCard(item, received) {
@@ -524,7 +573,7 @@ export function renderChallenges(el, user, profile) {
           : "";
 
     return `
-      <article class="custom-card ${isPunishment ? "kind-punishment" : ""}">
+      <article class="custom-card ${isPunishment ? "kind-punishment" : ""} ${item.status === "completed" ? "is-completed" : ""}">
         <div class="custom-head">
           <span class="custom-icon" aria-hidden="true">${isPunishment ? "😈" : "💝"}</span>
           <h3 class="custom-title">${esc(item.title || (isPunishment ? "Punishment" : "Challenge"))}</h3>
@@ -532,8 +581,12 @@ export function renderChallenges(el, user, profile) {
         </div>
         ${item.description ? `<p class="custom-desc">${esc(item.description)}</p>` : ""}
         <div class="custom-meta">
-          <span>${received ? "From partner" : "You sent"}${date ? ` · ${esc(new Date(date).toLocaleDateString("en-GB", { day: "numeric", month: "short" }))}` : ""}</span>
-          ${days !== null ? `<span>${days > 0 ? `${days} day${days === 1 ? "" : "s"} left` : "Due today"}</span>` : ""}
+          <span>${received ? "↓ From your partner" : "↑ Sent by you"}${date ? ` · ${esc(new Date(date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }))}` : ""}</span>
+          ${days !== null && item.status !== "completed" && item.status !== "declined"
+            ? `<span class="${days === 0 ? "deadline-today" : ""}">${days > 0 ? `${days} day${days === 1 ? "" : "s"} left` : "Due today"}</span>`
+            : ""}
+          ${item.status === "completed" ? `<span>✓ Finished</span>` : ""}
+          ${item.status === "declined" ? `<span>Closed</span>` : ""}
         </div>
         ${item.note ? `<p class="custom-note">${esc(item.note)}</p>` : ""}
         ${image}
@@ -757,9 +810,16 @@ export function renderChallenges(el, user, profile) {
   function triggerCompletionSplash() {
     const splash = document.createElement("div");
     splash.className = "completion-splash";
-    splash.innerHTML = `<div class="splash-heart">❤️</div>`;
+    for (let i = 0; i < 20; i++) {
+      const heart = document.createElement("div");
+      heart.className = "splash-heart";
+      heart.textContent = "❤️";
+      heart.style.left = Math.random() * 100 + "%";
+      heart.style.animationDelay = Math.random() * 0.5 + "s";
+      splash.appendChild(heart);
+    }
     document.body.appendChild(splash);
-    setTimeout(() => splash.remove(), 1000);
+    setTimeout(() => splash.remove(), 2000);
   }
 
   function openLovePhotoViewer(src, name) {
@@ -994,23 +1054,30 @@ export function renderChallenges(el, user, profile) {
 
   function render() {
     if (!isCurrent()) return;
-    renderScoreboard();
-    if (selectedTab === "today") {
-      if (assignmentsError) {
-        list.innerHTML = `<div class="challenge-empty">Could not load. Please try again.</div>`;
-        customListsRoot.innerHTML = "";
-        return;
+    try {
+      renderScoreboard();
+      if (selectedTab === "today") {
+        if (assignmentsError) {
+          list.innerHTML = `<div class="challenge-empty">Could not load. Please try again.</div>`;
+          customListsRoot.innerHTML = "";
+          return;
+        }
+        if (!assignmentsReady) {
+          list.innerHTML = `<div class="challenge-empty">Loading…</div>`;
+          customListsRoot.innerHTML = "";
+          return;
+        }
+        renderToday();
+      } else {
+        renderHistory();
       }
-      if (!assignmentsReady) {
-        list.innerHTML = `<div class="challenge-empty">Loading…</div>`;
-        customListsRoot.innerHTML = "";
-        return;
-      }
-      renderToday();
+      // Keep the sent/received challenge hub visible on both tabs.
       renderCustomSection();
       hydrateTelegramImages();
-    } else {
-      renderHistory();
+    } catch (e) {
+      console.error("Rendering error:", e);
+      list.innerHTML = `<div class="challenge-empty">Error loading content. <button type="button" id="retry-render" style="margin-left:6px;padding:4px 10px;border-radius:8px;border:0;background:#8f315d;color:#fff;font-weight:700;">Retry</button></div>`;
+      $("#retry-render", list).onclick = () => render();
     }
   }
 

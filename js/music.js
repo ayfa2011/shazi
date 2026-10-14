@@ -21,6 +21,11 @@ import {
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const MAX_CHAT_LENGTH = 500;
 const SYNC_INTERVAL_MS = 4000;
+// While a song is uploading (or audio is being extracted) the uploader refreshes
+// session.updatedAt; a session with no heartbeat for this long is considered dead.
+const UPLOAD_HEARTBEAT_MS = 10 * 1000;
+const UPLOAD_STALE_MS = 60 * 1000;
+const STALE_CHECK_MS = 15 * 1000;
 const ROOT = `couples/${APP_CONFIG.coupleId}/music`;
 
 // Recently Played is device-local (localStorage) so it renders instantly with
@@ -215,6 +220,8 @@ export function initMusic(user) {
   let emptyPresenceTimer = null;
   let audioErrorShown = false;
   let seeking = false;
+  let advancingQueue = false;
+  let staleCheckTimer = null;
   const unsubscribers = [];
 
   function reportError(error, message) {
@@ -230,6 +237,30 @@ export function initMusic(user) {
     ...currentLibrary,
     ...Object.entries(legacyLibrary).map(([id, song]) => ({ ...song, id, __legacyRealtimeDatabase: true }))
   ];
+
+  /**
+   * Plain copy of a track's fields for writing into the session. Realtime Database
+   * rejects `undefined` anywhere in a written object, so every optional field is
+   * normalised to a value or null (saved Telegram songs have no `url`/`path`).
+   */
+  const trackFields = song => ({
+    url: song.url ?? null,
+    path: song.path ?? null,
+    telegramFileId: song.telegramFileId || "",
+    telegramFileUniqueId: song.telegramFileUniqueId || "",
+    mimeType: song.mimeType || "audio/mpeg",
+    telegramMessageId: song.telegramMessageId ?? null,
+    telegramChatId: song.telegramChatId ?? null,
+    name: song.name || "Our song",
+    saved: Boolean(song.saved),
+    addedBy: song.addedBy ?? null,
+    addedByName: song.addedByName ?? null,
+    addedAt: song.addedAt ?? null
+  });
+
+  /** Queue entries oldest-first (do not rely on object key order). */
+  const sortedQueueEntries = () => Object.entries(sharedQueue || {})
+    .sort(([idA, a], [idB, b]) => (Number(a?.addedAt) || 0) - (Number(b?.addedAt) || 0) || idA.localeCompare(idB));
 
   async function deleteTemporaryTrack(track) {
     if (!track?.telegramMessageId || !track.telegramChatId || track.saved) return;
@@ -261,6 +292,72 @@ export function initMusic(user) {
       return { ...current, ...values, lastActionUid: uid, lastActionName: name, updatedAt: Date.now() };
     }, { applyLocally: false });
     return result.committed;
+  }
+
+  /**
+   * Song finished and nothing is queued: keep the session (so Replay and Save still
+   * work) but mark it ended. Guarded by startedAt so a late "ended" event from one
+   * device can never stop a newer song that has already started.
+   */
+  async function markSongEnded(expectedStartedAt) {
+    const result = await runTransaction(sessionRef, current => {
+      if (!current?.ownerUid || current.ended || current.startedAt !== expectedStartedAt) return;
+      return { ...current, playing: false, ended: true, time: 0, lastActionUid: uid, lastActionName: name, updatedAt: Date.now() };
+    }, { applyLocally: false });
+    return result.committed;
+  }
+
+  /**
+   * Atomically replace the current session with a queued song, and only then remove
+   * it from the queue. If the swap is refused the song stays queued (no more lost
+   * songs). `expectedStartedAt` makes auto-advance safe when both devices react to
+   * the same "ended" event: the first transaction wins, the second is a no-op.
+   */
+  async function playQueueItem(queueId, song, { expectedStartedAt, silent = false } = {}) {
+    let previous = null;
+    try {
+      const result = await runTransaction(sessionRef, current => {
+        if (current?.status === "uploading") return;
+        if (expectedStartedAt !== undefined && current?.startedAt !== expectedStartedAt) return;
+        previous = current;
+        const now = Date.now();
+        return {
+          ...trackFields(song),
+          ownerUid: uid,
+          ownerName: name,
+          status: "ready",
+          playing: true,
+          ended: false,
+          time: 0,
+          startedAt: now,
+          updatedAt: now,
+          lastActionUid: uid,
+          lastActionName: name
+        };
+      }, { applyLocally: false });
+      if (!result.committed) {
+        if (!silent) toast("The queued song could not start right now.");
+        return false;
+      }
+    } catch (error) {
+      reportError(error, "The queued song could not start.");
+      return false;
+    }
+    try {
+      await remove(dbRef(rtdb, `${ROOT}/queue/${queueId}`));
+    } catch (error) {
+      console.error("Queued song started but could not be removed from the queue:", error);
+    }
+    if (previous) await deleteTemporaryTrack(previous);
+    return true;
+  }
+
+  /** Clear an upload session whose uploader stopped sending heartbeats. */
+  function checkStaleUpload() {
+    const value = session;
+    if (!value?.ownerUid || value.status !== "uploading") return;
+    const lastBeat = Number(value.updatedAt || value.startedAt || 0);
+    if (!lastBeat || Date.now() - lastBeat > UPLOAD_STALE_MS) clearSession(value.ownerUid);
   }
 
   /** Mirror the <audio> element's clock and seek bar into the drawer. */
@@ -322,7 +419,7 @@ export function initMusic(user) {
     if (uploadButton) uploadButton.disabled = false;
     uploadButton?.closest(".upload-btn")?.classList.toggle("disabled", locked);
     if (listenButton) listenButton.disabled = !value?.playing;
-    const libraryLock = `${value?.ownerUid || ""}:${trackKey(value)}`;
+    const libraryLock = `${value?.ownerUid || ""}:${trackKey(value)}:${value?.ended ? "ended" : "live"}`;
     if (libraryLock !== lastLibraryLock) {
       lastLibraryLock = libraryLock;
       renderLibrary(combinedLibrary());
@@ -389,9 +486,11 @@ export function initMusic(user) {
       audio.pause();
     }
     if (!audioErrorShown) {
-      setStatus(value.playing
-        ? `Playing · controlled by ${value.ownerName || "your partner"}`
-        : `Ready · controlled by ${value.ownerName || "your partner"}`);
+      setStatus(value.ended
+        ? "Song finished. Replay it, save it, or tap Stop song."
+        : value.playing
+          ? `Playing · controlled by ${value.ownerName || "your partner"}`
+          : `Ready · controlled by ${value.ownerName || "your partner"}`);
     }
   }
 
@@ -524,7 +623,7 @@ export function initMusic(user) {
       play.className = "secondary";
       play.type = "button";
       play.textContent = "Play";
-      play.disabled = Boolean(session?.ownerUid);
+      play.disabled = Boolean(session?.ownerUid) && !session?.ended;
       play.addEventListener("click", () => startSavedSong(id, song));
       const removeButton = document.createElement("button");
       removeButton.className = "icon-btn";
@@ -569,42 +668,25 @@ export function initMusic(user) {
     }
     const list = section.querySelector("#music-queue-list");
     list.replaceChildren();
-    const entries = Object.entries(sharedQueue || {});
+    const entries = sortedQueueEntries();
     if (!entries.length) { const empty = document.createElement("p"); empty.className = "muted"; empty.textContent = "Queue is empty."; list.append(empty); return; }
     for (const [id, song] of entries) {
       const row = document.createElement("div"); row.className = "music-library-item";
       const title = document.createElement("span"); title.textContent = displayTrackName(song.name || "Queued song");
       const actions = document.createElement("div"); actions.className = "music-library-actions";
       const play = document.createElement("button"); play.type = "button"; play.className = "secondary"; play.textContent = "Play now";
-      play.addEventListener("click", async () => { await remove(dbRef(rtdb, `${ROOT}/queue/${id}`)); if (session?.ownerUid) await clearSession(); await startQueuedSong(song); });
+      play.addEventListener("click", () => { void playQueueItem(id, song); });
       const removeBtn = document.createElement("button"); removeBtn.type = "button"; removeBtn.className = "icon-btn"; removeBtn.textContent = "×"; removeBtn.title = "Remove from queue";
       removeBtn.addEventListener("click", async () => { try { await remove(dbRef(rtdb, `${ROOT}/queue/${id}`)); } catch(e) { reportError(e, "Could not remove queued song."); } });
       actions.append(play, removeBtn); row.append(title, actions); list.append(row);
     }
   }
 
-  async function startQueuedSong(song) {
-    const claimed = await claimSession({ ...song, saved: Boolean(song.saved), status: "ready", playing: false, time: 0 });
-    if (!claimed) return;
-    await patchOwnedSession({ playing: true, time: 0, status: "ready" });
-  }
-
   async function startSavedSong(id, song) {
     if (!siteActive || !trackKey(song)) return;
-    if (session?.ownerUid) { await clearSession(); }
-    const claimed = await claimSession({
-      url: song.url,
-      path: song.path,
-      telegramFileId: song.telegramFileId || "",
-      telegramFileUniqueId: song.telegramFileUniqueId || "",
-      mimeType: song.mimeType || "audio/mpeg",
-      telegramMessageId: song.telegramMessageId || null,
-      telegramChatId: song.telegramChatId || null,
-      name: song.name,
-      saved: true,
-      playing: false,
-      time: 0
-    });
+    // Only a finished song may be replaced from here; a live session is never cleared.
+    if (session?.ended) { await clearSession(); }
+    const claimed = await claimSession({ ...trackFields(song), saved: true, playing: false, ended: false, time: 0 });
     if (!claimed) return;
     try {
       if (!await patchOwnedSession({ libraryId: id })) {
@@ -680,11 +762,18 @@ export function initMusic(user) {
       uploadInput.value = "";
       return;
     }
-    const addToQueue = Boolean(session?.ownerUid);
+    // A finished (ended) session no longer blocks the player, so a new upload replaces it.
+    const addToQueue = Boolean(session?.ownerUid) && !session?.ended;
+    if (!addToQueue && session?.ended) await clearSession();
     let claimed = false;
+    let heartbeat = null;
     if (!addToQueue) {
-      claimed = await claimSession({ name: pickedFile.name, saved: false, status: "uploading", playing: false, time: 0 });
+      claimed = await claimSession({ name: pickedFile.name, saved: false, status: "uploading", playing: false, ended: false, time: 0 });
       if (!claimed) { uploadInput.value = ""; return; }
+      // Keeps the session "alive" through slow uploads and real-time audio extraction.
+      heartbeat = setInterval(() => {
+        patchOwnedSession({}).catch(error => console.warn("Upload heartbeat failed:", error));
+      }, UPLOAD_HEARTBEAT_MS);
     }
 
     try {
@@ -709,6 +798,7 @@ export function initMusic(user) {
       toast(error.message || "Telegram music upload failed. Please try again.");
       if (claimed) await clearSession(uid);
     } finally {
+      if (heartbeat) clearInterval(heartbeat);
       uploadInput.value = "";
     }
   }
@@ -717,7 +807,7 @@ export function initMusic(user) {
     if (!trackKey(session)) return;
     try {
       await audio.play();
-      if (!await patchOwnedSession({ playing: true, time: audio.currentTime, status: "ready" })) {
+      if (!await patchOwnedSession({ playing: true, ended: false, time: audio.currentTime, status: "ready" })) {
         audio.pause();
         toast("The music session has ended.");
       }
@@ -800,14 +890,9 @@ export function initMusic(user) {
     const value = snapshot.val();
     renderSession(value);
     // An upload interrupted by a closed tab/network drop can leave the shared
-    // player locked forever. Clear only stale/incomplete upload sessions.
-    if (value?.ownerUid && value.status === "uploading") {
-      const startedAt = Number(value.startedAt || value.updatedAt || 0);
-      const stale = !startedAt || Date.now() - startedAt > 2 * 60 * 1000;
-      if (stale) {
-        clearSession(value.ownerUid);
-      }
-    }
+    // player locked forever. The uploader sends a heartbeat while working, so only
+    // sessions with no recent heartbeat are cleared.
+    checkStaleUpload();
   }, error => {
     reportError(error, "Shared music updates could not be received.");
   }));
@@ -835,6 +920,9 @@ export function initMusic(user) {
     reportError(error, "Live music chat could not be received.");
   }));
 
+  // Snapshots only arrive when data changes, so a dead uploader needs a timer to be noticed.
+  staleCheckTimer = setInterval(checkStaleUpload, STALE_CHECK_MS);
+
   $("#play-music").onclick = playSharedSong;
   $("#pause-music").onclick = pauseSharedSong;
   $("#save-music").onclick = saveCurrentSong;
@@ -861,7 +949,7 @@ export function initMusic(user) {
         audio.addEventListener("error", reject, { once: true });
       });
       await audio.play();
-      if (!await patchOwnedSession({ playing: true, time: 0, status: "ready" })) {
+      if (!await patchOwnedSession({ playing: true, ended: false, time: 0, status: "ready" })) {
         toast("The shared music session has ended.");
       }
     } catch (error) { reportError(error, "This song could not be replayed. Tap Play and try again."); }
@@ -912,14 +1000,20 @@ export function initMusic(user) {
       reportError(error, "Music playback position could not be synced.");
     });
   };
-  const onPlayerEnded = () => {
+  const onPlayerEnded = async () => {
     renderProgress();
-    if (session?.ownerUid) {
-      const next = Object.entries(sharedQueue || {})[0];
-      if (next) {
-        const [id, song] = next;
-        remove(dbRef(rtdb, `${ROOT}/queue/${id}`)).then(() => startQueuedSong(song)).catch(error => reportError(error, "The next queued song could not start."));
-      } else clearSession();
+    const finished = session;
+    if (!finished?.ownerUid || finished.ended || advancingQueue) return;
+    advancingQueue = true;
+    try {
+      // Both devices see "ended"; the startedAt guard lets exactly one transaction win.
+      const next = sortedQueueEntries()[0];
+      if (next) await playQueueItem(next[0], next[1], { expectedStartedAt: finished.startedAt, silent: true });
+      else await markSongEnded(finished.startedAt);
+    } catch (error) {
+      reportError(error, "The next song could not start.");
+    } finally {
+      advancingQueue = false;
     }
   };
   const onPlayerMetadata = () => {
@@ -956,6 +1050,7 @@ export function initMusic(user) {
   cleanupCurrent = () => {
     disposed = true;
     siteActive = false;
+    if (staleCheckTimer) clearInterval(staleCheckTimer);
     if (emptyPresenceTimer) clearTimeout(emptyPresenceTimer);
     if (connectionRef) {
       const departingRef = connectionRef;
