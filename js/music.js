@@ -16,12 +16,16 @@ import {
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
 // The Worker streams media back through Telegram's getFile endpoint, which only
-// serves files up to 20 MB. Uploads beyond that would store fine but never play,
-// so 20 MB is the real ceiling for anything that has to come back as a stream.
-const MAX_FILE_SIZE = 20 * 1024 * 1024;
+// serves files up to 50 MB. Uploads beyond that would store fine but never play,
+// so 50 MB is the real ceiling for anything that has to come back as a stream.
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const MAX_CHAT_LENGTH = 500;
 const SYNC_INTERVAL_MS = 4000;
 const ROOT = `couples/${APP_CONFIG.coupleId}/music`;
+
+// Recently Played is device-local (localStorage) so it renders instantly with
+// no network round-trip — keeps the music drawer snappy on iOS/Android.
+const RECENT_LIMIT = 12;
 
 const AUDIO_EXTENSIONS = /\.(mp3|m4a|aac|wav|wave|ogg|oga|opus|flac|weba|aiff?)$/i;
 const VIDEO_EXTENSIONS = /\.(mp4|m4v|mov|webm|mkv|avi|3gp|3g2|mpeg|mpg)$/i;
@@ -77,7 +81,7 @@ async function extractAudioTrack(videoFile) {
     if (recorder.state !== "inactive") recorder.stop();
     const extracted = await recording;
     if (extracted.size > MAX_FILE_SIZE) {
-      throw new Error("Extracted audio is larger than 20 MB. Please choose a shorter video.");
+      throw new Error("Extracted audio is larger than 50 MB. Please choose a shorter video.");
     }
     return extracted;
   } finally {
@@ -149,6 +153,24 @@ export function initMusic(user) {
       #music-chat-form button { min-height:46px; border-radius:16px; }
       #music-upload { max-width:100%; }
       #stop-music, #replay-music { border-radius:16px; }
+      #music-recent-section { margin-top:24px; }
+      #music-recent-section h4 { margin:0 0 10px; color:#492d3a; }
+      #music-recent-list { display:grid; gap:8px; min-width:0; }
+      .music-recent-item {
+        display:flex; align-items:center; gap:10px; min-width:0; box-sizing:border-box;
+        padding:9px 12px; border:1px solid #f5d5e2; border-radius:14px;
+        background:#fff9fc; font-size:13px;
+      }
+      .music-recent-item > span {
+        flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#442b37;
+      }
+      .music-recent-item .music-recent-when { flex:none; color:#a08090; font-size:11px; }
+      .music-recent-delete {
+        flex:none; width:32px; height:32px; border:0; border-radius:50%;
+        background:#fff0f2; color:#bd3158; font-size:16px; line-height:1; cursor:pointer;
+      }
+      .music-recent-delete:active { background:#fbe2e8; }
+      .music-recent-empty { margin:6px 0 0; font-size:12px; }
       @media (max-width:520px) {
         #music-library .music-library-item, #music-queue-list .music-library-item { padding:10px; }
         #music-library .music-library-item > span, #music-queue-list .music-library-item > span { font-size:12px; }
@@ -379,6 +401,105 @@ export function initMusic(user) {
     return words.slice(0, 2).join(" ") || "Our song";
   }
 
+  /* ─── Recently Played (device-local, instant render) ─── */
+  const recentStorageKey = `our-little-world-music-recent-${user.uid}`;
+  let recentPlayed = [];
+  let recentRenderQueued = false;
+
+  function loadRecentPlayed() {
+    try {
+      const raw = localStorage.getItem(recentStorageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      recentPlayed = Array.isArray(parsed) ? parsed.filter(e => e && typeof e.key === "string") : [];
+    } catch { recentPlayed = []; }
+  }
+
+  function persistRecentPlayed() {
+    try { localStorage.setItem(recentStorageKey, JSON.stringify(recentPlayed)); } catch { /* storage full/blocked — keep in-memory */ }
+  }
+
+  function recentWhenLabel(ts) {
+    const diff = Date.now() - Number(ts || 0);
+    if (diff < 60000) return "just now";
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return `${Math.floor(diff / 86400000)}d ago`;
+  }
+
+  function renderRecentPlayed() {
+    const section = document.getElementById("music-recent-section");
+    if (!section) return;
+    const list = section.querySelector("#music-recent-list");
+    if (!list) return;
+    list.replaceChildren();
+    if (!recentPlayed.length) {
+      const empty = document.createElement("p");
+      empty.className = "muted music-recent-empty";
+      empty.textContent = "Nothing played yet. Songs you play will show up here.";
+      list.append(empty);
+      return;
+    }
+    for (const entry of recentPlayed) {
+      const row = document.createElement("div");
+      row.className = "music-recent-item";
+      const title = document.createElement("span");
+      title.textContent = entry.name || "Our song";
+      const when = document.createElement("span");
+      when.className = "music-recent-when";
+      when.textContent = recentWhenLabel(entry.at);
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "music-recent-delete";
+      del.setAttribute("aria-label", `Remove ${entry.name || "recent song"}`);
+      del.textContent = "🗑";
+      del.addEventListener("click", () => {
+        recentPlayed = recentPlayed.filter(e => e.key !== entry.key);
+        persistRecentPlayed();
+        renderRecentPlayed();
+        toast("Removed from recently played.");
+      });
+      row.append(title, when, del);
+      list.append(row);
+    }
+  }
+
+  function scheduleRecentRender() {
+    if (recentRenderQueued) return;
+    recentRenderQueued = true;
+    requestAnimationFrame(() => { recentRenderQueued = false; renderRecentPlayed(); });
+  }
+
+  // Record a play only once per distinct track so rapid re-renders never spam the list.
+  function recordRecentPlay() {
+    const key = trackKey(session);
+    if (!key) return;
+    const name = displayTrackName(session?.name);
+    const existingIndex = recentPlayed.findIndex(e => e.key === key);
+    if (existingIndex === 0 && recentPlayed[0].name === name) {
+      recentPlayed[0].at = Date.now();
+    } else {
+      if (existingIndex > 0) recentPlayed.splice(existingIndex, 1);
+      recentPlayed.unshift({ key, name, at: Date.now() });
+      if (recentPlayed.length > RECENT_LIMIT) recentPlayed.length = RECENT_LIMIT;
+    }
+    persistRecentPlayed();
+    scheduleRecentRender();
+  }
+
+  // Lazily create the section once (mirrors how the queue section is appended).
+  function ensureRecentSection() {
+    if (document.getElementById("music-recent-section")) return;
+    const library = document.getElementById("music-library");
+    if (!library) return;
+    const section = document.createElement("section");
+    section.id = "music-recent-section";
+    section.className = "music-recent-section";
+    section.innerHTML = '<h4>Recently played</h4><div id="music-recent-list" class="music-recent-list"></div>';
+    const queue = document.getElementById("music-queue-section");
+    if (queue) queue.insertAdjacentElement("afterend", section);
+    else library.insertAdjacentElement("afterend", section);
+  }
+
   function renderLibrary(library) {
     const list = $("#music-library");
     if (!list) return;
@@ -549,7 +670,8 @@ export function initMusic(user) {
       return;
     }
     if (pickedFile.size > MAX_FILE_SIZE) {
-      toast("Music files must be 20 MB or smaller.");
+      const limitMb = Math.round(MAX_FILE_SIZE / (1024 * 1024));
+      alert(`This file is ${(pickedFile.size / (1024 * 1024)).toFixed(1)} MB. Please choose a file smaller than ${limitMb} MB.`);
       uploadInput.value = "";
       return;
     }
@@ -668,6 +790,11 @@ export function initMusic(user) {
       }
     }, 1200);
   }
+
+  // Recently Played: load from device storage and render immediately (no network).
+  loadRecentPlayed();
+  ensureRecentSection();
+  renderRecentPlayed();
 
   unsubscribers.push(onValue(sessionRef, snapshot => {
     const value = snapshot.val();
@@ -807,6 +934,7 @@ export function initMusic(user) {
     audioErrorShown = false;
     if (progressInput) progressInput.disabled = !(Number.isFinite(audio.duration) && audio.duration > 0);
     if (!seeking) renderSession(session);
+    recordRecentPlay();
   };
   const onPlayerPause = () => renderProgress();
   const onPlayerEmptied = () => resetProgress();
