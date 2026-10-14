@@ -19,22 +19,13 @@ import { getTelegramMediaUrl, sendToTelegram, getTelegramLovePhoto, telegramMedi
 
 let stopChallenges = null, stopLoveChallenges = null, stopCustomChallenges = null, stopWaterChallenges = null;
 let dayRolloverTimer = null, challengeRenderToken = 0, queuedChallengeRender = 0;
-let customAllChallenges = [], customCompletedChallenges = [], waterTrackers = [], waterTrackersReady = false, loveUploads = [];
+let customAllChallenges = [], waterTrackers = [], waterTrackersReady = false, loveUploads = [];
 let removeProfilesListener = null, removeEscapeListener = null, removeActionsListener = null;
 let lovePhotoUrls = new Map(), loveRetryCounts = new Map(), lovePhotoMissing = new Set();
-
-function friendlyDate(dayKey) {
-  return new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-GB", {
-    weekday: "short", day: "numeric", month: "short"
-  });
-}
-
-function todayIso() { return todayKey(); }
 
 export function renderChallenges(el, user, profile) {
   disposeChallenges();
   customAllChallenges = [];
-  customCompletedChallenges = [];
   waterTrackers = [];
   waterTrackersReady = false;
   loveUploads = [];
@@ -962,7 +953,6 @@ export function renderChallenges(el, user, profile) {
   stopCustomChallenges = watchItems("customChallenge", items => {
     if (!isCurrent()) return;
     customAllChallenges = items;
-    customCompletedChallenges = items.filter(i => i.status === "completed");
     scheduleRender();
   }, error => console.error("Custom challenges failed:", error));
 

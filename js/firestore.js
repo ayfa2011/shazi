@@ -1,5 +1,5 @@
 import { db, firebaseReady } from "./firebase.js";
-import { collection, doc, addDoc, setDoc, getDoc, getDocs, deleteDoc, updateDoc, query, where, orderBy, limit, startAfter, onSnapshot, serverTimestamp, arrayUnion, arrayRemove, runTransaction, writeBatch, deleteField, Timestamp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+import { collection, doc, addDoc, setDoc, getDoc, getDocs, deleteDoc, updateDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp, arrayUnion, arrayRemove, runTransaction, writeBatch, deleteField, Timestamp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 
 const root = () => {
@@ -89,25 +89,6 @@ export async function updatePost(postId, data) {
 
 export async function deletePost(postId) {
   return removeItem(postId);
-}
-
-// Optimized with backend type query filter
-export async function listItems(type) {
-  const q = query(root(), where("type", "==", type), orderBy("createdAt", "desc"));
-  const s = await getDocs(q);
-  return s.docs.map(d => ({ id: d.id, ...d.data() }));
-}
-
-export async function listItemsPaginated(type, limitVal = 20, lastVisible = null) {
-  let q = query(root(), where("type", "==", type), orderBy("createdAt", "desc"), limit(limitVal));
-  if (lastVisible) {
-      q = query(root(), where("type", "==", type), orderBy("createdAt", "desc"), startAfter(lastVisible), limit(limitVal));
-  }
-  const s = await getDocs(q);
-  return {
-    items: s.docs.map(d => ({ id: d.id, ...d.data() })),
-    lastVisible: s.docs[s.docs.length - 1] || null
-  };
 }
 
 // Optimized backend listener filter
@@ -218,33 +199,6 @@ export function watchRelationshipStartDate(cb) {
 
 export async function addDiaryPost(data) {
   return addDoc(diaryCollection(), { ...data, createdAt: serverTimestamp(), likedBy: [] });
-}
-
-export async function updateDiaryPost(postId, data) {
-  return updateDoc(doc(diaryCollection(), postId), { ...data, updatedAt: serverTimestamp() });
-}
-
-export async function deleteDiaryPost(postId) {
-  const postReference = doc(diaryCollection(), postId);
-  await updateDoc(postReference, { deleting: true });
-  try {
-    const comments = commentsCollection(postId);
-    while (true) {
-      const snapshot = await getDocs(query(comments, limit(10)));
-      if (snapshot.empty) break;
-      const batch = writeBatch(db);
-      snapshot.docs.forEach(comment => batch.delete(comment.ref));
-      await batch.commit();
-    }
-    await deleteDoc(postReference);
-  } catch (error) {
-    try {
-      await updateDoc(postReference, { deleting: deleteField() });
-    } catch (restoreError) {
-      console.error("Could not restore the post after comment cleanup failed:", restoreError);
-    }
-    throw error;
-  }
 }
 
 export function watchDiaryPosts(cb, maxItems, authorIds = []) {

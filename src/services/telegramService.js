@@ -77,8 +77,6 @@ export async function getTelegramMediaBlob(fileId, mimeType = "application/octet
   return blob;
 }
 
-export const getTelegramGalleryMedia = getTelegramMediaBlob;
-
 export function telegramMediaReferences(result) {
   const message = result?.result || result || {};
   const media = message.document || message.video || message.audio || message.animation || message.photo?.at(-1);

@@ -843,8 +843,7 @@ export function renderLetters(el, user, profile) {
             const response = await fetch(letterImageData);
             const blob = await response.blob();
             const file = new File([blob], `letter-${Date.now()}.jpg`, { type: "image/jpeg" });
-            const telegramResult = await sendToTelegram(file, `Letter from ${profile.name}`);
-            console.log("Telegram upload succeeded:", telegramResult);
+            await sendToTelegram(file, `Letter from ${profile.name}`);
           } catch (uploadError) {
             console.error("Telegram upload failed:", uploadError);
           }

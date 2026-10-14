@@ -231,7 +231,6 @@ function renderPostFeed(el, user, profile) {
       .tw-crop-hint { position:absolute; right:8px; bottom:8px; left:8px; width:max-content; max-width:calc(100% - 16px); margin:auto; padding:6px 10px; border:1px solid #ffffff80; border-radius:999px; background:#402532a6; color:#fff; font-size:11px; text-align:center; pointer-events:none; }
       .tw-post-voice,.tw-comment-voice { display:flex; align-items:center; gap:10px; width:min(100%,360px); margin-top:9px; padding:10px 12px; border:1px solid #f1dbe5; border-radius:16px; background:linear-gradient(120deg,#fff1f7,#fffafd); color:#713451; }
       .tw-post-voice audio,.tw-comment-voice audio { display:none; }
-      .tw-post-voice-label { flex:none; font-size:12px; font-weight:700; }
       .tw-audio-play { flex:none; width:34px; height:34px; border-radius:50%; background:#e95f97; color:white; cursor:pointer; }
       .tw-audio-wave { display:flex; flex:1; height:26px; align-items:center; justify-content:center; gap:3px; overflow:hidden; }
       .tw-audio-wave i { width:3px; min-height:4px; border-radius:4px; background:#dc7ba2; opacity:.72; }

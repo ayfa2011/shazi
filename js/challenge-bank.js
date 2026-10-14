@@ -16,11 +16,6 @@ export const CHALLENGES = [
   }
 ];
 
-export function challengeForDay(dayKey) {
-  const dayNumber = Math.floor(Date.parse(`${dayKey}T00:00:00Z`) / 86400000);
-  return CHALLENGES[((dayNumber % CHALLENGES.length) + CHALLENGES.length) % CHALLENGES.length];
-}
-
 export function challengeDays(startDayKey, count = 7) {
   const firstDay = Date.parse(`${startDayKey}T00:00:00Z`);
   if (!Number.isFinite(firstDay) || new Date(firstDay).toISOString().slice(0, 10) !== startDayKey) return [];
