@@ -2071,3 +2071,35 @@ body.home-dashboard .home-canvas-action {
   #main-content .question-page-header h1,
   #main-content .post-page-head h1 { font-size: 22px; }
 }
+
+/* Dashboard featured cards: Post on the left, Drawing on the right */
+#main-content .home-dashboard .home-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  width: min(100%, 720px);
+  margin: 10px auto 14px;
+  gap: 10px;
+}
+#main-content .home-dashboard .home-post-panel,
+#main-content .home-dashboard .home-drawing-panel {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  aspect-ratio: 1 / 1;
+  margin: 0;
+  padding: 10px;
+  overflow: hidden;
+  border-radius: 20px;
+}
+#main-content .home-dashboard .home-post-panel { display: flex; flex-direction: column; }
+#main-content .home-dashboard .home-post-panel .home-feed { flex: 1; min-height: 0; overflow: hidden; }
+#main-content .home-dashboard .home-post-panel .home-post-card { min-height: 0; height: 100%; padding: 8px; }
+#main-content .home-dashboard .home-post-panel .home-post-text { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+#main-content .home-dashboard .home-post-panel .home-post-photo { max-height: 72px; object-fit: cover; }
+#main-content .home-dashboard .home-post-panel .home-view-more { flex: none; min-height: 34px; margin-top: 7px; padding: 6px 8px; font-size: 10px; }
+#main-content .home-dashboard .home-drawing-panel { display: flex; }
+#main-content .home-dashboard .home-drawing-panel .home-canvas-launch { display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; height: 100%; gap: 7px; padding: 5px; }
+#main-content .home-dashboard .home-drawing-panel .home-drawing-preview,
+#main-content .home-dashboard .home-drawing-panel .home-drawing-preview img { flex: 1; width: 100%; min-height: 0; max-height: none; }
+#main-content .home-dashboard .home-drawing-panel .home-canvas-action { flex: none; padding: 5px 8px; font-size: 10px; }
