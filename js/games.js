@@ -153,6 +153,7 @@ function gameIsComplete(game, state) {
   if (game === "memory-match") return Array.isArray(state.matched) && Array.isArray(state.cards) &&
     state.cards.length > 0 && state.matched.length === state.cards.length;
   if (game === "word-guess") {
+    if (typeof state.word !== "string" || !Array.isArray(state.guessed)) return false;
     const won = [...state.word.toLocaleLowerCase()].every(char => !/[a-z]/.test(char) || state.guessed.includes(char));
     return Boolean(state.word) && (won || state.guessesLeft === 0);
   }
@@ -164,6 +165,7 @@ function gameIsComplete(game, state) {
 function gameScore(game, state) {
   if (game === "memory-match") return state.moves;
   if (game === "word-guess") {
+    if (typeof state.word !== "string" || !Array.isArray(state.guessed) || !Number.isInteger(state.guessesLeft)) return 0;
     const solved = [...state.word.toLocaleLowerCase()].every(char => !/[a-z]/.test(char) || state.guessed.includes(char));
     return solved ? state.guessesLeft + 1 : 0;
   }
@@ -180,6 +182,7 @@ function isValidActiveGameState(game, state) {
     Array.isArray(state.matched) && Number.isInteger(state.moves) && state.moves >= 0 &&
     typeof state.locked === "boolean";
   if (game === "word-guess") return typeof state.word === "string" && state.word.length <= 32 &&
+    (state.word === "" || (/^[a-zA-Z ]{3,32}$/.test(state.word) && (state.word.match(/[a-z]/gi) || []).length >= 3)) &&
     Array.isArray(state.guessed) && state.guessed.every(letter => /^[a-z]$/.test(letter)) &&
     Number.isInteger(state.guessesLeft) && state.guessesLeft >= 0 && state.guessesLeft <= 7;
   if (game === "emoji-quiz" || game === "couple-trivia") return Array.isArray(state.questions) &&
@@ -605,16 +608,20 @@ function isValidGameRoom(room, game) {
       room.playerUids.length > 2 || new Set(room.playerUids).size !== room.playerUids.length ||
       !room.playerUids.every(uid => typeof uid === "string" && uid) ||
       !room.players || typeof room.players !== "object") return false;
-  if (room.status === "waiting") return room.playerUids.length === 1;
+  if (room.status === "waiting" && room.playerUids.length !== 1) return false;
   if (room.status === "cancelled") return true;
-  if (room.playerUids.length !== 2 || !room.playerUids.every(uid => room.players[uid])) return false;
+  if (room.status !== "waiting" &&
+      (room.playerUids.length !== 2 || !room.playerUids.every(uid => room.players[uid]))) return false;
   if (game === "memory-match" && room.playerUids.some(uid => room.players[uid].state != null &&
       !isValidActiveGameState(game, room.players[uid].state))) return false;
-  if (game === "word-guess" && (!["setter", "guessing", "result"].includes(room.wordPhase) ||
+  if (game === "word-guess" && (!['setter', 'guessing', 'result'].includes(room.wordPhase) ||
       !Number.isInteger(room.wordRoundNumber) || room.wordRoundNumber < 0 || room.wordRoundNumber > 1 ||
-      (room.wordPhase === "guessing" &&
-        (!room.wordRound || typeof room.wordRound.word !== "string" ||
-          !room.playerUids.includes(room.wordSetterUid))))) return false;
+      !room.playerUids.includes(room.wordSetterUid) ||
+      (room.wordPhase === "guessing" && (!isValidActiveGameState(game, room.wordRound) || !room.wordRound.word)) ||
+      (room.wordPhase === "setter" && room.wordRound != null) ||
+      (room.status === "playing" && room.wordPhase === "setter" && room.turnUid !== room.wordSetterUid) ||
+      (room.status === "playing" && room.wordPhase === "guessing" && room.turnUid === room.wordSetterUid) ||
+      (room.wordPhase === "result" && room.status !== "finished"))) return false;
   if (game === "couple-trivia" && (!Array.isArray(room.questions) || room.questions.length !== triviaQuestions.length ||
       !Number.isInteger(room.triviaQuestionIndex) || room.triviaQuestionIndex < 0 ||
       room.triviaQuestionIndex >= room.questions.length ||
@@ -624,6 +631,7 @@ function isValidGameRoom(room, game) {
       !Number.isInteger(room.quizRoundNumber) || room.quizRoundNumber < 0 ||
       !room.playerUids.includes(room.quizCreatorUid) ||
       (room.quizPhase === "guesser" && (!room.quizRound || typeof room.quizRound.emojis !== "string")))) return false;
+  if (room.status === "waiting") return !room.turnUid;
   if (room.status === "playing") return room.playerUids.includes(room.turnUid);
   return !room.turnUid && (!room.winnerUid || room.playerUids.includes(room.winnerUid));
 }
