@@ -698,7 +698,37 @@
   background: #fffafd;
   box-shadow: 0 20px 60px rgba(84, 33, 59, 0.25);
 }
-.challenge-hub-card { width:min(560px,100%); max-height:min(92dvh,900px); }
+.challenge-hub-page {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));
+  background: linear-gradient(145deg,#fff4f8,#ffe8f0 55%,#fff8fb);
+}
+.challenge-hub-card {
+  width: min(100%,980px);
+  height: 100%;
+  max-height: none;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: clamp(18px,3vw,32px);
+  border: 1px solid #f2d8e3;
+  border-radius: 24px;
+  background: #fffafd;
+  box-shadow: 0 12px 36px #873c5b12;
+}
+.challenge-hub-card > #challenge-hub-summary,
+.challenge-hub-card > .challenge-hub-views,
+.challenge-hub-card > .challenge-hub-create { flex: none; }
+.challenge-hub-card > #custom-assignment-lists,
+.challenge-hub-card > #challenge-hub-history { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+.challenge-hub-card > #challenge-hub-history[hidden],
+.challenge-hub-card > #custom-assignment-lists[hidden] { display: none; }
 .challenge-hub-views { display:grid; grid-template-columns:1fr 1fr; gap:5px; margin:12px 0; padding:4px; border-radius:13px; background:#f8edf2; }
 .challenge-hub-views button { min-height:36px; border:0; border-radius:10px; background:transparent; color:#896b79; font:700 12px "DM Sans",sans-serif; }
 .challenge-hub-views button[aria-selected="true"] { background:#fff; color:#8f315d; box-shadow:0 2px 8px #54213b16; }
@@ -719,7 +749,6 @@
 .challenge-hub-card .custom-hub-subtitle { display:none; }
 .challenge-hub-card .custom-hub-filters { margin-bottom:8px; }
 .challenge-hub-card .custom-pending-note { margin-bottom:8px; }
-.challenge-hub-card #challenge-hub-history[hidden], .challenge-hub-card #custom-assignment-lists[hidden] { display:none; }
 .challenge-compose-modal { z-index:1001; }
 .custom-countdown { color:#9d3f68!important; font-variant-numeric:tabular-nums; }
 .score-avatar { width:52px; height:52px; border:3px solid #fff; box-shadow:0 4px 12px rgba(143,49,93,.2); }

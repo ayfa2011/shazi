@@ -188,8 +188,7 @@ export function renderMemories(el, user, profile) {
       .memory-image-lightbox video { width:100%; max-height:calc(100dvh - 36px); background:#080608; }
       .memory-image-lightbox-close { position:absolute; top:max(14px,env(safe-area-inset-top,14px)); right:max(14px,env(safe-area-inset-right,14px)); width:42px; height:42px; border:1px solid #ffffff55; border-radius:50%; background:#fff2; color:#fff; font-size:25px; cursor:pointer; }
       .memory-lightbox-actions { position:absolute; right:12px; bottom:max(12px,env(safe-area-inset-bottom,12px)); left:12px; display:flex; align-items:center; justify-content:center; gap:8px; }
-      .memory-lightbox-zoom, .memory-lightbox-delete { min-width:34px; height:32px; padding:0 10px; border:1px solid #ffffff55; border-radius:999px; background:#24131a9c; color:#fff; font:600 12px/1 inherit; cursor:pointer; backdrop-filter:blur(8px); }
-      .memory-lightbox-delete { height:28px; min-width:0; padding:0 10px; border-color:#ffffff38; background:#63344acc; font-size:10px; }
+      .memory-lightbox-delete { height:32px; min-width:0; padding:0 12px; border:1px solid #ffffff55; border-radius:999px; background:#24131a9c; color:#fff; font:600 12px/1 inherit; cursor:pointer; backdrop-filter:blur(8px); }
 
       /* ───────── Animations ───────── */
       @keyframes mem-rise { from { opacity: 0; transform: translateY(22px) rotate(var(--tilt, 0deg)) scale(.95); } to { opacity: 1; transform: translateY(0) rotate(var(--tilt, 0deg)) scale(1); } }
@@ -312,9 +311,6 @@ export function renderMemories(el, user, profile) {
     <div id="memory-image-lightbox" class="memory-image-lightbox" role="dialog" aria-modal="true" aria-label="Full size memory photo" aria-hidden="true">
       <button id="memory-image-lightbox-close" class="memory-image-lightbox-close" type="button" aria-label="Close full size photo">×</button>
       <div class="memory-lightbox-actions">
-        <button id="memory-lightbox-zoom-out" class="memory-lightbox-zoom" type="button" aria-label="Zoom out">−</button>
-        <button id="memory-lightbox-zoom-reset" class="memory-lightbox-zoom" type="button" aria-label="Reset zoom">100%</button>
-        <button id="memory-lightbox-zoom-in" class="memory-lightbox-zoom" type="button" aria-label="Zoom in">＋</button>
         <button id="memory-lightbox-delete" class="memory-lightbox-delete" type="button">Delete Photo</button>
       </div>
       <img id="memory-image-lightbox-img" alt="Full size memory photo">
@@ -334,6 +330,8 @@ export function renderMemories(el, user, profile) {
   let selectedGalleryMedia = null;
   let lightboxMediaKey = "";
   let lightboxZoom = 1;
+  let lightboxTouchStart = null;
+  let lightboxGalleryIndex = -1;
 
   function openAddModal(item = null) {
     form.reset();
@@ -360,6 +358,20 @@ export function renderMemories(el, user, profile) {
   imageLightbox.onclick = event => {
     if (event.target === imageLightbox) closeImageLightbox();
   };
+  imageLightbox.addEventListener("touchstart", event => {
+    if (event.touches.length !== 1) { lightboxTouchStart = null; return; }
+    const touch = event.touches[0];
+    lightboxTouchStart = { x: touch.clientX, y: touch.clientY };
+  }, { passive: true });
+  imageLightbox.addEventListener("touchend", event => {
+    if (!lightboxTouchStart || event.changedTouches.length !== 1) return;
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - lightboxTouchStart.x;
+    const dy = touch.clientY - lightboxTouchStart.y;
+    lightboxTouchStart = null;
+    if (Math.abs(dx) < 60 || Math.abs(dx) <= Math.abs(dy) || lightboxZoom > 1.02) return;
+    void moveLightboxGallery(dx < 0 ? 1 : -1);
+  }, { passive: true });
 
   function closeImageLightbox() {
     imageLightbox.setAttribute("aria-hidden", "true");
@@ -371,6 +383,7 @@ export function renderMemories(el, user, profile) {
     lightboxVideo.style.display = "none";
     lightboxMediaKey = "";
     lightboxZoom = 1;
+    lightboxGalleryIndex = -1;
     lightboxImage.style.transform = "scale(1)";
   }
 
@@ -384,6 +397,14 @@ export function renderMemories(el, user, profile) {
       const source = selectedGalleryMedia || activeMemoryForView || {};
     lightboxMediaKey = source.telegramFileId || source.url || "";
     lightboxZoom = 1;
+    const memory = activeMemoryForView || {};
+    const additional = Array.isArray(memory.mediaItems) ? memory.mediaItems : [];
+    const allMedia = [
+      ...(memory.photoUrl || memory.telegramFileId ? [{ type: memory.mediaType || "photo", url: memory.photoUrl, telegramFileId: memory.telegramFileId, mimeType: memory.photoMimeType, name: memory.title }] : []),
+      ...additional
+    ];
+    lightboxGalleryIndex = allMedia.findIndex(item => (item.telegramFileId || item.url) === (selectedGalleryMedia?.telegramFileId || selectedGalleryMedia?.url || lightboxMediaKey));
+    if (lightboxGalleryIndex < 0 && allMedia.length) lightboxGalleryIndex = 0;
     lightboxImage.style.transform = "scale(1)";
     updateLightboxActions();
     imageLightbox.setAttribute("aria-hidden", "false");
@@ -392,6 +413,12 @@ export function renderMemories(el, user, profile) {
 
   async function openGalleryMediaLightbox(item) {
     if (!item) return;
+    const memory = activeMemoryForView || {};
+    const allMedia = [
+      ...(memory.photoUrl || memory.telegramFileId ? [{ type: memory.mediaType || "photo", url: memory.photoUrl, telegramFileId: memory.telegramFileId, mimeType: memory.photoMimeType, name: memory.title }] : []),
+      ...(Array.isArray(memory.mediaItems) ? memory.mediaItems : [])
+    ];
+    lightboxGalleryIndex = allMedia.findIndex(media => (media.telegramFileId || media.url) === (item.telegramFileId || item.url));
     lightboxMediaKey = item.telegramFileId || item.url || "";
     lightboxZoom = 1;
     lightboxImage.style.transform = "scale(1)";
@@ -420,8 +447,6 @@ export function renderMemories(el, user, profile) {
   }
 
   function updateLightboxActions(video = selectedGalleryMedia?.type === "video") {
-    const controls = [$("#memory-lightbox-zoom-out", el), $("#memory-lightbox-zoom-reset", el), $("#memory-lightbox-zoom-in", el)];
-    controls.forEach(button => { button.style.display = video ? "none" : "inline-flex"; });
     $("#memory-lightbox-delete", el).style.display = lightboxMediaKey ? "inline-flex" : "none";
     $("#memory-lightbox-delete", el).textContent = video ? "Delete Video" : "Delete Photo";
   }
@@ -429,12 +454,32 @@ export function renderMemories(el, user, profile) {
   function setLightboxZoom(nextZoom) {
     lightboxZoom = Math.max(1, Math.min(4, nextZoom));
     lightboxImage.style.transform = `scale(${lightboxZoom})`;
-    $("#memory-lightbox-zoom-reset", el).textContent = `${Math.round(lightboxZoom * 100)}%`;
   }
 
-  $("#memory-lightbox-zoom-in", el).onclick = () => setLightboxZoom(lightboxZoom + 0.5);
-  $("#memory-lightbox-zoom-out", el).onclick = () => setLightboxZoom(lightboxZoom - 0.5);
-  $("#memory-lightbox-zoom-reset", el).onclick = () => setLightboxZoom(1);
+  async function moveLightboxGallery(direction) {
+    const memory = activeMemoryForView || {};
+    const allMedia = [
+      ...(memory.photoUrl || memory.telegramFileId ? [{ type: memory.mediaType || "photo", url: memory.photoUrl, telegramFileId: memory.telegramFileId, mimeType: memory.photoMimeType, name: memory.title }] : []),
+      ...(Array.isArray(memory.mediaItems) ? memory.mediaItems : [])
+    ];
+    const photos = allMedia.filter(item => item.type !== "video");
+    if (photos.length < 2) return;
+    const current = allMedia[lightboxGalleryIndex];
+    let index = photos.findIndex(item => (item.telegramFileId || item.url) === (current?.telegramFileId || current?.url));
+    if (index < 0) index = 0;
+    const item = photos[(index + direction + photos.length) % photos.length];
+    selectedGalleryMedia = item;
+    renderMemoryHero(memory, item);
+    await openGalleryMediaLightbox(item);
+  }
+
+  function onMemoryLightboxKeydown(event) {
+    if (imageLightbox.getAttribute("aria-hidden") !== "false") return;
+    if (event.key === "ArrowRight") { event.preventDefault(); void moveLightboxGallery(1); }
+    else if (event.key === "ArrowLeft") { event.preventDefault(); void moveLightboxGallery(-1); }
+    else if (event.key === "Escape") closeImageLightbox();
+  }
+  imageLightbox.addEventListener("keydown", onMemoryLightboxKeydown);
   $("#memory-lightbox-delete", el).onclick = async () => {
     const memory = activeMemoryForView;
     const key = lightboxMediaKey;

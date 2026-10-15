@@ -201,7 +201,7 @@ export function renderChallenges(el, user, profile) {
   function openChallengeHub() {
     hubView = "challenges";
     giveModalRoot.innerHTML = `
-      <div class="challenge-modal challenge-hub-modal" role="dialog" aria-modal="true" aria-labelledby="challenge-hub-title">
+      <section class="challenge-hub-page" aria-labelledby="challenge-hub-title">
         <section class="challenge-modal-card challenge-hub-card">
           <header class="challenge-modal-head">
             <h2 id="challenge-hub-title">Our challenges ♡</h2>
@@ -216,11 +216,8 @@ export function renderChallenges(el, user, profile) {
           <div id="challenge-hub-history" hidden></div>
           <button type="button" class="custom-empty-cta challenge-hub-create" data-open-give>＋ Give a challenge or punishment</button>
         </section>
-      </div>`;
+      </section>`;
     giveModalRoot.querySelector("[data-close-hub]").onclick = () => { giveModalRoot.innerHTML = ""; };
-    giveModalRoot.querySelector(".challenge-hub-modal").onclick = event => {
-      if (event.target === event.currentTarget) giveModalRoot.innerHTML = "";
-    };
     giveModalRoot.querySelectorAll("[data-hub-view]").forEach(button => {
       button.onclick = () => {
         hubView = button.dataset.hubView;
@@ -400,7 +397,7 @@ export function renderChallenges(el, user, profile) {
   }
 
   function renderChallengeHub() {
-    const hub = giveModalRoot.querySelector(".challenge-hub-modal");
+    const hub = giveModalRoot.querySelector(".challenge-hub-page");
     if (!hub) return;
     renderChallengeSummary();
     const customRoot = $("#custom-assignment-lists", giveModalRoot);
@@ -836,7 +833,7 @@ export function renderChallenges(el, user, profile) {
     if (event.key === "Escape") {
       const compose = giveModalRoot.querySelector(".challenge-compose-layer");
       if (compose) { compose.remove(); return; }
-      if (giveModalRoot.querySelector(".challenge-hub-modal")) { giveModalRoot.innerHTML = ""; return; }
+      if (giveModalRoot.querySelector(".challenge-hub-page")) { giveModalRoot.innerHTML = ""; return; }
       modalRoot.querySelector("[data-close-modal]")?.click();
     }
   }

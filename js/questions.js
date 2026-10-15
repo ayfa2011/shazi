@@ -113,7 +113,7 @@ export function renderQuestions(el, user, profile) {
       .question-history-item time { display:block; color:#9e5270; font-size:12px; font-weight:700; line-height:1.3; }
       .question-history-item h3 { margin:0 0 12px; color:#60283f; font:700 15px/1.4 system-ui,sans-serif; }
       .question-history-answers { display:grid; gap:8px; }
-      .question-history-answer { display:flex; align-items:flex-start; gap:9px; min-width:0; margin:0; padding:9px 10px; border:1px solid #f7e4eb; border-radius:14px; background:linear-gradient(110deg,#fff3f8,#fffafd); color:#493540; font-size:12px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
+      .question-history-answer { display:flex; align-items:flex-start; gap:9px; min-width:0; margin:0; padding:9px 10px; border:1px solid #f7e4eb; border-radius:14px; background:linear-gradient(110deg,#fff3f8,#fffafd); color:#493540; font-size:14px; line-height:1.55; white-space:pre-wrap; overflow-wrap:anywhere; }
       .question-history-avatar { flex:none; width:39px; height:39px; display:grid; place-items:center; overflow:hidden; border:3px solid #fff; border-radius:50%; background:linear-gradient(145deg,#ffdce9,#f5bbd0); color:#8b315d; font-size:14px; font-weight:800; box-shadow:0 3px 9px #7d35501c; }
       .question-history-avatar img { display:block; width:100%; height:100%; object-fit:cover; }
       .question-history-copy { min-width:0; flex:1; }
@@ -142,7 +142,7 @@ export function renderQuestions(el, user, profile) {
       #main-content .question-history-item time { font-size:15px; }
       #main-content .question-history-item h3 { margin:2px 0 15px; font-size:19px; line-height:1.5; }
       #main-content .question-history-answers { gap:10px; }
-      #main-content .question-history-answer { gap:12px; padding:12px 14px; border-radius:16px; font-size:16px; line-height:1.65; }
+      #main-content .question-history-answer { gap:12px; padding:12px 14px; border-radius:16px; font-size:18px; line-height:1.65; }
       #main-content .question-history-copy strong { margin-bottom:5px; font-size:14px; }
       @media(max-width:600px) {
         #main-content .question-day { padding:6px 9px; font-size:13px; }
@@ -153,7 +153,7 @@ export function renderQuestions(el, user, profile) {
         #main-content .question-history-item { padding:14px; }
         #main-content .question-history-item time { font-size:14px; }
         #main-content .question-history-item h3 { font-size:17px; }
-        #main-content .question-history-answer { gap:9px; padding:10px; font-size:15px; }
+        #main-content .question-history-answer { gap:9px; padding:10px; font-size:16px; }
       }
     </style>
     <section class="question-page">
@@ -301,11 +301,12 @@ export function renderQuestions(el, user, profile) {
   function renderHistory() {
     const host = $("#question-history-list", el);
     if (!host) return;
-    if (!history.length) {
+    const pastHistory = history.filter(item => item.id < dayKey);
+    if (!pastHistory.length) {
       host.innerHTML = `<p class="question-empty">Your shared question history will appear here.</p>`;
       return;
     }
-    host.innerHTML = history.map(item => `
+    host.innerHTML = pastHistory.map(item => `
       <article class="question-history-item" data-history-day="${esc(item.id)}" data-day-number="${esc(new Date(`${item.dayKey}T12:00:00`).getDate())}">
         <header><time datetime="${esc(item.dayKey)}">${esc(new Date(`${item.dayKey}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"}))}</time></header>
         <h3>${esc(item.question)}</h3>
@@ -315,7 +316,7 @@ export function renderQuestions(el, user, profile) {
   }
 
   async function loadHistoryAnswers(todayOnly = false) {
-    const historyItems = todayOnly ? history.filter(item => item.id === dayKey) : history;
+    const historyItems = todayOnly ? [] : history.filter(item => item.id < dayKey);
     await Promise.all(historyItems.map(async item => {
       try {
         let status, mine, partner;
