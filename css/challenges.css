@@ -324,8 +324,6 @@
 .snap-send-button { flex:none; min-height:44px; padding:0 20px; border:0; border-radius:999px; background:#fffc00; color:#171717; font:800 14px "DM Sans",sans-serif; box-shadow:0 4px 12px #d7c90038; cursor:pointer; transition:transform .15s,box-shadow .15s; }
 .snap-send-button:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 7px 16px #d7c90055; }
 .snap-send-button:disabled { opacity:.55; cursor:wait; }
-.snap-track-note { display:flex; align-items:center; justify-content:center; gap:12px; margin:18px 0 0; color:#977d88; font-size:12px; }
-.snap-track-note span { width:min(12vw,72px); height:1px; background:#f3cbd7; }
 @media(max-width:620px) {
   .snap-people-grid { grid-template-columns:1fr; gap:10px; }
   .snap-person-card { padding:14px; border-radius:18px; }
@@ -535,13 +533,13 @@
   position: relative;
   padding: 14px;
   border-radius: 18px;
-  background: #fff;
-  border: 1px solid #f0e2e8;
+  background: linear-gradient(160deg, #f2faef, #e8f4e2);
+  border: 1px solid #d5e8cc;
   box-shadow: 0 4px 16px rgba(45, 25, 35, 0.04);
 }
 .custom-card.kind-punishment {
-  border-color: #f3c8d6;
-  background: linear-gradient(160deg, #fff6f8, #ffecf2);
+  border-color: #d6d6d6;
+  background: linear-gradient(160deg, #f0f0f0, #e3e3e3);
 }
 .custom-head {
   display: flex;
@@ -560,7 +558,7 @@
   font-size: 17px;
 }
 .custom-card.kind-punishment .custom-icon {
-  background: #ffe2ec;
+  background: #dcdcdc;
 }
 .custom-title {
   flex: 1;

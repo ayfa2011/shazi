@@ -314,7 +314,6 @@ export function renderChallenges(el, user, profile) {
               </section>`;
             }).join("")}
           </div>
-          <p class="snap-track-note"><span></span>💗 Track each person separately<span></span></p>
           ${allDone ? `<div class="water-celebrate">You both sent today's Snap 💛</div>` : ""}
         </div>
       </article>

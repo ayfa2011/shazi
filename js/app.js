@@ -27,6 +27,52 @@ import { applyCoupleProfiles, findProfileForAuthor, getDisplayName, getProfileKe
 
 let currentUser = null, currentProfile = null, disposeMusic = null, stopPresence = null, disposePartnerChat = null;
 let currentRoute = "home", stopCoupleProfiles = null, handlingPopState = false;
+let navBadgeStops = [];
+const navBadgeState = {};
+
+function setNavBadge(route, visible) {
+  document.querySelector(`.bottom-nav [data-route="${route}"]`)?.classList.toggle("has-new", Boolean(visible));
+}
+
+function navSeenKey(route) {
+  return `olw-nav-seen:${APP_CONFIG.coupleId}:${getProfileKey(currentProfile) || "profile"}:${route}`;
+}
+
+function updateContentBadge(route, items) {
+  const signature = (items || []).map(item => item.id).join(",");
+  navBadgeState[route] = signature;
+  const key = navSeenKey(route);
+  try {
+    const seen = localStorage.getItem(key);
+    if (seen === null) localStorage.setItem(key, signature);
+    setNavBadge(route, Boolean(seen && seen !== signature && currentRoute !== route));
+    if (currentRoute === route) localStorage.setItem(key, signature);
+  } catch { setNavBadge(route, false); }
+}
+
+function initNavBadges(user) {
+  navBadgeStops.forEach(stop => stop?.());
+  navBadgeStops = [];
+  try {
+    navBadgeStops.push(watchDiaryPosts(items => updateContentBadge("gallery", items), 1));
+    navBadgeStops.push(watchItems("memory", items => updateContentBadge("memories", items)));
+    navBadgeStops.push(watchItems("customChallenge", items => updateContentBadge("more", items)));
+    navBadgeStops.push(watchItems("letter", items => {
+      const profileKey = getProfileKey(currentProfile);
+      const unread = (items || []).some(letter => letter.author !== user.uid && !letter.readAt && recipientKeyForNav(letter.recipient) === profileKey && letter.status !== "Scheduled");
+      setNavBadge("letters", unread);
+    }));
+  } catch (error) {
+    console.error("Navigation updates could not be loaded:", error);
+  }
+}
+
+function recipientKeyForNav(recipient) {
+  if (!recipient) return "";
+  if (Object.hasOwn(APP_CONFIG.profiles, recipient)) return recipient;
+  const profile = Object.entries(APP_CONFIG.profiles).find(([key, value]) => value.id === recipient || value.authUid === recipient || value.email === recipient || value.name === recipient);
+  return profile?.[0] || "";
+}
 
 function updateProfileAvatar(profile) {
   const avatar = $("#avatar-letter");
@@ -891,6 +937,10 @@ export function navigate(route = "home", { history = true } = {}) {
     window.history.pushState({ route }, "", `#${route}`);
   }
   currentRoute = route;
+  if (["gallery", "memories", "more"].includes(route) && navBadgeState[route] !== undefined) {
+    try { localStorage.setItem(navSeenKey(route), navBadgeState[route]); } catch { /* Storage may be unavailable. */ }
+    setNavBadge(route, false);
+  }
   document.body.classList.toggle("home-dashboard", route === "home");
   // Dispose active listeners based on previous page to stop leaks
   if (route !== "home") disposeHome();
@@ -967,6 +1017,7 @@ initAuth(
     }
     if (currentUser?.uid !== user.uid) return;
     currentProfile = Object.values(APP_CONFIG.profiles).find(person => person.email === user.email) || profile;
+    initNavBadges(user);
     void hydrateCoupleProfileAvatars().then(() => {
       if (currentUser?.uid !== user.uid) return;
       updateProfileAvatar(currentProfile);
@@ -1060,6 +1111,8 @@ initAuth(
   () => {
     currentUser = null;
     currentProfile = null;
+    navBadgeStops.forEach(stop => stop?.());
+    navBadgeStops = [];
     disposeMusic?.();
     disposeMusic = null;
     stopCoupleProfiles?.();
