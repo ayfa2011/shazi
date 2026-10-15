@@ -17,7 +17,6 @@ export function renderLetters(el, user, profile) {
   let allLetters = [];
   // Optimistic local state prevents the unread dot flashing back while Firestore syncs.
   const locallyReadLetterIds = new Set();
-  let readFontScale = 1.0;
   let replyToId = null;
   let openingLetterGeneration = 0;
 
@@ -129,6 +128,8 @@ export function renderLetters(el, user, profile) {
       .letter-item.is-unread .letter-envelope { animation:letter-envelope-float 2.6s ease-in-out infinite; }
       .letter-date { flex:none; color:#9b8790; font-size:12px; line-height:1.35; white-space:nowrap; text-align:right; }
       .letter-date .letter-read-receipt { display:block; margin-top:4px; text-align:right; }
+      .letter-read-receipt { color:#8796a4; font-size:11px; font-weight:700; white-space:nowrap; }
+      .letter-read-receipt.is-read { color:#299bd0; }
 
       /* ── Modals ─────────────────────────────────────── */
       .letter-modal-overlay { position:fixed; inset:0; padding:clamp(8px,2vw,24px); display:flex; align-items:center; justify-content:center; overflow-y:auto; background:rgba(49,20,36,.56); opacity:0; backdrop-filter:blur(5px); z-index:1000; }
@@ -143,7 +144,6 @@ export function renderLetters(el, user, profile) {
       .letter-modal-box.is-fullscreen .letter-form { gap:10px; }
       .letter-modal-box.is-fullscreen .letter-prompt { display:none; }
       .letter-modal-box.is-fullscreen .letter-modal-head { position:sticky; top:0; z-index:2; background:#fffafd; }
-      .letter-modal-box.is-fullscreen #read-letter-body { min-height:calc(100dvh - 205px); max-height:calc(100dvh - 185px); }
       .letter-modal-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:15px; }
       .letter-modal-head h3 { margin:0; color:#873456; font-size:clamp(22px,3vw,34px); font-family:"Playfair Display",serif; }
       .letter-close-btn { width:34px; height:34px; flex:none; border-radius:50%; border:none; background:#fff0f6; color:#9c3b64; font-size:21px; cursor:pointer; }
@@ -240,22 +240,12 @@ export function renderLetters(el, user, profile) {
       .letter-cancel-btn { border:1px solid #efdde5 !important; background:#fff; color:#765a68; }
       .letter-send-btn { background:linear-gradient(135deg,#e85c91,#c73d76); color:#fff; box-shadow:0 6px 16px #d7478028; }
 
-      /* ── Read-letter meta bar ───────────────────────── */
-      .read-letter-meta { display:flex; align-items:center; gap:9px; margin:0 0 15px; padding:10px 12px; border:1px solid #f0e1d0; border-radius:14px; background:linear-gradient(120deg,#fffaf0,#fffdf8); }
-      .read-letter-sender-avatar { width:35px; height:35px; flex:none; display:grid; place-items:center; overflow:hidden; border:2px solid white; border-radius:50%; background:#ffe4ef; color:#96365f; font-weight:800; box-shadow:0 2px 7px #7340511c; }
-      .read-letter-sender-avatar img { width:100%; height:100%; object-fit:cover; }
-      .read-letter-meta-copy { min-width:0; flex:1; display:grid; gap:2px; }
-      .read-letter-meta-copy strong { color:#754258; font-size:13px; }
-      .read-letter-meta-copy time { color:#8c7180; font-size:14px; font-weight:600; }
-      .letter-read-receipt { flex:none; color:#8796a4; font-size:11px; font-weight:700; white-space:nowrap; }
-      .letter-read-receipt.is-read { color:#299bd0; }
-
       /* ── READ LETTER PAPER (reference-matching) ───────── */
       .letter-paper {
         position: relative;
         width: min(100%, 600px);   /* A5-ish */
-        aspect-ratio: 1 / 1.414;   /* true A-series ratio */
         max-height: 82dvh;
+        min-height:0;
         margin: 0 auto;
         overflow-y: auto;
         display: flex;
@@ -284,28 +274,27 @@ export function renderLetters(el, user, profile) {
         touch-action: manipulation;
       }
 
-      /* Sender meta header — kept minimal so paper looks clean */
+      /* Sender photo and timestamp stay in the paper's top corner. */
       .letter-paper-header {
         display: flex;
         align-items: center;
+        justify-content:flex-end;
         gap: 10px;
-        padding: 14px 16px 12px 76px;
-        min-height: 34px;
+        padding: 10px 14px 8px 76px;
+        min-height: 48px;
         background: transparent;
         border-bottom: 0;
         flex: none;
       }
       .letter-paper-avatar { width:32px; height:32px; flex:none; border-radius:50%; overflow:hidden; border:2px solid #f5a8bd; background:#ffe4ef; color:#96365f; font-weight:800; font-size:13px; display:grid; place-items:center; }
       .letter-paper-avatar img { width:100%; height:100%; object-fit:cover; }
-      .letter-paper-meta-text { display:grid; gap:1px; }
-      .letter-paper-meta-text strong { font-size:14px; font-weight:700; color:#1e3150; font-family:"Caveat","Segoe Print",cursive; line-height:1.2; }
-      .letter-paper-meta-text time { font-size:13px; color:#7a8fa8; font-family:"Caveat","Segoe Print",cursive; line-height:1.2; }
+      .letter-paper-meta-text { color:#7a8fa8; font:600 12px/1.25 "DM Sans",sans-serif; text-align:right; }
 
       /* Body — text sits on the ruling */
       .letter-paper-body {
-        padding: 0 22px 40px 76px;
-        flex: 1;
-        min-height: 220px;
+        padding: 0 22px 0 76px;
+        flex: none;
+        min-height:0;
       }
       .letter-stage-text,
       .letter-rich-text {
@@ -317,6 +306,7 @@ export function renderLetters(el, user, profile) {
       }
       .letter-stage-text p,
       .letter-rich-text p { margin: 0; }
+      .letter-paper-tail { height:136px; flex:none; }
       .letter-stage-text b,
       .letter-stage-text strong,
       .letter-rich-text b,
@@ -324,13 +314,6 @@ export function renderLetters(el, user, profile) {
 
       .letter-paper::after { content:"♡"; position:absolute; right:16px; bottom:12px; color:#e7a5bd; font:20px Georgia,serif; opacity:.7; pointer-events:none; }
       .letter-modal-overlay.is-open .letter-paper { animation:letter-paper-unfold .85s .08s cubic-bezier(.2,.75,.2,1) both; }
-
-      /* ── Read modal font size controls ──────────────── */
-      .letter-read-controls { display:flex; align-items:center; gap:6px; margin-bottom:10px; padding:6px 10px; border:1px solid #f0dce6; border-radius:999px; background:#fffafd; width:fit-content; }
-      .letter-read-controls span { font-size:11px; font-weight:700; color:#754258; margin-right:2px; }
-      .letter-read-controls button { min-width:32px; height:30px; padding:0 9px; border-radius:999px; background:#fff; border:1px solid #f0dce6; color:#754258; font-size:13px; font-weight:800; cursor:pointer; touch-action:manipulation; }
-      .letter-read-controls button:hover { background:#fff0f6; }
-      .letter-read-controls .letter-read-scale-value { min-width:42px; text-align:center; font-size:11px; color:#8c7180; font-weight:600; }
 
       /* ── Reply block inside read modal ──────────────── */
       .letter-replies-section { margin-top:18px; }
@@ -350,12 +333,13 @@ export function renderLetters(el, user, profile) {
       .letter-reply-card-body p { margin:0; }
       .letter-replies-empty { font-size:12px; color:#9b8790; font-style:italic; }
 
-      .read-letter-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-top:17px; }
-      .letter-reply-btn { background:#ffe5ef; color:#a72f62; }
+      .read-letter-actions { display:flex; flex-wrap:wrap; justify-content:center; gap:8px 18px; margin-top:14px; }
+      .read-letter-actions button { min-height:0; padding:2px 0; border:0; background:none; color:#8b526b; font:600 13px/1.4 "DM Sans",sans-serif; text-decoration:underline; text-underline-offset:3px; cursor:pointer; }
+      .read-letter-actions .letter-reply-btn { color:#a72f62; }
       .letter-reply-btn[hidden] { display:none; }
-      .letter-read-close { background:#f6edf1; color:#765a68; }
-      .letter-delete-btn { background:#fff0f2; color:#bd3158; border:1px solid #f2b9c8 !important; }
-      .letter-delete-btn:disabled { opacity:.55; cursor:wait; }
+      .read-letter-actions .letter-read-close { color:#765a68; }
+      .read-letter-actions .letter-delete-btn { color:#bd3158; }
+      .read-letter-actions button:disabled { opacity:.55; cursor:wait; }
 
       /* ── Animations ─────────────────────────────────── */
       @keyframes letter-overlay-in { to { opacity:1; } }
@@ -384,12 +368,13 @@ export function renderLetters(el, user, profile) {
         .letter-modal-box { width:100%; max-width:none; max-height:100dvh; height:100dvh; border-radius:0; padding:max(14px,env(safe-area-inset-top)) 14px max(14px,env(safe-area-inset-bottom)); }
         .letter-editor-paper { height:calc(100dvh - 350px); min-height:240px; }
         .letter-modal-box.is-fullscreen .letter-editor-paper { height:calc(100dvh - 340px); min-height:240px; }
-        .letter-paper { width:100%; aspect-ratio:auto; min-height:calc(100dvh - 260px); max-height:calc(100dvh - 200px); border-radius:2px; }
+        #read-letter-modal { align-items:center; padding:12px; }
+        .letter-read-modal-box { width:100%; height:auto; min-height:0; max-height:calc(100dvh - 24px); border-radius:18px; padding:14px; }
+        .letter-paper { width:100%; min-height:0; max-height:calc(100dvh - 100px); border-radius:2px; }
         .letter-paper-header { padding-left:64px; padding-right:12px; }
-        .letter-paper-body { padding-left:64px; padding-right:14px; padding-bottom:32px; }
+        .letter-paper-body { padding-left:64px; padding-right:14px; }
         .letter-editor-content { padding-left:66px; padding-right:14px; }
-        .read-letter-actions { justify-content:stretch; gap:6px; }
-        .read-letter-actions button { flex:1; padding:10px 8px; }
+        .read-letter-actions { gap:8px 14px; }
         .letter-editor-toolbar select { min-height:36px; font-size:12px; }
       }
       @media (prefers-reduced-motion:reduce) {
@@ -490,23 +475,10 @@ export function renderLetters(el, user, profile) {
     <!-- Read Letter Modal -->
     <div id="read-letter-modal" class="letter-modal-overlay" style="display: none;">
       <div class="letter-modal-box letter-read-modal-box">
-        <div class="letter-modal-head">
-          <h3 id="read-letter-title">Letter</h3>
-          <div style="display:flex; gap:8px;">
-            <button id="toggle-fullscreen-read" class="letter-close-btn" type="button" aria-label="Toggle Fullscreen">⛶</button>
-            <button id="close-read-modal" class="letter-close-btn" type="button" aria-label="Close letter">×</button>
-          </div>
-        </div>
-        <div id="read-letter-meta" class="read-letter-meta"></div>
-        <div class="letter-read-controls" role="group" aria-label="Letter text size">
-          <span>Text size</span>
-          <button type="button" id="read-font-decrease" aria-label="Decrease text size">A−</button>
-          <span class="letter-read-scale-value" id="read-font-value">100%</span>
-          <button type="button" id="read-font-increase" aria-label="Increase text size">A＋</button>
-        </div>
         <div id="read-letter-body" class="letter-paper">
           <div id="read-letter-paper-header" class="letter-paper-header"></div>
           <div id="read-letter-paper-text" class="letter-paper-body"></div>
+          <div class="letter-paper-tail" aria-hidden="true"></div>
         </div>
         <div id="read-letter-replies" class="letter-replies-section"></div>
         <div class="read-letter-actions">
@@ -530,13 +502,6 @@ export function renderLetters(el, user, profile) {
   const readModal = $("#read-letter-modal", el);
   let openedLetter = null;
   const deleteLetterBtn = $("#delete-read-letter-btn", el);
-  const readModalBox = readModal.querySelector(".letter-modal-box");
-  const toggleReadFullscreenBtn = $("#toggle-fullscreen-read", el);
-
-  toggleReadFullscreenBtn.onclick = () => {
-    readModalBox.classList.toggle("is-fullscreen");
-    toggleReadFullscreenBtn.textContent = readModalBox.classList.contains("is-fullscreen") ? "🗗" : "⛶";
-  };
 
   const statusSelect = $("#letter-status", el);
   const deliverGroup = $("#deliver-date-group", el);
@@ -550,8 +515,6 @@ export function renderLetters(el, user, profile) {
   const textColorInput = $("#letter-text-color", el);
   const moveTextButton = $("#letter-move-text", el);
   const writeHeading = $("#write-letter-heading", el);
-  const readPaper = $("#read-letter-body", el);
-  const readFontValue = $("#read-font-value", el);
   const repliesContainer = $("#read-letter-replies", el);
   let moveTextState = { x: 0, y: 0 };
   let dragState = null;
@@ -660,7 +623,7 @@ export function renderLetters(el, user, profile) {
     if (!looksLikeHtml) {
       const content = document.createElement("div");
       content.className = "letter-rich-text";
-      content.textContent = text;
+      content.textContent = text.replace(/[\r\n]+$/, "");
       target.appendChild(content);
       return;
     }
@@ -697,6 +660,14 @@ export function renderLetters(el, user, profile) {
     const content = document.createElement("div");
     content.className = "letter-rich-text";
     [...parsed.body.childNodes].forEach(node => content.appendChild(copySafe(node)));
+    while (content.lastChild) {
+      const last = content.lastChild;
+      if (last.nodeType === Node.TEXT_NODE && !last.textContent.trim()) {
+        last.remove();
+      } else if (last.nodeType === Node.ELEMENT_NODE && ["P", "DIV", "BR"].includes(last.tagName) && !last.textContent.trim()) {
+        last.remove();
+      } else break;
+    }
     target.appendChild(content);
   }
 
@@ -712,8 +683,7 @@ export function renderLetters(el, user, profile) {
     const box = modal.querySelector(".letter-modal-box");
     if (box?.classList.contains("is-fullscreen")) {
       box.classList.remove("is-fullscreen");
-      const toggle = modal.id === "write-letter-modal" ? toggleFullscreenBtn : toggleReadFullscreenBtn;
-      if (toggle) toggle.textContent = "⛶";
+      if (modal === writeModal) toggleFullscreenBtn.textContent = "⛶";
     }
   }
 
@@ -762,21 +732,7 @@ export function renderLetters(el, user, profile) {
     openingLetterGeneration++;
     closeModal(readModal);
   };
-  $("#close-read-modal", el).onclick = closeReadModal;
   $("#close-read-letter-btn", el).onclick = closeReadModal;
-
-  function updateReadScale() {
-    readPaper.style.setProperty("--letter-font-scale", String(readFontScale));
-    if (readFontValue) readFontValue.textContent = `${Math.round(readFontScale * 100)}%`;
-  }
-  $("#read-font-decrease", el).onclick = () => {
-    readFontScale = Math.max(0.75, Number((readFontScale - 0.1).toFixed(2)));
-    updateReadScale();
-  };
-  $("#read-font-increase", el).onclick = () => {
-    readFontScale = Math.min(1.8, Number((readFontScale + 0.1).toFixed(2)));
-    updateReadScale();
-  };
 
   deleteLetterBtn.onclick = async () => {
     if (!openedLetter?.id) return;
@@ -981,17 +937,12 @@ export function renderLetters(el, user, profile) {
             ? letter.body || await getScheduledLetterBody(letter.id)
             : letter.body || "";
           if (generation !== openingLetterGeneration || !active || !el.isConnected) return;
-          $("#read-letter-title", el).textContent = `A letter from ${getDisplayName(letter.author, letter.authorName || "Us")} ♡`;
           const senderProfile = findProfileForAuthor(letter.author, letter.authorName || "");
           const senderName = getDisplayName(letter.author, letter.authorName || "Us");
           const sentAt = asDate(letter.createdAt) || asDate(letter.deliverDate);
-          const readAt = asDate(letter.readAt);
           const avatar = senderProfile?.avatar ? `<img src="${esc(senderProfile.avatar)}" alt="">` : esc(senderName[0] || "♡");
-          const dateLine = sentAt
-            ? `${esc(sentAt.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long", year: "numeric" }))}`
-            : "A little note, written just for you";
-          const timeLine = sentAt ? esc(sentAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })) : "";
-          $("#read-letter-meta", el).innerHTML = `<span class="read-letter-sender-avatar">${avatar}</span><span class="read-letter-meta-copy"><strong>From ${esc(senderName)}</strong><time>${dateLine}</time>${timeLine ? `<time>${timeLine}</time>` : ""}</span>${letter.author === user.uid ? `<span class="letter-read-receipt${readAt ? " is-read" : ""}">${readAt ? "✓✓ Read" : "Sent ✓"}</span>` : ""}`;
+          const dateTime = sentAt ? `${sentAt.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })} · ${sentAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "A little note, written just for you";
+          $("#read-letter-paper-header", el).innerHTML = `<span class="letter-paper-avatar">${avatar}</span><span class="letter-paper-meta-text">${esc(dateTime)}</span>`;
           renderLetterBody($("#read-letter-paper-text", el), body);
           renderLetterReplies(letter);
           const senderKey = senderProfile ? recipientKey(senderProfile.name) : "";
@@ -1001,7 +952,6 @@ export function renderLetters(el, user, profile) {
             senderKey !== ownKey;
           replyBtn.hidden = !canReply;
           replyBtn.dataset.recipient = canReply ? senderKey : "";
-          updateReadScale();
           openModal(readModal);
 
           if (shouldMarkRead) {
