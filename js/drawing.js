@@ -978,10 +978,8 @@ export function renderDrawing(el, user, profile) {
       exportContext.fillText(`Drawn by ${artistName} • ${timestamp}`, footerPadding, footerTop + footerHeight / 2, exportCanvas.width - footerPadding * 2);
 
       const imageBlob = await new Promise((resolve, reject) => exportCanvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not prepare drawing image.")), "image/jpeg", 0.96));
-      const profileKey = getProfileKey(profile);
-      if (!profileKey) throw new Error("Could not identify your profile for Telegram upload.");
       const telegramFile = new File([imageBlob], `canvas-drawing-${createdAtMs}.jpg`, { type: "image/jpeg" });
-      const telegramResult = await sendToTelegram(telegramFile, `New Canvas Drawing 🎨 · ${artistName} · ${timestamp}`, new Date(createdAtMs).toISOString().slice(0, 10), profileKey, { storeForReveal: false });
+      const telegramResult = await sendToTelegram(telegramFile, `New Canvas Drawing 🎨 · ${artistName} · ${timestamp}`);
       const drawingRef = await addDrawingMessage({
         authorId: user.uid,
         authorName: artistName,

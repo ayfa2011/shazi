@@ -2,6 +2,6 @@ import { sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from 
 
 export async function uploadProfilePhoto(file, profileName = "Partner") {
   const timestamp = new Date().toLocaleString();
-  const result = await sendToTelegram(file, `New Profile Photo 💗 · ${profileName} · ${timestamp}`, new Date().toISOString().slice(0, 10), "profile", { storeForReveal: false });
+  const result = await sendToTelegram(file, `New Profile Photo 💗 · ${profileName} · ${timestamp}`);
   return { ...telegramMediaReferences(result), avatarMimeType: telegramUploadMimeType(file) };
 }

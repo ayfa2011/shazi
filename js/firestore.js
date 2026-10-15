@@ -26,7 +26,8 @@ export async function addLetter(data) {
   const reference = doc(root());
   const batch = writeBatch(db);
   const { body, ...letter } = data;
-  batch.set(reference, { type: "letter", ...letter, ...(letter.status === "Sent" ? { body } : {}), createdAt: serverTimestamp() });
+  const deliverDate = letter.status === "Scheduled" ? Timestamp.fromDate(new Date(letter.deliverDate)) : letter.deliverDate;
+  batch.set(reference, { type: "letter", ...letter, deliverDate, ...(letter.status === "Sent" ? { body } : {}), createdAt: serverTimestamp() });
   if (letter.status === "Scheduled") {
     batch.set(doc(db, ...couplePath(), "scheduledLetterContents", reference.id), {
       author: letter.author,
@@ -41,7 +42,13 @@ export async function addLetter(data) {
 
 export async function markLetterRead(letterId) {
   if (!firebaseReady) throw new Error("Connect Firebase before updating the letter receipt.");
-  return updateDoc(doc(root(), letterId), { readAt: serverTimestamp() });
+  const reference = doc(root(), letterId);
+  return runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists() || snapshot.data().readAt) return false;
+    transaction.update(reference, { readAt: serverTimestamp() });
+    return true;
+  });
 }
 
 export async function getScheduledLetterBody(letterId) {
@@ -76,7 +83,40 @@ export async function addMemoryMedia(memoryId, mediaItems) {
   if (!firebaseReady) throw new Error("Connect Firebase before adding memory media.");
   const items = Array.isArray(mediaItems) ? mediaItems.filter(item => item && (typeof item.telegramFileId === "string" || typeof item.url === "string")) : [];
   if (!items.length) return;
-  return updateDoc(doc(root(), memoryId), { mediaItems: arrayUnion(...items) });
+  const reference = doc(root(), memoryId);
+  return runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists() || snapshot.data().type !== "memory") throw new Error("This memory no longer exists.");
+    const existing = Array.isArray(snapshot.data().mediaItems) ? snapshot.data().mediaItems : [];
+    const keys = new Set(existing.map(item => item.telegramFileId || item.url).filter(Boolean));
+    const additions = items.filter(item => {
+      const key = item.telegramFileId || item.url;
+      if (keys.has(key)) return false;
+      keys.add(key);
+      return true;
+    });
+    if (additions.length) transaction.update(reference, { mediaItems: [...existing, ...additions] });
+    return [...existing, ...additions];
+  });
+}
+
+export async function removeMemoryMedia(memoryId, mediaKey) {
+  if (!firebaseReady) throw new Error("Connect Firebase before removing memory media.");
+  if (!memoryId || typeof mediaKey !== "string" || !mediaKey) throw new Error("Memory media details are incomplete.");
+  const reference = doc(root(), memoryId);
+  return runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists() || snapshot.data().type !== "memory") throw new Error("This memory no longer exists.");
+    const data = snapshot.data();
+    const mediaItems = Array.isArray(data.mediaItems) ? data.mediaItems : [];
+    const nextMediaItems = mediaItems.filter(item => (item.telegramFileId || item.url) !== mediaKey);
+    const isPrimaryMedia = data.telegramFileId === mediaKey || data.photoUrl === mediaKey;
+    if (nextMediaItems.length !== mediaItems.length) transaction.update(reference, { mediaItems: nextMediaItems });
+    else if (isPrimaryMedia) transaction.update(reference, {
+      telegramFileId: deleteField(), photoUrl: deleteField(), mediaType: deleteField(), photoMimeType: deleteField()
+    });
+    return { mediaItems: nextMediaItems, removed: nextMediaItems.length !== mediaItems.length || isPrimaryMedia };
+  });
 }
 
 export async function removeItem(id) {
@@ -289,7 +329,7 @@ export async function recordGameMatchResult({ uid, authorId, matchId, game, winn
     throw new Error("Game result details are incomplete.");
   }
   if (!players.includes(uid)) throw new Error("Only a match participant can save its result.");
-  return setItem(`game-match-${matchId}-${uid}`, {
+  return setItem(`game-match-${matchId}`, {
     type: "game",
     game,
     result: winnerUid ? "won" : "draw",
@@ -473,65 +513,16 @@ export async function transitionCustomChallenge(id, actor, action, extra = {}) {
     const actions = Array.isArray(current.actions) ? current.actions : [];
     const previous = actions.find(item => item.profileKey === actor.profileKey);
     if (action === "accept") {
-      if (current.status === "completed" || current.status === "declined") throw new Error("This challenge is already closed.");
+      if (current.status !== "upcoming" && current.status !== "in-progress") throw new Error("This challenge is no longer open.");
       if (previous?.status === "accepted") return;
       const nextActions = actions.filter(item => item.profileKey !== actor.profileKey);
       nextActions.push({ ...actor, status: "accepted", updatedAtMs: Date.now() });
       transaction.update(reference, { status: "in-progress", actions: nextActions, acceptedBy: actor.uid, acceptedAtMs: Date.now() });
       return;
     }
-    if (action === "decline") {
-      if (current.status !== "upcoming") throw new Error("Only pending challenges can be declined.");
-      transaction.update(reference, { status: "declined", actions: [...actions.filter(item => item.profileKey !== actor.profileKey), { ...actor, status: "declined", updatedAtMs: Date.now() }] });
-      return;
-    }
     if (action === "complete") {
       if (current.status !== "in-progress") throw new Error("Accept this challenge before completing it.");
       transaction.update(reference, { status: "completed", note: extra.note || "", ...(extra.photoUrl !== undefined ? { photoUrl: extra.photoUrl } : {}), ...(extra.telegramFileId ? { telegramFileId: extra.telegramFileId, telegramFileUniqueId: extra.telegramFileUniqueId || "", telegramMessageId: extra.telegramMessageId || null, telegramChatId: extra.telegramChatId || null, photoMimeType: extra.photoMimeType || "image/jpeg" } : {}), completedBy: actor.uid, completedByKey: actor.profileKey, completedAtMs: Date.now(), actions: [...actions.filter(item => item.profileKey !== actor.profileKey), { ...actor, status: "completed", updatedAtMs: Date.now() }] });
-    }
-  });
-}
-
-export async function saveLovePhoto(dayKey, actor) {
-  if (!firebaseReady) throw new Error("Connect Firebase before using challenges.");
-  const reference = doc(root(), `love-you-${dayKey}`);
-  const assignmentRef = doc(challengeAssignments(), `${dayKey}-love-you-today`);
-  await runTransaction(db, async transaction => {
-    const [snapshot, assignmentSnapshot] = await Promise.all([
-      transaction.get(reference),
-      transaction.get(assignmentRef)
-    ]);
-    if (!assignmentSnapshot.exists()) throw new Error("Today's love challenge is not ready yet. Please try again.");
-    const current = snapshot.exists() ? snapshot.data() : { type: "loveYouChallenge", dayKey, uploads: {} };
-    if (current.uploads?.[actor.profileKey]?.dayKey !== dayKey) {
-      transaction.set(reference, {
-        ...current,
-        type: "loveYouChallenge",
-        dayKey,
-        uploads: { ...(current.uploads || {}), [actor.profileKey]: { uid: actor.uid, name: actor.name, dayKey, uploadedAtMs: Date.now() } },
-        createdAt: current.createdAt || serverTimestamp(),
-        updatedAtMs: Date.now()
-      });
-    }
-    const assignment = assignmentSnapshot.data();
-    const completedBy = assignment.completedBy || [];
-    const alreadyCompleted = completedBy.some(person => person.uid === actor.uid || person.profileKey === actor.profileKey);
-    if (!alreadyCompleted) {
-      const nextCompleted = [...completedBy, { ...actor, note: "Shared today's love photo.", completedAt: Date.now() }];
-      const acceptedBy = (assignment.acceptedBy || []).filter(person => person.uid !== actor.uid && person.profileKey !== actor.profileKey);
-      acceptedBy.push(actor);
-      const skippedValues = Array.isArray(assignment.skippedBy) ? assignment.skippedBy : assignment.skippedBy ? [assignment.skippedBy] : [];
-      const skippedBy = skippedValues.filter(person => person.uid !== actor.uid && person.profileKey !== actor.profileKey);
-      const participantCount = Math.max(1, Object.keys(APP_CONFIG.profiles).length);
-      const status = nextCompleted.length >= participantCount ? "completed" : "in-progress";
-      transaction.update(assignmentRef, {
-        completedBy: nextCompleted,
-        acceptedBy,
-        skippedBy,
-        status,
-        completedAt: status === "completed" ? serverTimestamp() : null,
-        updatedAt: serverTimestamp()
-      });
     }
   });
 }

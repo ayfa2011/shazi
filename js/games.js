@@ -2,6 +2,7 @@ import { $, toast, todayKey, dailyIndex, scheduleDubaiDayRollover, esc } from ".
 import { recordDailyGameWin, recordGameMatchResult, watchItems, notifyPartnerSafely } from "./firestore.js";
 import { firebaseReady, rtdb } from "./firebase.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
+import { APP_CONFIG } from "../config/app-config.js";
 import { mountFindTheWordsGame } from "./find-the-words.js";
 import { onDisconnect, onValue, ref, remove, runTransaction, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
@@ -195,6 +196,19 @@ function formatGameScore(game, score) {
   return `${score} points`;
 }
 
+function gamePlayerProfile(uid, fallbackName = "") {
+  return Object.values(APP_CONFIG.profiles).find(person => person.authUid === uid ||
+    fallbackName && person.name?.toLocaleLowerCase() === fallbackName.toLocaleLowerCase()) || {};
+}
+
+function gamePlayerAvatar(uid, fallbackName = "") {
+  const person = gamePlayerProfile(uid, fallbackName);
+  const name = person.name || fallbackName || "Partner";
+  return person.avatar
+    ? `<img class="game-player-avatar" src="${esc(person.avatar)}" alt="${esc(name)}">`
+    : `<span class="game-player-avatar fallback" aria-hidden="true">${esc(name.slice(0, 1))}</span>`;
+}
+
 function isDailyHeartWin(item) {
   return item.game === gameTitles["daily-hidden-heart"] || item.game === "Find the heart";
 }
@@ -278,6 +292,12 @@ function scoreboardSummaryMarkup(items, user) {
   const mine = stats.get(myUid) || emptyStats();
   const theirs = partnerUid ? (stats.get(partnerUid) || emptyStats()) : emptyStats();
   const partnerName = partnerUid ? getDisplayName(partnerUid, "Partner") : "Partner";
+  const ownProfile = APP_CONFIG.profiles[getProfileKey(user)] || {};
+  const partnerProfile = Object.values(APP_CONFIG.profiles).find(person => person.authUid === partnerUid) ||
+    APP_CONFIG.profiles[Object.keys(APP_CONFIG.profiles).find(key => key !== getProfileKey(user))] || {};
+  const avatarMarkup = (person, name) => person.avatar
+    ? `<img class="games-scoreboard-avatar" src="${esc(person.avatar)}" alt="${esc(name)}">`
+    : `<span class="games-scoreboard-avatar fallback" aria-hidden="true">${esc((name || "♡").slice(0, 1))}</span>`;
   const totalMatches = Math.max(mine.games, theirs.games);
   const totalWins = mine.wins + theirs.wins;
   const myShare = totalWins > 0 ? Math.round((mine.wins / totalWins) * 100) : 50;
@@ -296,6 +316,7 @@ function scoreboardSummaryMarkup(items, user) {
     </div>
     <div class="games-scoreboard-grid">
       <div class="games-scoreboard-player me">
+        ${avatarMarkup(ownProfile, "You")}
         <span class="games-scoreboard-name">You</span>
         <strong class="games-scoreboard-wins">${mine.wins}</strong>
         <span class="games-scoreboard-label">${mine.wins === 1 ? "win" : "wins"}</span>
@@ -306,6 +327,7 @@ function scoreboardSummaryMarkup(items, user) {
       </div>
       <span class="games-scoreboard-vs" aria-hidden="true">VS</span>
       <div class="games-scoreboard-player partner">
+        ${avatarMarkup(partnerProfile, partnerName)}
         <span class="games-scoreboard-name">${esc(partnerName)}</span>
         <strong class="games-scoreboard-wins">${theirs.wins}</strong>
         <span class="games-scoreboard-label">${theirs.wins === 1 ? "win" : "wins"}</span>
@@ -345,9 +367,11 @@ const scoreboardStyles = `<style>
   .games-scoreboard-head h2{margin:0;font-size:17px;color:#75435a;letter-spacing:.01em}
   .games-scoreboard-total{font-size:11px;color:#8c7480;text-align:right;max-width:45%;line-height:1.3}
   .games-scoreboard-grid{display:grid;grid-template-columns:1fr auto 1fr;align-items:stretch;gap:10px}
-  .games-scoreboard-player{display:flex;flex-direction:column;gap:1px;padding:12px 12px;border-radius:14px;
+  .games-scoreboard-player{display:flex;flex-direction:column;align-items:center;gap:1px;padding:12px 12px;border-radius:14px;
     background:rgba(255,255,255,.8);border:1px solid #f3d5e2}
-  .games-scoreboard-player.partner{text-align:right;align-items:flex-end}
+  .games-scoreboard-player.partner{text-align:center;align-items:center}
+  .games-scoreboard-avatar{display:block;width:54px;height:54px;margin:0 0 6px;border:3px solid #fff;border-radius:50%;object-fit:cover;box-shadow:0 4px 12px rgba(182,79,123,.22)}
+  .games-scoreboard-avatar.fallback{display:grid;place-items:center;background:linear-gradient(135deg,#f8bbd0,#d5c0f4);color:#75435a;font-size:21px;font-weight:800}
   .games-scoreboard-name{font-size:11px;font-weight:700;color:#75435a;text-transform:uppercase;letter-spacing:.08em;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
   .games-scoreboard-wins{font-size:34px;line-height:1.05;font-weight:800;color:#b64f7b;margin-top:2px}
@@ -355,7 +379,7 @@ const scoreboardStyles = `<style>
   .games-scoreboard-label{font-size:11px;color:#8c7480;letter-spacing:.04em}
   .games-scoreboard-meta{display:flex;gap:10px;margin-top:8px;font-size:11px;color:#8c7480;flex-wrap:wrap}
   .games-scoreboard-meta b{color:#75435a;font-weight:700}
-  .games-scoreboard-player.partner .games-scoreboard-meta{justify-content:flex-end}
+  .games-scoreboard-player.partner .games-scoreboard-meta{justify-content:center}
   .games-scoreboard-vs{align-self:center;font-size:10px;font-weight:800;color:#b64f7b;background:#fff;
     border:1px solid #f3d5e2;border-radius:999px;padding:6px 8px;letter-spacing:.1em}
   .games-scoreboard-bar{display:flex;height:8px;margin-top:14px;border-radius:999px;overflow:hidden;background:#f6e2ff}
@@ -397,7 +421,6 @@ function gamesHome() {
         <div id="game-board" class="game-board" aria-label="Find the hidden heart"></div>
         <p id="game-result" class="game-result" aria-live="polite"></p>
       </div>
-      <div id="games-leaderboards"></div>
     </section>
   </section>`;
 }
@@ -578,9 +601,9 @@ function renderSosGame(content, user, gameState, presence, selectedLetter) {
     ${result ? `<div class="sos-result" aria-live="polite">${result}</div>` : ""}
     <div class="sos-board" role="grid" aria-label="SOS game board, 7 columns by 9 rows">${cells}</div>
     <footer class="sos-scoreboard" aria-label="Match scores">
-      <div class="sos-player-score own"><span>You</span><strong>${ownScore}</strong></div>
+      <div class="sos-player-score own">${gamePlayerAvatar(uid)}<span>You</span><strong>${ownScore}</strong></div>
       <span class="sos-versus">VS</span>
-      <div class="sos-player-score partner"><span>${esc(partnerUid ? getDisplayName(partnerUid, state?.players?.[partnerUid]?.name || "Partner") : "Partner")}</span><strong>${partnerScore}</strong></div>
+      <div class="sos-player-score partner">${gamePlayerAvatar(partnerUid, state?.players?.[partnerUid]?.name)}<span>${esc(partnerUid ? getDisplayName(partnerUid, state?.players?.[partnerUid]?.name || "Partner") : "Partner")}</span><strong>${partnerScore}</strong></div>
     </footer>
   </section>`;
 }
@@ -819,23 +842,6 @@ export function renderGames(el, user, profile) {
     });
   }
 
-  function matchLeaderboard(game) {
-    const wins = uniqueMatchResults((dailyGameItems || []).filter(item =>
-      item.result === "won" &&
-      (item.game === gameTitles[game] || game === "daily-hidden-heart" && isDailyHeartWin(item)) &&
-      (item.winnerUid || item.author)
-    ));
-    const totals = new Map();
-    for (const win of wins) {
-      const winnerUid = win.winnerUid || win.author;
-      totals.set(winnerUid, (totals.get(winnerUid) || 0) + 1);
-    }
-    const ranked = [...totals].sort((first, second) => second[1] - first[1]);
-    return `<section class="score-history game-leaderboard"><h3>${esc(gameTitles[game])} Leaderboard 🏆</h3>${ranked.length
-      ? ranked.map(([uid, count]) => `<div class="score-item"><span>${esc(uid === user.uid ? "You" : getDisplayName(uid, "Your partner"))}</span><strong>${count} ${count === 1 ? "win" : "wins"}</strong></div>`).join("")
-      : `<p class="muted">No wins yet.</p>`}</section>`;
-  }
-
   function renderGameRoom() {
     const statusEl = $("#games-room-status", el);
     const content = $("#games-active-content", el);
@@ -859,7 +865,7 @@ export function renderGames(el, user, profile) {
     let message = "";
     if (!room || room.status === "finished" || room.status === "cancelled") {
       const finalScores = room?.status === "finished"
-        ? `<p class="muted">${esc(getDisplayName(room.playerUids[0], players[room.playerUids[0]]?.name || "Player 1"))}: ${esc(formatGameScore(activeGame, players[room.playerUids[0]]?.score))} · ${esc(getDisplayName(room.playerUids[1], players[room.playerUids[1]]?.name || "Player 2"))}: ${esc(formatGameScore(activeGame, players[room.playerUids[1]]?.score))}</p>`
+        ? `<div class="game-room-player-row">${room.playerUids.map(uid => `<div class="game-room-player">${gamePlayerAvatar(uid, players[uid]?.name)}<span>${esc(getDisplayName(uid, players[uid]?.name || "Partner"))}</span><strong>${esc(formatGameScore(activeGame, players[uid]?.score))}</strong></div>`).join("")}</div>`
         : "";
       const result = room?.status === "cancelled"
         ? "This match was cancelled."
@@ -870,21 +876,17 @@ export function renderGames(el, user, profile) {
             ? `${getDisplayName(room.winnerUid, players[room.winnerUid]?.name || "Your partner")} won this match.`
             : "This match was a draw."
         : "Start a match, then your partner joins from their device.";
-      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${esc(result)}</p>${finalScores}<button type="button" class="primary" data-room-start>${room ? "Play another match" : "Start a match"}</button></div>${matchLeaderboard(activeGame)}`;
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${esc(result)}</p>${finalScores}<button type="button" class="primary" data-room-start>${room ? "Play another match" : "Start a match"}</button></div>`;
       content.replaceChildren();
       return;
     }
 
     if (room.status === "waiting") {
       const isCreator = room.playerUids[0] === user.uid;
-      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${isCreator ? "Waiting for your partner to join from their device…" : `${esc(opponentName)} is waiting. Join the match to play!`}</p>${isCreator ? `<button type="button" class="secondary" data-room-cancel>Cancel match</button>` : `<button type="button" class="primary" data-room-start>Join match</button>`}</div>${matchLeaderboard(activeGame)}`;
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${isCreator ? "Waiting for your partner to join from their device…" : `${esc(opponentName)} is waiting. Join the match to play!`}</p>${isCreator ? `<button type="button" class="secondary" data-room-cancel>Cancel match</button>` : `<button type="button" class="primary" data-room-start>Join match</button>`}</div>`;
       if (isCreator && activeState) {
         content.innerHTML = `<div class="games-preview-note muted">Game preview · Waiting for your partner to join. You can look around, but play starts after they join.</div>`;
         renderActiveGame(el, activeGame, user, profile, activeState, true);
-        content.querySelectorAll("button, input, form").forEach(control => {
-          control.disabled = true;
-          control.setAttribute("aria-disabled", "true");
-        });
         content.style.opacity = "0.88";
       } else {
         content.replaceChildren();
@@ -896,7 +898,7 @@ export function renderGames(el, user, profile) {
     content.style.opacity = "";
     const isTurn = room.turnUid === user.uid;
     if (!room.playerUids.includes(user.uid)) {
-      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">This match is already in progress with your partner.</p></div>${matchLeaderboard(activeGame)}`;
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">This match is already in progress with your partner.</p></div>`;
       content.replaceChildren();
       return;
     }
@@ -939,7 +941,8 @@ export function renderGames(el, user, profile) {
     const scoreValue = uid => activeGame === "memory-match" || activeGame === "spin-wheel"
       ? players[uid]?.completed ? formatGameScore(activeGame, players[uid].score) : "—"
       : formatGameScore(activeGame, players[uid]?.score);
-    statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${esc(message)}</p><p class="muted">${esc(getDisplayName(room.playerUids[0], players[room.playerUids[0]]?.name || "Player 1"))}: ${esc(scoreValue(room.playerUids[0]))} · ${esc(getDisplayName(room.playerUids[1], players[room.playerUids[1]]?.name || "Player 2"))}: ${esc(scoreValue(room.playerUids[1]))}</p>${scoreRule ? `<p class="muted">${esc(scoreRule)}</p>` : ""}<button type="button" class="secondary" data-room-end>End this match</button></div>${matchLeaderboard(activeGame)}`;
+    const playerScores = `<div class="game-room-player-row">${room.playerUids.map(uid => `<div class="game-room-player">${gamePlayerAvatar(uid, players[uid]?.name)}<span>${esc(getDisplayName(uid, players[uid]?.name || "Partner"))}</span><strong>${esc(scoreValue(uid))}</strong></div>`).join("")}</div>`;
+    statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${esc(message)}</p>${playerScores}${scoreRule ? `<p class="muted">${esc(scoreRule)}</p>` : ""}<button type="button" class="secondary" data-room-end>End this match</button></div>`;
     if (!isTurn) {
       content.innerHTML = `<div class="game-panel"><p class="games-instructions">Your partner's turn is in progress. You can leave this page; your turn will be ready when they finish.</p></div>`;
       return;
@@ -1099,8 +1102,6 @@ export function renderGames(el, user, profile) {
   function listenForDailyWins() {
     if (stopGames) return;
     if (!firebaseReady) {
-      const listEl = $("#game-scores-list", el);
-      if (listEl) listEl.innerHTML = `<p class="muted">Connect Firebase to load game wins.</p>`;
       return;
     }
     try {
@@ -1113,30 +1114,14 @@ export function renderGames(el, user, profile) {
         }
       }, error => {
         console.error("Game scores could not be loaded:", error);
-        const listEl = $("#game-scores-list", el);
-        if (listEl) listEl.innerHTML = `<p class="muted">Game wins could not be loaded.</p>`;
       });
     } catch (error) {
       console.error("Game scores could not be loaded:", error);
-      const listEl = $("#game-scores-list", el);
-      if (listEl) listEl.innerHTML = `<p class="muted">Game wins could not be loaded.</p>`;
     }
   }
 
   function renderDailyWins(items) {
-    const leaderboards = $("#games-leaderboards", el);
-    if (leaderboards) leaderboards.innerHTML = Object.keys(gameTitles)
-      .map(game => matchLeaderboard(game))
-      .join("");
-    const listEl = $("#game-scores-list", el);
     refreshDailyTarget();
-    if (!listEl) return;
-    if (items.length === 0) {
-      listEl.innerHTML = `<p class="muted">No wins recorded yet.</p>`;
-      return;
-    }
-
-    const wins = uniqueMatchResults(items.filter(item => item.result === "won"));
     const alreadyWonToday = Boolean(ownDailyWin());
     if (alreadyWonToday && !finished) buildDailyBoard();
     if (alreadyWonToday) {
@@ -1144,25 +1129,6 @@ export function renderGames(el, user, profile) {
       if (resultText) resultText.textContent = "You already found today's hidden heart ♡";
     }
 
-    const timestamp = item => {
-      const value = item.createdAt?.toDate?.() || (item.createdAt ? new Date(item.createdAt) : null);
-      return value && Number.isFinite(value.getTime()) ? value.getTime() : 0;
-    };
-    const recentWins = [...wins].sort((first, second) => timestamp(second) - timestamp(first)).slice(0, 5);
-    if (recentWins.length === 0) {
-      listEl.innerHTML = `<p class="muted">No wins recorded yet.</p>`;
-      return;
-    }
-    listEl.innerHTML = recentWins.map(win => {
-      const createdAt = win.createdAt?.toDate?.() || (win.createdAt ? new Date(win.createdAt) : null);
-      const date = createdAt && Number.isFinite(createdAt.getTime())
-        ? createdAt.toLocaleDateString("en-GB", { day: "numeric", month: "short" })
-        : "Today";
-      const winnerUid = win.winnerUid || win.author;
-      const name = winnerUid === user.uid ? "You" : getDisplayName(winnerUid, "Your partner");
-      const label = isDailyHeartWin(win) ? "found the hidden heart" : `won ${win.game || "a game"}`;
-      return `<div class="score-item"><span>🎯 ${esc(name)} ${esc(label)}</span><span>${esc(date)}</span></div>`;
-    }).join("");
   }
 
   buildDailyBoard();

@@ -208,7 +208,7 @@ export function renderHome(el, user, profile) {
       <section class="home-feature-grid">
         <div class="home-post-panel">
           <div id="home-posts-feed" class="home-feed">
-            <p style="text-align:center; color:#9ca3af; padding:20px;">Loading your partner's posts…</p>
+            <p class="home-feed-loading" aria-live="polite">Loading…</p>
           </div>
           <button type="button" class="home-view-more" id="view-more-posts">Open all posts <span aria-hidden="true">→</span></button>
         </div>
@@ -410,9 +410,8 @@ export function renderHome(el, user, profile) {
     if (posts.length === 0) {
       feed.innerHTML = `<div class="home-empty-posts">
         <span class="home-empty-posts-heart" aria-hidden="true">♡</span>
-        <strong>Your little moments go here</strong>
-        <p>Share a photo, a thought, or a tiny piece of your day.</p>
-        <span class="home-empty-posts-note">A little space, just for us ✨</span>
+        <strong>Your moments</strong>
+        <p>Share a little moment together.</p>
       </div>`;
       return;
     }

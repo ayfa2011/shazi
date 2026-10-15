@@ -4,12 +4,13 @@ import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-d
 import { APP_CONFIG } from "../config/app-config.js";
 import { sendToTelegram } from "../src/services/telegramService.js";
 
-let stopLetters = null, deliveryTimer = null, active = false;
+let stopLetters = null, deliveryTimer = null, active = false, visibilityHandler = null;
 
 export function renderLetters(el, user, profile) {
   stopLetters?.();
   clearTimeout(deliveryTimer);
   deliveryTimer = null;
+  if (visibilityHandler) document.removeEventListener("visibilitychange", visibilityHandler);
   active = true;
   const ownKey = getProfileKey(profile);
   let currentTab = "Inbox";
@@ -18,6 +19,7 @@ export function renderLetters(el, user, profile) {
   const locallyReadLetterIds = new Set();
   let readFontScale = 1.0;
   let replyToId = null;
+  let openingLetterGeneration = 0;
 
   el.classList.add("letters-scope");
 
@@ -625,6 +627,19 @@ export function renderLetters(el, user, profile) {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
 
+  function isDelivered(letter, nowMs = Date.now()) {
+    if (letter?.status !== "Scheduled") return true;
+    const delivery = asDate(letter.deliverDate);
+    return Boolean(delivery && delivery.getTime() <= nowMs);
+  }
+
+  function currentLocalDateTime() {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() + 1, 0, 0);
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    return now.toISOString().slice(0, 16);
+  }
+
   function resetLetterEditorState() {
     letterBodyInput.innerHTML = "";
     letterBodyInput.style.setProperty("--letter-text-x", "0px");
@@ -706,6 +721,8 @@ export function renderLetters(el, user, profile) {
     if (statusSelect.value === "Scheduled") {
       deliverGroup.style.display = "block";
       deliverInput.required = true;
+      deliverInput.min = currentLocalDateTime();
+      if (!deliverInput.value || new Date(deliverInput.value).getTime() <= Date.now()) deliverInput.value = deliverInput.min;
       submitBtn.textContent = "Schedule with love ♡";
     } else {
       deliverGroup.style.display = "none";
@@ -726,6 +743,8 @@ export function renderLetters(el, user, profile) {
   $("#write-letter-btn", el).onclick = () => {
     replyToId = null;
     writeHeading.textContent = "Write a Letter ♡";
+    statusSelect.value = "Sent";
+    statusSelect.dispatchEvent(new Event("change"));
     recipientSelect.value = Object.keys(APP_CONFIG.profiles).find(key => key !== ownKey) || ownKey;
     openModal(writeModal);
   };
@@ -739,8 +758,12 @@ export function renderLetters(el, user, profile) {
     replyToId = null;
     closeModal(writeModal);
   };
-  $("#close-read-modal", el).onclick = () => closeModal(readModal);
-  $("#close-read-letter-btn", el).onclick = () => closeModal(readModal);
+  const closeReadModal = () => {
+    openingLetterGeneration++;
+    closeModal(readModal);
+  };
+  $("#close-read-modal", el).onclick = closeReadModal;
+  $("#close-read-letter-btn", el).onclick = closeReadModal;
 
   function updateReadScale() {
     readPaper.style.setProperty("--letter-font-scale", String(readFontScale));
@@ -776,8 +799,10 @@ export function renderLetters(el, user, profile) {
     const replyRecipient = replyBtn.dataset.recipient;
     if (!replyRecipient) return;
     const replyToIdToUse = openedLetter?.id || null;
-    closeModal(readModal);
+    closeReadModal();
     recipientSelect.value = replyRecipient;
+    statusSelect.value = "Sent";
+    statusSelect.dispatchEvent(new Event("change"));
     resetLetterEditorState();
     replyToId = replyToIdToUse;
     writeHeading.textContent = replyToId ? "Write a Reply ♡" : "Write a Letter ♡";
@@ -804,7 +829,13 @@ export function renderLetters(el, user, profile) {
       return;
     }
     const status = statusSelect.value;
-    const deliverDate = status === "Scheduled" ? new Date(deliverInput.value).toISOString() : new Date().toISOString();
+    const deliveryDate = status === "Scheduled" ? new Date(deliverInput.value) : new Date();
+    if (status === "Scheduled" && (!Number.isFinite(deliveryDate.getTime()) || deliveryDate.getTime() <= Date.now())) {
+      toast("Choose a delivery time in the future.");
+      deliverInput.focus();
+      return;
+    }
+    const deliverDate = deliveryDate.toISOString();
 
     try {
       const payload = {
@@ -871,19 +902,19 @@ export function renderLetters(el, user, profile) {
   function renderList() {
     const container = $("#letters-list-container", el);
     const now = new Date();
+    const nowMs = now.getTime();
 
     const filtered = allLetters
       .filter((item) => {
-        const deliveryTime = item.deliverDate ? new Date(item.deliverDate).getTime() : 0;
-        const isDelivered = !deliveryTime || deliveryTime <= now.getTime();
+        const delivered = isDelivered(item, nowMs);
         const isAuthor = item.author === user.uid;
         if (currentTab === "Inbox") {
           return !isAuthor && recipientKey(item.recipient) === ownKey &&
-            (item.status === "Sent" || (item.status === "Scheduled" && isDelivered));
+            (item.status === "Sent" || (item.status === "Scheduled" && delivered));
         } else if (currentTab === "Sent") {
-          return isAuthor && (item.status === "Sent" || isDelivered);
+          return isAuthor && (item.status === "Sent" || (item.status === "Scheduled" && delivered));
         } else if (currentTab === "Scheduled") {
-          return isAuthor && item.status === "Scheduled" && !isDelivered;
+          return isAuthor && item.status === "Scheduled" && !delivered;
         }
         return true;
       })
@@ -900,8 +931,7 @@ export function renderLetters(el, user, profile) {
         const dateVal = asDate(item.deliverDate) || asDate(item.createdAt);
         const dateStr = dateVal ? dateVal.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Just now";
         const timeStr = dateVal ? dateVal.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
-        const deliveryTime = item.deliverDate ? new Date(item.deliverDate).getTime() : 0;
-        const isScheduled = item.status === "Scheduled" && deliveryTime > now.getTime();
+        const isScheduled = item.status === "Scheduled" && !isDelivered(item, nowMs);
         const isLocked = isScheduled && item.author !== user.uid;
         const isReceived = item.author !== user.uid && recipientKey(item.recipient) === ownKey;
         const heading = isReceived
@@ -933,11 +963,11 @@ export function renderLetters(el, user, profile) {
 
     container.querySelectorAll(".letter-item").forEach((row) => {
       const openLetterFromRow = async () => {
+        const generation = ++openingLetterGeneration;
         const letter = allLetters.find((l) => l.id === row.dataset.id);
         if (!letter) return;
         openedLetter = letter;
-        const nowIso = new Date().toISOString();
-        if (letter.status === "Scheduled" && letter.deliverDate > nowIso && letter.author !== user.uid) {
+        if (letter.status === "Scheduled" && !isDelivered(letter) && letter.author !== user.uid) {
           toast("This letter is a surprise and locked until delivery date!");
           return;
         }
@@ -950,6 +980,7 @@ export function renderLetters(el, user, profile) {
           const body = letter.status === "Scheduled"
             ? letter.body || await getScheduledLetterBody(letter.id)
             : letter.body || "";
+          if (generation !== openingLetterGeneration || !active || !el.isConnected) return;
           $("#read-letter-title", el).textContent = `A letter from ${getDisplayName(letter.author, letter.authorName || "Us")} ♡`;
           const senderProfile = findProfileForAuthor(letter.author, letter.authorName || "");
           const senderName = getDisplayName(letter.author, letter.authorName || "Us");
@@ -1000,12 +1031,17 @@ export function renderLetters(el, user, profile) {
 
     const nextDelivery = allLetters
       .filter(item => item.status === "Scheduled" && item.deliverDate)
-      .map(item => new Date(item.deliverDate).getTime())
+      .map(item => asDate(item.deliverDate)?.getTime())
       .filter(time => Number.isFinite(time) && time > now.getTime())
       .sort((a, b) => a - b)[0];
     clearTimeout(deliveryTimer);
     deliveryTimer = nextDelivery
-      ? setTimeout(renderList, Math.min(nextDelivery - now.getTime() + 1, 2147483647))
+      ? setTimeout(() => {
+        renderList();
+        if (openedLetter && readModal.style.display !== "none") {
+          renderLetterReplies(allLetters.find(item => item.id === openedLetter.id) || openedLetter);
+        }
+      }, Math.min(nextDelivery - now.getTime() + 25, 2147483647))
       : null;
   }
 
@@ -1013,7 +1049,7 @@ export function renderLetters(el, user, profile) {
     if (!repliesContainer) return;
     if (!letter?.id) { repliesContainer.innerHTML = ""; return; }
     const replies = allLetters
-      .filter(item => item.replyTo === letter.id)
+      .filter(item => item.replyTo === letter.id && isDelivered(item))
       .sort((a, b) => (asDate(a.createdAt)?.getTime() || 0) - (asDate(b.createdAt)?.getTime() || 0));
 
     if (!replies.length) { repliesContainer.innerHTML = ""; return; }
@@ -1034,18 +1070,31 @@ export function renderLetters(el, user, profile) {
     replies.forEach(reply => {
       const target = repliesContainer.querySelector(`[data-reply-body-id="${CSS.escape(reply.id)}"]`);
       if (!target) return;
-      renderLetterBody(target, reply.body || "");
-      const body = target.querySelector(".letter-rich-text");
-      if (body) body.style.fontSize = "calc(19px * var(--letter-font-scale, 1))";
+      const renderReplyBody = bodyContent => {
+        if (!target.isConnected) return;
+        renderLetterBody(target, bodyContent || "");
+        const body = target.querySelector(".letter-rich-text");
+        if (body) body.style.fontSize = "calc(19px * var(--letter-font-scale, 1))";
+      };
+      if (reply.status === "Scheduled" && !reply.body) {
+        getScheduledLetterBody(reply.id).then(renderReplyBody).catch(error => {
+          if (target.isConnected) target.textContent = error.message || "This reply could not be opened.";
+        });
+      } else renderReplyBody(reply.body || "");
     });
   }
+
+  visibilityHandler = () => {
+    if (active && el.isConnected && !document.hidden) renderList();
+  };
+  document.addEventListener("visibilitychange", visibilityHandler);
 
   try {
     stopLetters = watchItems("letter", (items) => {
       if (!active || !el.isConnected) return;
       allLetters = items;
       renderList();
-      if (openedLetter && !readModal.classList.contains("hidden")) {
+      if (openedLetter && readModal.style.display !== "none") {
         renderLetterReplies(openedLetter);
       }
       for (const letter of items) {
@@ -1071,6 +1120,8 @@ export function renderLetters(el, user, profile) {
 
 export function disposeLetters() {
   active = false;
+  if (visibilityHandler) document.removeEventListener("visibilitychange", visibilityHandler);
+  visibilityHandler = null;
   clearTimeout(deliveryTimer);
   deliveryTimer = null;
   stopLetters?.();

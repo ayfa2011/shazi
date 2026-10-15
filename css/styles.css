@@ -6,6 +6,7 @@
   --card:#ffffffd9; --text:#34242c; --muted:#8c737d; --line:#f1dbe5;
   --shadow:0 18px 50px rgba(139,47,88,.10); --radius:22px;
 }
+.home-feed-loading{margin:0;padding:16px;text-align:center;color:var(--muted);font-size:12px}
 *{box-sizing:border-box} html,body{touch-action:manipulation} html{background:#ffeef5} body{margin:0;color:var(--text);font-family:"DM Sans",sans-serif;min-height:100vh;min-height:100dvh}
 button,[role="button"],a,input,select,textarea,label{touch-action:manipulation}
 button,input,textarea,select{font:inherit} button{cursor:pointer;border:0}
@@ -1174,6 +1175,43 @@ button:disabled { cursor: not-allowed; opacity: .58; }
   }
 }
 
+/* Compact, single-column home layout on phones. Keep each feature reachable
+   without repeating the full feed beside a second large card. */
+@media (max-width: 600px) {
+  .content { padding: 14px 12px calc(92px + env(safe-area-inset-bottom, 0px)); }
+  .topbar { padding-left: 12px; padding-right: 12px; }
+  .top-actions { gap: 6px; }
+  .home-dashboard .home-feature-grid { grid-template-columns: 1fr; gap: 10px; margin: 12px 0 17px; }
+  .home-dashboard .home-post-panel { min-height: 0; padding: 12px; }
+  .home-dashboard .home-post-panel .home-post-card { min-height: 0; }
+  .home-dashboard .home-empty-posts { min-height: 104px; padding: 10px; }
+  .home-dashboard .home-empty-posts-heart { display: none; }
+  .home-dashboard .home-empty-posts p { margin: 5px 0 0; }
+  .home-dashboard .home-view-more { min-height: 38px; }
+  .home-dashboard .home-drawing-panel { min-height: 0; padding: 9px; }
+  .home-dashboard .home-canvas-launch { flex-direction: row; align-items: center; justify-content: flex-start; gap: 10px; }
+  .home-dashboard .home-drawing-preview,
+  .home-dashboard .home-drawing-preview img { width: 54px; height: 54px; min-height: 54px; border-radius: 15px; }
+  .home-dashboard .home-canvas-action { flex: 1; text-align: left; }
+  .home-dashboard .home-canvas-action::after { content: " →"; color: var(--pink); }
+  .home-dashboard .today-section .eyebrow { margin-bottom: 4px; font-size: 8px; }
+  .home-dashboard .today-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+  .home-dashboard .today-cards .card { min-height: 0; padding: 0 !important; border-radius: 17px; }
+  .home-dashboard .today-image-btn,
+  .home-dashboard .today-image-btn img { border-radius: 17px; }
+  .home-dashboard .bottom-nav { width: calc(100% - 16px); bottom: max(6px, env(safe-area-inset-bottom, 0px)); padding: 5px 3px; }
+  .bottom-nav button { min-height: 46px; }
+  .music-drawer { right: 8px; bottom: max(66px, calc(66px + env(safe-area-inset-bottom, 0px))); width: calc(100% - 16px); height: min(82dvh, 720px); max-height: calc(100dvh - 76px); padding: 14px; border-radius: 20px; }
+  .music-chat { flex-basis: 28%; min-height: 112px; }
+}
+
+@media (max-width: 359px) {
+  .top-logo, .top-brand .eyebrow { display: none; }
+  .top-brand h2 { font-size: 19px; }
+  .home-dashboard .counter-units b { font-size: 23px; }
+  .bottom-nav button span { font-size: 8px; }
+}
+
 /* ==========================================================================
    Drawing History Photo Gallery Grid & Full-Size Preview Modal
    ========================================================================== */
@@ -1540,14 +1578,13 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .games-summary .avatar{width:48px;height:48px;border-radius:50%;background:#ffe2ed;display:grid;place-items:center;color:var(--deep);font-weight:700;}
 .games-summary .stats{display:flex;gap:12px;flex-wrap:wrap;}
 .games-summary .stat{font-size:14px;color:var(--deep);font-weight:700;}
-
-/* Love Photo equal sizing */
-.love-photo-card img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: 14px;
-}
+.sos-player-score{display:grid;justify-items:center;gap:5px;}
+.sos-player-score .game-player-avatar{width:50px;height:50px;border:3px solid #fff;border-radius:50%;object-fit:cover;box-shadow:0 4px 12px #7d35501c;}
+.game-room-player-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0;}
+.game-room-player{min-width:0;display:grid;justify-items:center;gap:4px;padding:9px;border:1px solid #f3d5e2;border-radius:14px;background:#fff8fb;color:#75435a;font-size:11px;text-align:center;}
+.game-room-player strong{font-size:12px;color:#8f315d;}
+.game-player-avatar{width:44px;height:44px;display:grid;place-items:center;border:3px solid #fff;border-radius:50%;object-fit:cover;box-shadow:0 4px 12px #7d35501c;}
+.game-player-avatar.fallback{background:linear-gradient(135deg,#f8bbd0,#d5c0f4);color:#75435a;font-size:17px;font-weight:800;}
 
 /* Waiting placeholder styling */
 .love-waiting {
@@ -1959,4 +1996,78 @@ body.home-dashboard .home-canvas-action {
   .markup-tool { width: 28px; height: 62px; }
   .markup-tool .tool-svg { width: 28px; height: 62px; }
   .dock-icon-btn { width: 34px; height: 34px; }
+}
+
+/* Compact, consistent page layout across the app */
+#main-content.content { padding: 12px 14px 104px; }
+#app-view .topbar { padding-top: max(10px, env(safe-area-inset-top, 10px)); padding-bottom: 10px; }
+#app-view .top-brand { gap: 8px; }
+#app-view .top-brand h2 { font-size: 18px; }
+#app-view .top-logo { width: 36px; height: 36px; font-size: 19px; }
+#app-view .top-actions { gap: 6px; }
+#app-view .top-actions .avatar,
+#app-view .top-actions .notification-toggle,
+#app-view .top-actions .icon-btn { width: 38px; height: 38px; min-height: 38px; }
+#main-content h1 { margin-top: 4px; margin-bottom: 4px; font-size: clamp(22px, 5vw, 27px); line-height: 1.18; }
+#main-content h2 { margin-top: 2px; margin-bottom: 4px; font-size: clamp(18px, 4vw, 21px); line-height: 1.25; }
+#main-content h3 { font-size: 16px; line-height: 1.3; }
+#main-content .section-head { margin: 15px 0 8px; }
+#main-content .hero { padding: 16px; border-radius: 20px; }
+#main-content .hero h1 { font-size: clamp(22px, 5vw, 27px); }
+#main-content .grid { gap: 10px; margin-top: 10px; }
+#main-content .card { padding: 13px; border-radius: 16px; }
+#main-content .item { gap: 9px; padding: 11px; }
+#main-content .home-dashboard .couple-brand { padding-top: 2px; padding-bottom: 4px; }
+#main-content .home-dashboard .couple-brand h1 { margin: 2px 0; font-size: clamp(27px, 6vw, 34px); }
+#main-content .home-dashboard .together-counter { min-height: 158px; margin: 6px 0 12px; padding: 16px 12px; border-radius: 22px; }
+#main-content .home-dashboard .home-header-composition { margin: 5px 0 12px; }
+#main-content .home-dashboard .home-feature-grid { gap: 10px; margin: 10px 0 14px; }
+#main-content .home-dashboard .home-post-panel,
+#main-content .home-dashboard .home-drawing-panel { min-height: 190px; padding: 10px; border-radius: 19px; }
+#main-content .home-dashboard .home-drawing-preview,
+#main-content .home-dashboard .home-drawing-preview img { min-height: 125px; }
+#main-content .home-dashboard .today-section { margin: 5px 0 14px; }
+#main-content .home-dashboard .today-cards .card { min-height: 130px; padding: 11px 10px 42px; border-radius: 17px; }
+#main-content .memories-heading,
+#main-content .gallery-heading,
+#main-content .letters-header,
+#main-content .games-intro,
+#main-content .drawing-heading,
+#main-content .question-page-header,
+#main-content .bucket-page-header,
+#main-content .more-page-heading,
+#main-content .special-days-header { margin-top: 0; margin-bottom: 10px; padding-top: 0; padding-bottom: 8px; }
+#main-content .memories-heading h1,
+#main-content .gallery-heading h1,
+#main-content .games-intro h1,
+#main-content .bucket-page-header h1,
+#main-content .more-page-heading h1,
+#main-content .special-days-header h1,
+#main-content .question-page-header h1,
+#main-content .post-page-head h1 { font-size: clamp(22px, 5vw, 27px); }
+#main-content .challenge-page { padding-top: 0; padding-bottom: 18px; }
+#main-content .challenge-page-head { margin: 0 0 10px; }
+#main-content .games-daily,
+#main-content .game-panel { padding: 15px; border-radius: 18px; }
+#main-content .games-hub-grid { gap: 9px; }
+
+@media (max-width: 600px) {
+  #main-content.content { padding: 8px 10px 98px; }
+  #app-view .topbar { padding-right: 10px; padding-left: 10px; }
+  #main-content .home-dashboard .together-counter { min-height: 142px; padding: 13px 8px; border-radius: 19px; }
+  #main-content .home-dashboard .home-feature-grid { gap: 8px; margin: 8px 0 12px; }
+  #main-content .home-dashboard .home-post-panel,
+  #main-content .home-dashboard .home-drawing-panel { min-height: 168px; padding: 8px; border-radius: 16px; }
+  #main-content .home-dashboard .home-drawing-preview,
+  #main-content .home-dashboard .home-drawing-preview img { min-height: 108px; }
+  #main-content .home-dashboard .today-cards { gap: 8px; }
+  #main-content .home-dashboard .today-cards .card { min-height: 118px; padding: 9px 8px 38px; }
+  #main-content .memories-heading h1,
+  #main-content .gallery-heading h1,
+  #main-content .games-intro h1,
+  #main-content .bucket-page-header h1,
+  #main-content .more-page-heading h1,
+  #main-content .special-days-header h1,
+  #main-content .question-page-header h1,
+  #main-content .post-page-head h1 { font-size: 22px; }
 }

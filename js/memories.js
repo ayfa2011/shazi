@@ -1,5 +1,5 @@
 import { $, esc, toast, generateThumbnail } from "./utils.js";
-import { watchItems, addItem, removeItem, setItem, addMemoryMedia, notifyPartnerSafely } from "./firestore.js";
+import { watchItems, addItem, removeItem, setItem, addMemoryMedia, removeMemoryMedia, notifyPartnerSafely } from "./firestore.js";
 import { getProfileKey } from "./profile-data.js";
 import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
 
@@ -8,6 +8,44 @@ let active = false;
 let removeMemoryEscapeListener = null;
 let memoryLoadTimer = null;
 let memoryWatchGeneration = 0;
+const MEMORY_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
+
+async function prepareMemoryPhoto(file) {
+  if (!file.type.startsWith("image/")) return file;
+  if (file.size <= MEMORY_PHOTO_MAX_BYTES) return file;
+  if (/image\/(gif|svg\+xml)/i.test(file.type)) {
+    throw new Error("This animated or vector image is over 2 MB. Please choose a smaller file to keep it unchanged.");
+  }
+
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch {
+    throw new Error("This image format cannot be compressed in your browser. Please save it as JPEG, PNG, or WebP and try again.");
+  }
+
+  try {
+    const canvas = document.createElement("canvas");
+    const qualities = [0.94, 0.91, 0.88, 0.85, 0.82];
+    for (let scale = 1; scale >= 0.55; scale -= 0.1) {
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const context = canvas.getContext("2d", { alpha: true });
+      if (!context) throw new Error("Could not prepare this photo. Please try another image.");
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      for (const quality of qualities) {
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/webp", quality));
+        if (blob?.type === "image/webp" && blob.size <= MEMORY_PHOTO_MAX_BYTES) {
+          const baseName = (file.name || "memory-photo").replace(/\.[^.]+$/, "");
+          return new File([blob], `${baseName}.webp`, { type: blob.type, lastModified: file.lastModified || Date.now() });
+        }
+      }
+    }
+  } finally {
+    bitmap.close?.();
+  }
+  throw new Error("This photo could not be reduced below 2 MB while keeping good detail. Please choose a smaller image.");
+}
 
 function parseLocalMemoryDate(dateStr) {
   if (!dateStr) return new Date(0);
@@ -146,8 +184,12 @@ export function renderMemories(el, user, profile) {
       .memory-image-lightbox { position:fixed; inset:0; z-index:1100; display:none; align-items:center; justify-content:center; padding:env(safe-area-inset-top,12px) env(safe-area-inset-right,12px) env(safe-area-inset-bottom,12px) env(safe-area-inset-left,12px); background:#1b1018ed; touch-action:pan-x pan-y pinch-zoom; }
       .memory-image-lightbox[aria-hidden="false"] { display:flex; }
       .memory-image-lightbox img, .memory-image-lightbox video { display:block; max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; border-radius:8px; box-shadow:0 14px 50px #0007; touch-action:pan-x pan-y pinch-zoom; }
+      .memory-image-lightbox img { transition:transform .18s ease; transform-origin:center; }
       .memory-image-lightbox video { width:100%; max-height:calc(100dvh - 36px); background:#080608; }
       .memory-image-lightbox-close { position:absolute; top:max(14px,env(safe-area-inset-top,14px)); right:max(14px,env(safe-area-inset-right,14px)); width:42px; height:42px; border:1px solid #ffffff55; border-radius:50%; background:#fff2; color:#fff; font-size:25px; cursor:pointer; }
+      .memory-lightbox-actions { position:absolute; right:12px; bottom:max(12px,env(safe-area-inset-bottom,12px)); left:12px; display:flex; align-items:center; justify-content:center; gap:8px; }
+      .memory-lightbox-zoom, .memory-lightbox-delete { min-width:34px; height:32px; padding:0 10px; border:1px solid #ffffff55; border-radius:999px; background:#24131a9c; color:#fff; font:600 12px/1 inherit; cursor:pointer; backdrop-filter:blur(8px); }
+      .memory-lightbox-delete { height:28px; min-width:0; padding:0 10px; border-color:#ffffff38; background:#63344acc; font-size:10px; }
 
       /* ───────── Animations ───────── */
       @keyframes mem-rise { from { opacity: 0; transform: translateY(22px) rotate(var(--tilt, 0deg)) scale(.95); } to { opacity: 1; transform: translateY(0) rotate(var(--tilt, 0deg)) scale(1); } }
@@ -269,6 +311,12 @@ export function renderMemories(el, user, profile) {
     </div>
     <div id="memory-image-lightbox" class="memory-image-lightbox" role="dialog" aria-modal="true" aria-label="Full size memory photo" aria-hidden="true">
       <button id="memory-image-lightbox-close" class="memory-image-lightbox-close" type="button" aria-label="Close full size photo">×</button>
+      <div class="memory-lightbox-actions">
+        <button id="memory-lightbox-zoom-out" class="memory-lightbox-zoom" type="button" aria-label="Zoom out">−</button>
+        <button id="memory-lightbox-zoom-reset" class="memory-lightbox-zoom" type="button" aria-label="Reset zoom">100%</button>
+        <button id="memory-lightbox-zoom-in" class="memory-lightbox-zoom" type="button" aria-label="Zoom in">＋</button>
+        <button id="memory-lightbox-delete" class="memory-lightbox-delete" type="button">Delete Photo</button>
+      </div>
       <img id="memory-image-lightbox-img" alt="Full size memory photo">
       <video id="memory-image-lightbox-video" controls playsinline webkit-playsinline preload="metadata" style="display:none" aria-label="Full size memory video"></video>
     </div>
@@ -284,6 +332,8 @@ export function renderMemories(el, user, profile) {
   const lightboxVideo = $("#memory-image-lightbox-video", el);
   let activeMemoryForView = null;
   let selectedGalleryMedia = null;
+  let lightboxMediaKey = "";
+  let lightboxZoom = 1;
 
   function openAddModal(item = null) {
     form.reset();
@@ -319,6 +369,9 @@ export function renderMemories(el, user, profile) {
     lightboxVideo.removeAttribute("src");
     lightboxVideo.load();
     lightboxVideo.style.display = "none";
+    lightboxMediaKey = "";
+    lightboxZoom = 1;
+    lightboxImage.style.transform = "scale(1)";
   }
 
   function openImageLightbox(image) {
@@ -328,12 +381,21 @@ export function renderMemories(el, user, profile) {
     lightboxImage.style.display = "block";
     lightboxImage.src = image.currentSrc || image.src;
     lightboxImage.alt = image.alt || "Full size memory photo";
+      const source = selectedGalleryMedia || activeMemoryForView || {};
+    lightboxMediaKey = source.telegramFileId || source.url || "";
+    lightboxZoom = 1;
+    lightboxImage.style.transform = "scale(1)";
+    updateLightboxActions();
     imageLightbox.setAttribute("aria-hidden", "false");
     $("#memory-image-lightbox-close", el).focus();
   }
 
   async function openGalleryMediaLightbox(item) {
     if (!item) return;
+    lightboxMediaKey = item.telegramFileId || item.url || "";
+    lightboxZoom = 1;
+    lightboxImage.style.transform = "scale(1)";
+    updateLightboxActions(item.type === "video");
     imageLightbox.setAttribute("aria-hidden", "false");
     lightboxImage.removeAttribute("src");
     lightboxImage.style.display = "none";
@@ -356,6 +418,61 @@ export function renderMemories(el, user, profile) {
     }
     $("#memory-image-lightbox-close", el).focus();
   }
+
+  function updateLightboxActions(video = selectedGalleryMedia?.type === "video") {
+    const controls = [$("#memory-lightbox-zoom-out", el), $("#memory-lightbox-zoom-reset", el), $("#memory-lightbox-zoom-in", el)];
+    controls.forEach(button => { button.style.display = video ? "none" : "inline-flex"; });
+    $("#memory-lightbox-delete", el).style.display = lightboxMediaKey ? "inline-flex" : "none";
+    $("#memory-lightbox-delete", el).textContent = video ? "Delete Video" : "Delete Photo";
+  }
+
+  function setLightboxZoom(nextZoom) {
+    lightboxZoom = Math.max(1, Math.min(4, nextZoom));
+    lightboxImage.style.transform = `scale(${lightboxZoom})`;
+    $("#memory-lightbox-zoom-reset", el).textContent = `${Math.round(lightboxZoom * 100)}%`;
+  }
+
+  $("#memory-lightbox-zoom-in", el).onclick = () => setLightboxZoom(lightboxZoom + 0.5);
+  $("#memory-lightbox-zoom-out", el).onclick = () => setLightboxZoom(lightboxZoom - 0.5);
+  $("#memory-lightbox-zoom-reset", el).onclick = () => setLightboxZoom(1);
+  $("#memory-lightbox-delete", el).onclick = async () => {
+    const memory = activeMemoryForView;
+    const key = lightboxMediaKey;
+    if (!memory?.id || !key) return;
+    const mediaLabel = selectedGalleryMedia?.type === "video" ? "video" : "photo";
+    if (!confirm(`Delete this ${mediaLabel} from the memory?`)) return;
+    const deleteButton = $("#memory-lightbox-delete", el);
+    deleteButton.disabled = true;
+    try {
+      const result = await removeMemoryMedia(memory.id, key);
+      const mediaItems = result.mediaItems;
+      const nextMemory = { ...memory, mediaItems };
+      if (memory.telegramFileId === key || memory.photoUrl === key) {
+        delete nextMemory.telegramFileId;
+        delete nextMemory.photoUrl;
+        delete nextMemory.mediaType;
+        delete nextMemory.photoMimeType;
+      }
+      const update = item => item.id === memory.id ? nextMemory : item;
+      allMemories = allMemories.map(update);
+      sortedMemories = sortedMemories.map(update);
+      activeMemoryForView = nextMemory;
+      const removedIndex = (memory.mediaItems || []).findIndex(item => (item.telegramFileId || item.url) === key);
+      if (removedIndex >= 0) {
+        const remaining = mediaItems[Math.min(removedIndex, mediaItems.length - 1)] || null;
+        selectedGalleryMedia = remaining;
+      } else selectedGalleryMedia = null;
+      closeImageLightbox();
+      renderMemoryHero(nextMemory, selectedGalleryMedia);
+      renderMemoryGallery(nextMemory);
+      toast(result.removed ? `${mediaLabel === "video" ? "Video" : "Photo"} deleted from this memory.` : "This media was already removed.");
+    } catch (error) {
+      console.error("Could not delete memory media:", error);
+      toast("Could not delete this media. Please try again.");
+    } finally {
+      deleteButton.disabled = false;
+    }
+  };
 
   $("#delete-mem-btn", el).onclick = async () => {
     const editId = $("#mem-edit-id", el).value;
@@ -389,10 +506,10 @@ export function renderMemories(el, user, profile) {
       let mediaMetadata = {};
       if (file) {
         isVideo = file.type.startsWith("video/");
-        const profileKey = getProfileKey(profile);
         const timestamp = new Date().toLocaleString();
-        const result = await sendToTelegram(file, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`, new Date().toISOString().slice(0, 10), profileKey, { storeForReveal: false });
-        mediaMetadata = { ...telegramMediaReferences(result), photoMimeType: telegramUploadMimeType(file) };
+        const uploadFile = isVideo ? file : await prepareMemoryPhoto(file);
+        const result = await sendToTelegram(uploadFile, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`);
+        mediaMetadata = { ...telegramMediaReferences(result), photoMimeType: telegramUploadMimeType(uploadFile) };
       }
 
       let formattedDate = "";
@@ -469,8 +586,9 @@ export function renderMemories(el, user, profile) {
     const imgWrap = $("#view-mem-img-wrap", el);
     imgWrap.onclick = event => {
       const image = event.target.closest("img.memory-view-main");
-      if (!image) return;
-      openImageLightbox(image);
+      if (image) { openImageLightbox(image); return; }
+      const video = event.target.closest("video.memory-view-main");
+      if (video && selected) void openGalleryMediaLightbox(selected);
     };
     imgWrap.onkeydown = event => {
       const image = event.target.closest("img.memory-view-main");
@@ -536,7 +654,10 @@ export function renderMemories(el, user, profile) {
     mediaGrid.querySelectorAll("[data-media-index]").forEach(button => {
       button.onclick = () => {
         selectedGalleryMedia = media[Number(button.dataset.mediaIndex)] || null;
-        if (selectedGalleryMedia) void openGalleryMediaLightbox(selectedGalleryMedia).catch(error => { console.error("Could not open memory media:", error); toast("Could not open this media. Please try again."); });
+        if (selectedGalleryMedia) {
+          renderMemoryHero(memory, selectedGalleryMedia);
+          void openGalleryMediaLightbox(selectedGalleryMedia).catch(error => { console.error("Could not open memory media:", error); toast("Could not open this media. Please try again."); });
+        }
       };
     });
     hydrateMemoryThumbnails(mediaGrid);
@@ -583,17 +704,18 @@ export function renderMemories(el, user, profile) {
           const type = file.type.startsWith("video/") ? "video" : "photo";
           const createdAtMs = Date.now();
           const timestamp = new Date(createdAtMs).toLocaleString();
+          const uploadFile = type === "photo" ? await prepareMemoryPhoto(file) : file;
 
           // Generate thumbnail before uploading
-          const thumbnail = type === "photo" ? await generateThumbnail(file) : null;
+          const thumbnail = type === "photo" ? await generateThumbnail(uploadFile) : null;
 
-          const result = await sendToTelegram(file, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`, new Date(createdAtMs).toISOString().slice(0, 10), getProfileKey(profile), { storeForReveal: false });
+          const result = await sendToTelegram(uploadFile, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`);
 
           return {
             ...telegramMediaReferences(result),
             thumbnailUrl: thumbnail, // Ensure key matches usage in renderGrid
             type,
-            mimeType: telegramUploadMimeType(file),
+            mimeType: telegramUploadMimeType(uploadFile),
             name: file.name || (type === "video" ? "Video" : "Photo"),
             createdAtMs
           };
@@ -603,8 +725,7 @@ export function renderMemories(el, user, profile) {
       }
 
       const current = allMemories.find(item => item.id === memory.id) || memory;
-      await addMemoryMedia(memory.id, uploadedMedia);
-      const mediaItems = [...(current.mediaItems || []), ...uploadedMedia];
+      const mediaItems = await addMemoryMedia(memory.id, uploadedMedia);
       const updateMemory = item => item.id === memory.id ? { ...item, mediaItems } : item;
       allMemories = allMemories.map(updateMemory);
       sortedMemories = sortedMemories.map(updateMemory);
@@ -774,30 +895,10 @@ export function renderMemories(el, user, profile) {
       stopMemories = watchItems("memory", (items) => {
         if (!active || !el.isConnected || generation !== memoryWatchGeneration) return;
         clearTimeout(memoryLoadTimer);
-        // Keep media just uploaded in the current view if Firestore briefly
-        // delivers an older snapshot before the mediaItems update is visible.
         const incomingItems = items || [];
         const incomingIds = new Set(incomingItems.map(i => i.id));
         const optimisticItems = allMemories.filter(i => i.isOptimistic && !incomingIds.has(i.id));
-
-        const updatedItems = incomingItems.map(item => {
-          const previous = allMemories.find(existing => existing.id === item.id);
-          if (!previous || !Array.isArray(previous.mediaItems) || !previous.mediaItems.length) return { ...item, isOptimistic: false };
-          const savedMedia = Array.isArray(item.mediaItems) ? item.mediaItems : [];
-          const mediaKey = media => media.telegramFileId || media.url || `${media.name || ""}:${media.createdAtMs || ""}`;
-          const mergedMedia = [...savedMedia];
-          const knownKeys = new Set(savedMedia.map(mediaKey));
-          for (const media of previous.mediaItems) {
-            const key = mediaKey(media);
-            if (!knownKeys.has(key)) {
-              mergedMedia.push(media);
-              knownKeys.add(key);
-            }
-          }
-          return { ...item, mediaItems: mergedMedia, isOptimistic: false };
-        });
-
-        allMemories = [...updatedItems, ...optimisticItems];
+        allMemories = [...incomingItems.map(item => ({ ...item, isOptimistic: false })), ...optimisticItems];
 
         if (activeMemoryForView) {
           const refreshed = allMemories.find(item => item.id === activeMemoryForView.id);

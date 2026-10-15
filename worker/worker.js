@@ -5,12 +5,6 @@ const JWKS = createRemoteJWKSet(
 );
 const ALLOWED_EMAILS = new Set(['akabeeram@gmail.com', 'hizasgallery@gmail.com']);
 
-const MIME = {
-  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
-  gif: 'image/gif', heic: 'image/heic', heif: 'image/heif', avif: 'image/avif',
-  bmp: 'image/bmp', tif: 'image/tiff', tiff: 'image/tiff',
-};
-
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
@@ -57,9 +51,6 @@ export default {
       await verifyFirebaseUser(request, env);
 
       const url = new URL(request.url);
-      const dayKey = url.searchParams.get('dayKey') || '';
-      const profileKey = url.searchParams.get('profileKey') || '';
-      const storeForReveal = url.searchParams.get('storeForReveal') !== 'false';
       const api = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}`;
 
       // Gallery records hold these Telegram references in Firestore. Media bytes are
@@ -94,18 +85,13 @@ export default {
         return json({ ok: true });
       }
 
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) throw new HttpError(400, 'Invalid dayKey');
-      if (!/^[A-Za-z0-9_-]{1,40}$/.test(profileKey)) throw new HttpError(400, 'Invalid profileKey');
-
-      const kvKey = (key) => `photo:${dayKey}:${key}`;
-
       if (request.method === 'POST') {
         const formData = await request.formData();
         const file = formData.get('file');
         const caption = formData.get('caption') || '';
         if (!file || typeof file === 'string') throw new HttpError(400, 'No file uploaded');
 
-        const fileName = file.name || 'love-note.jpg';
+        const fileName = file.name || 'media';
         const tg = new FormData();
         tg.append('chat_id', env.TELEGRAM_CHAT_ID);
         tg.append('document', file, fileName);
@@ -115,49 +101,9 @@ export default {
         const data = await res.json().catch(() => ({}));
         if (!data.ok) throw new HttpError(502, data.description || 'Telegram upload failed');
 
-        if (storeForReveal) {
-          const fileId =
-            data.result?.document?.file_id ||
-            data.result?.photo?.[data.result.photo.length - 1]?.file_id;
-          if (!fileId) throw new HttpError(502, 'Telegram did not return a file_id');
-
-          const ext = fileName.split('.').pop().toLowerCase();
-          const mime = file.type && file.type.startsWith('image/') ? file.type : MIME[ext] || 'application/octet-stream';
-          await env.PHOTOS.put(kvKey(profileKey), JSON.stringify({ fileId, mime }));
-        }
-
         return json(data);
       }
-
-      const viewerKey = url.searchParams.get('viewerKey') || '';
-      if (!/^[A-Za-z0-9_-]{1,40}$/.test(viewerKey)) throw new HttpError(400, 'Invalid viewerKey');
-
-      if (viewerKey !== profileKey) {
-        const viewerUpload = await env.PHOTOS.get(kvKey(viewerKey));
-        if (!viewerUpload) throw new HttpError(423, 'Both partners need to upload first');
-      }
-
-      const stored = await env.PHOTOS.get(kvKey(profileKey), 'json');
-      if (!stored?.fileId) throw new HttpError(404, 'Photo not found');
-
-      const fileRes = await fetch(`${api}/getFile?file_id=${encodeURIComponent(stored.fileId)}`);
-      const fileData = await fileRes.json().catch(() => ({}));
-      if (!fileData.ok || !fileData.result?.file_path) {
-        throw new HttpError(502, fileData.description || 'Telegram getFile failed');
-      }
-
-      const imageRes = await fetch(
-        `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${fileData.result.file_path}`
-      );
-      if (!imageRes.ok || !imageRes.body) throw new HttpError(502, 'Telegram download failed');
-
-      return new Response(imageRes.body, {
-        headers: {
-          ...cors,
-          'Content-Type': stored.mime || 'application/octet-stream',
-          'Cache-Control': 'private, max-age=3600',
-        },
-      });
+      throw new HttpError(400, 'Missing Telegram file reference');
     } catch (err) {
       const status = err instanceof HttpError ? err.status : 500;
       return json({ ok: false, error: err.message || 'Server error' }, status);

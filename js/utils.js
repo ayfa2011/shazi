@@ -32,22 +32,25 @@ export function dailyIndex(length, date = new Date()) {
   return Math.floor(day) % length;
 }
 
-export function generateThumbnail(file, maxWidth = 30) {
+export function generateThumbnail(file, maxDimension = 720) {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement("canvas");
-        const scale = maxWidth / img.width;
-        canvas.width = maxWidth;
-        canvas.height = img.height * scale;
+        const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
         const ctx = canvas.getContext("2d");
+        if (!ctx) return resolve("");
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.5));
+        resolve(canvas.toDataURL("image/jpeg", 0.82));
       };
+      img.onerror = () => resolve("");
       img.src = e.target.result;
     };
+    reader.onerror = () => resolve("");
     reader.readAsDataURL(file);
   });
 }

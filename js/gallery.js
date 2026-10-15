@@ -1,6 +1,5 @@
 import { $, esc, toast } from "./utils.js";
 import { addItem, removeItem, watchItems } from "./firestore.js";
-import { getProfileKey } from "./profile-data.js";
 import { deleteTelegramGalleryMessage, getTelegramMediaBlob, sendToTelegram, telegramUploadMimeType } from "../src/services/telegramService.js";
 
 let stopFolders = null;
@@ -279,19 +278,14 @@ export function renderSharedGallery(el, user, profile) {
     const button = $("#gallery-upload-open", el);
     button.disabled = true;
     button.textContent = "Uploading…";
-    const profileKey = getProfileKey(profile);
     try {
       const results = await Promise.all(files.map(async file => {
         const mediaType = file.type.startsWith("video/") ? "video" : "photo";
         const createdAtMs = Date.now();
-        if (!profileKey) throw new Error("Could not identify your profile for Telegram upload.");
         const timestamp = new Date(createdAtMs).toLocaleString();
         const result = await sendToTelegram(
           file,
-          `New Gallery Upload 🖼️ · ${folder.title} · ${profile?.name || "Partner"} · ${timestamp}`,
-          new Date(createdAtMs).toISOString().slice(0, 10),
-          profileKey,
-          { storeForReveal: false }
+          `New Gallery Upload 🖼️ · ${folder.title} · ${profile?.name || "Partner"} · ${timestamp}`
         );
         const message = result.result || result;
         const telegramFile = message.document || message.video || message.audio || message.photo?.at(-1);

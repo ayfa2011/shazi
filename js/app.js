@@ -25,7 +25,7 @@ import { getCoupleProfiles, saveCoupleProfile, watchCoupleProfiles } from "./fir
 import { applyCoupleProfiles, findProfileForAuthor, getDisplayName, getProfileKey, hydrateCoupleProfileAvatars } from "./profile-data.js";
 
 let currentUser = null, currentProfile = null, disposeMusic = null, stopPresence = null;
-let currentRoute = "home", stopCoupleProfiles = null;
+let currentRoute = "home", stopCoupleProfiles = null, handlingPopState = false;
 
 function updateProfileAvatar(profile) {
   const avatar = $("#avatar-letter");
@@ -466,7 +466,7 @@ function renderPostFeed(el, user, profile) {
         try {
           const extension = blob.type.includes("mp4") ? "m4a" : "webm";
           const file = new File([blob], `voice-note-${Date.now()}.${extension}`, { type: blob.type });
-          const result = await sendToTelegram(file, `Post voice note · ${profile.name} · ${new Date().toLocaleString()}`, new Date().toISOString().slice(0, 10), getProfileKey(profile), { storeForReveal: false });
+          const result = await sendToTelegram(file, `Post voice note · ${profile.name} · ${new Date().toLocaleString()}`);
           voiceResolve?.({ ...telegramMediaReferences(result), mimeType: telegramUploadMimeType(file), durationMs });
         } catch (error) {
           console.error("Voice note upload failed:", error);
@@ -600,7 +600,7 @@ function renderPostFeed(el, user, profile) {
       let photoMetadata = {};
       if (file) {
         const timestamp = new Date().toLocaleString();
-        const result = await sendToTelegram(file, `New Post Photo 📸 · ${profile.name} · ${timestamp}`, new Date().toISOString().slice(0, 10), getProfileKey(profile), { storeForReveal: false });
+        const result = await sendToTelegram(file, `New Post Photo 📸 · ${profile.name} · ${timestamp}`);
         photoMetadata = { ...telegramMediaReferences(result), photoMimeType: telegramUploadMimeType(file) };
       }
 
@@ -860,7 +860,11 @@ window.App = {
   navigate
 };
 
-export function navigate(route = "home") {
+export function navigate(route = "home", { history = true } = {}) {
+  if (!routes[route]) route = "home";
+  if (history && route !== currentRoute) {
+    window.history.pushState({ route }, "", `#${route}`);
+  }
   currentRoute = route;
   document.body.classList.toggle("home-dashboard", route === "home");
   // Dispose active listeners based on previous page to stop leaks
@@ -898,6 +902,31 @@ export function navigate(route = "home") {
     routes[route](mainElem, currentUser, currentProfile);
   }
 }
+
+function closeTransientUi() {
+  const drawer = $("#music-drawer");
+  if (drawer && !drawer.classList.contains("hidden")) {
+    drawer.classList.add("hidden");
+    return true;
+  }
+  const openModal = document.querySelector(".tw-detail-backdrop.open, .tw-image-backdrop.open, .mem-modal-overlay[style*='display: flex'], .letter-modal-overlay.is-open, .drawing-history-overlay:not(.hidden), .drawing-preview-overlay:not(.hidden), .question-edit-modal.open, .gallery-viewer.open, .special-days-modal:not(.hidden)");
+  if (openModal) {
+    const close = openModal.querySelector("[aria-label='Close'], [aria-label^='Close'], .tw-detail-close, .memory-view-close, .mem-modal-close, .drawing-close, .letter-close-btn, #gallery-viewer-close, #question-edit-cancel");
+    if (close) close.click();
+    else openModal.classList.remove("open", "is-open");
+    return true;
+  }
+  return false;
+}
+
+window.addEventListener("popstate", event => {
+  if (closeTransientUi()) {
+    window.history.pushState({ route: currentRoute }, "", `#${currentRoute}`);
+    return;
+  }
+  const route = event.state?.route || window.location.hash.slice(1);
+  navigate(routes[route] ? route : "home", { history: false });
+});
 
 // Initialize Authentication & Router Lifecycle
 initAuth(
@@ -984,7 +1013,10 @@ initAuth(
     if (requestedRoute && notificationRoutes.includes(requestedRoute)) {
       window.history.replaceState(null, "", `${window.location.pathname}${window.location.hash}`);
     }
-    navigate(initialRoute);
+    const routeFromHash = window.location.hash.slice(1);
+    const route = routes[routeFromHash] ? routeFromHash : initialRoute;
+    window.history.replaceState({ route }, "", `#${route}`);
+    navigate(route, { history: false });
     initNotificationCenter(user, currentProfile, navigate);
 
     // Initialize Background Music if Firebase Ready
@@ -1048,7 +1080,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $$(".bottom-nav button").forEach((b) => {
     b.addEventListener("click", () => {
       const route = b.dataset.route;
-      if (route) navigate(route);
+      if (route && route !== currentRoute) navigate(route);
     });
   });
 

@@ -93,7 +93,7 @@ export function renderQuestions(el, user, profile) {
       .question-status { min-height:20px; margin:8px 0; color:var(--muted); font-size:12px; }
       .question-answers { display:grid; gap:9px; margin-top:14px; }
       .question-answer { display:flex; align-items:flex-start; gap:10px; padding:11px; border:1px solid #f4e4eb; border-radius:14px; background:#fffafd; }
-      .question-answer-avatar { flex:none; width:36px; height:36px; display:grid; place-items:center; overflow:hidden; border-radius:50%; background:#ffe5ef; color:var(--deep); font-weight:700; }
+      .question-answer-avatar { flex:none; width:46px; height:46px; display:grid; place-items:center; overflow:hidden; border:3px solid #fff; border-radius:50%; background:linear-gradient(145deg,#ffdce9,#f5bbd0); color:var(--deep); font-size:16px; font-weight:800; box-shadow:0 3px 10px #7d35501c; }
       .question-answer-avatar img { width:100%; height:100%; object-fit:cover; }
       .question-answer-body { min-width:0; flex:1; }
       .question-answer-body header { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
@@ -114,14 +114,14 @@ export function renderQuestions(el, user, profile) {
       .question-history-item h3 { margin:0 0 12px; color:#60283f; font:700 15px/1.4 system-ui,sans-serif; }
       .question-history-answers { display:grid; gap:8px; }
       .question-history-answer { display:flex; align-items:flex-start; gap:9px; min-width:0; margin:0; padding:9px 10px; border:1px solid #f7e4eb; border-radius:14px; background:linear-gradient(110deg,#fff3f8,#fffafd); color:#493540; font-size:12px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
-      .question-history-avatar { flex:none; width:32px; height:32px; display:grid; place-items:center; overflow:hidden; border:2px solid #fff; border-radius:50%; background:linear-gradient(145deg,#ffdce9,#f5bbd0); color:#8b315d; font-size:12px; font-weight:800; box-shadow:0 2px 6px #7d35501a; }
+      .question-history-avatar { flex:none; width:39px; height:39px; display:grid; place-items:center; overflow:hidden; border:3px solid #fff; border-radius:50%; background:linear-gradient(145deg,#ffdce9,#f5bbd0); color:#8b315d; font-size:14px; font-weight:800; box-shadow:0 3px 9px #7d35501c; }
       .question-history-avatar img { display:block; width:100%; height:100%; object-fit:cover; }
       .question-history-copy { min-width:0; flex:1; }
       .question-history-copy strong { display:block; margin:0 0 2px; color:#8b315d; font-size:11px; font-weight:800; }
       .question-history-copy span { display:block; }
       .question-history-locked { align-items:center; background:#f8f5f6; border-color:#eee7ea; color:#9b8c93; font-style:italic; }
       .question-empty { padding:14px; color:var(--muted); text-align:center; font-size:12px; }
-      @media(max-width:420px) { .question-page-header h1 { font-size:22px; } .question-prompt { font-size:16px; } .question-card,.question-history-card { padding:12px; } .question-history-list { gap:12px; padding-left:20px; } .question-history-list::before { left:5px; } .question-history-item { padding:12px; border-radius:16px; } .question-history-item::before { left:-35px; top:15px; width:27px; height:27px; } .question-history-item h3 { font-size:14px; } .question-history-answer { gap:7px; padding:8px; font-size:11px; } .question-history-avatar { width:29px; height:29px; } }
+      @media(max-width:420px) { .question-page-header h1 { font-size:22px; } .question-prompt { font-size:16px; } .question-card,.question-history-card { padding:12px; } .question-history-list { gap:12px; padding-left:20px; } .question-history-list::before { left:5px; } .question-history-item { padding:12px; border-radius:16px; } .question-history-item::before { left:-35px; top:15px; width:27px; height:27px; } .question-history-item h3 { font-size:14px; } .question-history-answer { gap:7px; padding:8px; font-size:11px; } .question-history-avatar { width:36px; height:36px; } }
     </style>
     <section class="question-page">
       <header class="question-page-header"><h1>Today's Question</h1><span class="question-day">${esc(new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}))}</span></header>

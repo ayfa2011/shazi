@@ -21,7 +21,7 @@ async function authorizedRequest(url, options = {}) {
   return fetch(url, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` } });
 }
 
-export async function sendToTelegram(file, caption, dayKey, profileKey, { storeForReveal = true } = {}) {
+export async function sendToTelegram(file, caption) {
   const body = new FormData();
   const fileName = file.name || "love-note.jpg";
   const extension = fileName.split(".").pop().toLowerCase();
@@ -29,30 +29,10 @@ export async function sendToTelegram(file, caption, dayKey, profileKey, { storeF
   const uploadFile = file.type ? file : new File([file], fileName, { type: inferredType || "application/octet-stream" });
   body.append("file", uploadFile, fileName);
   body.append("caption", caption);
-  const url = new URL(TELEGRAM_CONFIG.WORKER_URL);
-  url.searchParams.set("dayKey", dayKey);
-  // Keep generic forwards out of the daily reveal slot even before the Worker is redeployed.
-  url.searchParams.set("profileKey", storeForReveal ? profileKey : `upload_${Date.now().toString(36)}`);
-  if (!storeForReveal) url.searchParams.set("storeForReveal", "false");
-  const response = await authorizedRequest(url.toString(), { method: "POST", body });
+  const response = await authorizedRequest(TELEGRAM_CONFIG.WORKER_URL, { method: "POST", body });
   const result = await response.json().catch(() => ({}));
   if (!response.ok || result.ok === false) throw new Error(result.error || result.message || "Could not forward the photo to Telegram.");
   return result;
-}
-
-/** profileKey = whose photo to load, viewerKey = the signed-in person's own profile key. */
-export async function getTelegramLovePhoto(dayKey, profileKey, viewerKey) {
-  const url = new URL(TELEGRAM_CONFIG.WORKER_URL);
-  url.searchParams.set("dayKey", dayKey);
-  url.searchParams.set("profileKey", profileKey);
-  url.searchParams.set("viewerKey", viewerKey || profileKey);
-  const response = await authorizedRequest(url.toString(), { method: "GET" });
-  if (!response.ok) {
-    const error = new Error(response.status === 423 ? "Both partners need to upload before reveal." : "Could not load the revealed photo.");
-    error.status = response.status;
-    throw error;
-  }
-  return response.blob();
 }
 
 /** Load Gallery media through the authenticated Worker; the Telegram bot token stays server-side. */

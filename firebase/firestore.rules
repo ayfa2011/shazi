@@ -135,10 +135,9 @@ service cloud.firestore {
         && collectionName != 'notifications'
         && collectionName != 'scheduledLetterContents'
         && (
-          (collectionName == 'items' && resource.data.get('type', '') in ['customChallenge', 'loveYouChallenge'])
+          (collectionName == 'items' && resource.data.get('type', '') == 'customChallenge')
           || resource.data.get('type', '') != 'answer'
           || resource.data.get('author', '') == request.auth.uid
-          || documentId.matches('^love-you-[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         );
       allow create: if isCoupleMember()
         && coupleId == 'our-little-world'
@@ -148,13 +147,10 @@ service cloud.firestore {
         && request.resource.data.get('type', '') != 'answer'
         && (request.resource.data.get('type', '') == 'customChallenge'
           ? (collectionName == 'items' && isCustomChallengeCreate(request.resource.data))
-          : (request.resource.data.get('type', '') == 'loveYouChallenge'
-            ? collectionName == 'items'
-              && request.resource.data.get('uploads', {}).keys().hasOnly([ownNotificationProfileKey()])
-            : ownsAuthoredFields(request.resource.data)))
+          : ownsAuthoredFields(request.resource.data))
         && (request.resource.data.get('type', '') != 'specialDay'
           || (collectionName == 'items' && isValidSpecialDay(request.resource.data)))
-        && (request.resource.data.get('type', '') in ['customChallenge', 'loveYouChallenge']
+        && (request.resource.data.get('type', '') == 'customChallenge'
           || ownsDiaryPost(collectionName, request.resource.data));
       allow update: if isCoupleMember()
         && coupleId == 'our-little-world'
@@ -177,7 +173,6 @@ service cloud.firestore {
           ||
           (collectionName == 'items'
             && resource.data.get('type', '') != 'customChallenge'
-            && resource.data.get('type', '') != 'loveYouChallenge'
             && resource.data.get('type', '') != 'memory'
             && ownsAuthoredFields(resource.data)
             && (!request.resource.data.keys().hasAny(['author', 'authorId']) || ownsAuthoredFields(request.resource.data))
@@ -195,16 +190,10 @@ service cloud.firestore {
               || (resource.data.get('recipientKey', '') == ownNotificationProfileKey()
                 && request.resource.data.get('author', '') == resource.data.get('author', '')
                 && request.resource.data.get('recipientKey', '') == resource.data.get('recipientKey', '')
-                && request.resource.data.get('status', '') in ['in-progress', 'declined', 'completed']
+                && request.resource.data.get('status', '') in ['in-progress', 'completed']
                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'actions', 'acceptedBy', 'acceptedAtMs', 'note', 'photoUrl', 'completedBy', 'completedByKey', 'completedAtMs'])
                 && ((request.resource.data.status == 'in-progress' && resource.data.status in ['upcoming', 'in-progress'])
-                  || (request.resource.data.status == 'declined' && resource.data.status == 'upcoming')
                   || (request.resource.data.status == 'completed' && resource.data.status == 'in-progress')))))
-          || (collectionName == 'items' && resource.data.get('type', '') == 'loveYouChallenge'
-            && request.resource.data.get('type', '') == 'loveYouChallenge'
-            && request.resource.data.dayKey == resource.data.dayKey
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uploads', 'updatedAtMs', 'createdAt'])
-            && request.resource.data.uploads.diff(resource.data.get('uploads', {})).affectedKeys().hasOnly([ownNotificationProfileKey()]))
         );
       allow delete: if isCoupleMember()
         && coupleId == 'our-little-world'
@@ -218,7 +207,6 @@ service cloud.firestore {
               && isCoupleMember())
             || (collectionName == 'items'
               && resource.data.get('type', '') != 'customChallenge'
-              && resource.data.get('type', '') != 'loveYouChallenge'
               && resource.data.get('type', '') != 'memory'
               && resource.data.get('type', '') != 'music'
               && ownsAuthoredFields(resource.data)
@@ -229,6 +217,52 @@ service cloud.firestore {
             && resource.data.get('status', '') != 'completed')
           || collectionName == 'drawingMessages'
         );
+    }
+
+    match /couples/{coupleId}/scheduledLetterContents/{letterId} {
+      function isValidContentCreate() {
+        let data = request.resource.data;
+        let letterPath = /databases/$(database)/documents/couples/$(coupleId)/items/$(letterId);
+        let newLetter = existsAfter(letterPath) ? getAfter(letterPath).data : {};
+        let oldLetter = exists(letterPath) ? get(letterPath).data : {};
+        let matchesNewLetter = newLetter.get('type', '') == 'letter'
+          && newLetter.get('status', '') == 'Scheduled'
+          && newLetter.get('author', '') == data.author
+          && newLetter.get('recipient', '') == data.recipient
+          && newLetter.get('deliverDate', null) == data.deliverDate
+          && data.author == request.auth.uid;
+        let matchesLegacyMigration = oldLetter.get('type', '') == 'letter'
+          && oldLetter.get('status', '') == 'Scheduled'
+          && oldLetter.get('body', '') is string
+          && oldLetter.get('body', '') == data.body
+          && oldLetter.get('author', '') == data.author
+          && (oldLetter.get('recipient', '') == data.recipient
+            || (data.recipient == 'kebyy' && oldLetter.get('recipient', '') == 'Keby')
+            || (data.recipient == 'shazy' && oldLetter.get('recipient', '') == 'Shazy'))
+          && (data.author == request.auth.uid
+            || (data.recipient == ownNotificationProfileKey()
+              && isOwnLetterRecipient(oldLetter.get('recipient', ''))));
+        return data.keys().hasAll(['author', 'recipient', 'deliverDate', 'body'])
+          && data.keys().hasOnly(['author', 'recipient', 'deliverDate', 'body'])
+          && data.recipient in ['kebyy', 'shazy']
+          && data.deliverDate is timestamp
+          && data.body is string
+          && (matchesNewLetter || matchesLegacyMigration);
+      }
+
+      allow get: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && (resource.data.get('author', '') == request.auth.uid
+          || (resource.data.get('recipient', '') == ownNotificationProfileKey()
+            && resource.data.get('deliverDate', request.time) <= request.time));
+      allow create: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && isValidContentCreate();
+      allow update: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && resource.data.get('author', '') == request.auth.uid
+        && request.resource.data == resource.data;
+      allow list, delete: if false;
     }
 
     match /couples/{coupleId}/notifications/{notificationId} {
