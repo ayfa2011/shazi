@@ -95,8 +95,8 @@ function isValidSosState(state) {
         (letter ? state.playerUids.includes(state.owners[index]) : state.owners[index] === "")) ||
       !state.scores || typeof state.scores !== "object" ||
       !state.playerUids.every(uid => Number.isInteger(state.scores[uid]) && state.scores[uid] >= 0) ||
-      !Array.isArray(state.lines) ||
-      !state.lines.every(line => Array.isArray(line.cells) && line.cells.length === 3 &&
+      (state.lines != null && !Array.isArray(state.lines)) ||
+      !(state.lines || []).every(line => Array.isArray(line.cells) && line.cells.length === 3 &&
         line.cells.every(index => Number.isInteger(index) && index >= 0 && index < SOS_CELL_COUNT) &&
         state.board[line.cells[0]] === "S" && state.board[line.cells[1]] === "O" &&
         state.board[line.cells[2]] === "S" && state.playerUids.includes(line.uid))) return false;
@@ -519,10 +519,10 @@ function renderSosGame(content, user, gameState, presence, selectedLetter) {
   const partnerScore = partnerUid ? state.scores[partnerUid] || 0 : 0;
   let turnMessage = !state
     ? partnerOnline ? "Your partner is online. Start a live match!" : "Waiting for your partner to come online…"
-    : waiting
+      : waiting
       ? state.playerUids[0] === uid
-        ? partnerOnline ? "Your partner is online — waiting for them to join…" : "Waiting for your partner to come online…"
-        : partnerOnline ? "Your partner is online. Join to start playing!" : "Your partner is offline."
+          ? "Waiting for your partner to join from their device…"
+        : "Your partner has started a match. Join to play!"
       : playing
         ? state.turnUid === uid ? "Your turn — choose S or O, then tap a square." : "Your partner's turn…"
         : finished
@@ -547,7 +547,7 @@ function renderSosGame(content, user, gameState, presence, selectedLetter) {
       ? `${esc(getDisplayName(state.winnerUid, state.players?.[state.winnerUid]?.name || "Your partner"))} wins with ${Math.max(ownScore, partnerScore)} SOS!`
       : `You both made ${ownScore} SOS. What a match!`
     : "";
-  const canJoin = waiting && state.playerUids[0] !== uid && partnerOnline;
+  const canJoin = waiting && state.playerUids[0] !== uid;
   const waitingOwner = waiting && state.playerUids[0] === uid;
   const startAction = !state || finished || state.status === "cancelled"
     ? `<button type="button" class="primary sos-action" data-sos-start>${finished || state ? "Play again" : "Start a match"}</button>`
@@ -556,7 +556,7 @@ function renderSosGame(content, user, gameState, presence, selectedLetter) {
       : waiting
         ? canJoin
           ? `<button type="button" class="primary sos-action" data-sos-join>Join match</button>`
-          : `<button type="button" class="secondary sos-action" disabled>Waiting for both players online</button>`
+          : `<button type="button" class="secondary sos-action" disabled>Waiting for your partner</button>`
         : "";
 
   content.innerHTML = `<section class="sos-game-page${finished && state.winnerUid === uid ? " sos-won" : ""}">
@@ -745,16 +745,12 @@ export function renderGames(el, user, profile) {
       toast("SOS needs Firebase Realtime Database.");
       return;
     }
-    const partnerOnline = Object.entries({ ...appPresence, ...sosPresence }).some(([playerUid, value]) =>
-      playerUid !== user.uid && value?.online === true
-    );
     try {
       const transaction = await runTransaction(sosGameRef(), current => {
         if (!isValidSosState(current) || current.status === "finished" || current.status === "cancelled") {
           return makeSosWaitingState(user.uid, getDisplayName(user.uid, profile?.name));
         }
         if (current.status !== "waiting" || current.playerUids.includes(user.uid)) return;
-        if (!partnerOnline) return;
         return {
           ...current,
           playerUids: [...current.playerUids, user.uid],
@@ -766,7 +762,7 @@ export function renderGames(el, user, profile) {
         };
       });
       if (!transaction.committed) {
-        toast(partnerOnline ? "This SOS match has already started. Please wait for the next match." : "Waiting for your partner to open SOS and join.");
+        toast("This SOS match has already started. Ask your partner to join from their device.");
       }
     } catch (error) {
       console.error("Could not start or join SOS:", error);
@@ -796,10 +792,10 @@ export function renderGames(el, user, profile) {
         const owners = [...current.owners];
         board[index] = selectedSosLetter;
         owners[index] = user.uid;
-        const knownLines = new Set(current.lines.map(line => line.cells.join("-")));
+        const knownLines = new Set((current.lines || []).map(line => line.cells.join("-")));
         const newLines = findSosLines(board, index, user.uid, knownLines);
         const scores = { ...current.scores, [user.uid]: (current.scores[user.uid] || 0) + newLines.length };
-        const lines = [...current.lines, ...newLines];
+        const lines = [...(current.lines || []), ...newLines];
         const boardFull = board.every(Boolean);
         const opponentUid = current.playerUids.find(playerUid => playerUid !== user.uid);
         const finished = boardFull;
