@@ -200,6 +200,7 @@ export function renderChallenges(el, user, profile) {
 
   function openChallengeHub() {
     hubView = "challenges";
+    document.body.classList.add("challenge-hub-open");
     giveModalRoot.innerHTML = `
       <section class="challenge-hub-page" aria-labelledby="challenge-hub-title">
         <section class="challenge-modal-card challenge-hub-card">
@@ -217,7 +218,7 @@ export function renderChallenges(el, user, profile) {
           <button type="button" class="custom-empty-cta challenge-hub-create" data-open-give>＋ Give a challenge or punishment</button>
         </section>
       </section>`;
-    giveModalRoot.querySelector("[data-close-hub]").onclick = () => { giveModalRoot.innerHTML = ""; };
+    giveModalRoot.querySelector("[data-close-hub]").onclick = closeChallengeHub;
     giveModalRoot.querySelectorAll("[data-hub-view]").forEach(button => {
       button.onclick = () => {
         hubView = button.dataset.hubView;
@@ -227,6 +228,10 @@ export function renderChallenges(el, user, profile) {
     });
     giveModalRoot.querySelector("[data-open-give]").onclick = () => openGiveModal();
     renderChallengeHub();
+  }
+  function closeChallengeHub() {
+    giveModalRoot.innerHTML = "";
+    document.body.classList.remove("challenge-hub-open");
   }
   $("#give-challenge-btn", el).onclick = openChallengeHub;
 
@@ -321,7 +326,6 @@ export function renderChallenges(el, user, profile) {
     const ownCount = waterCountFor(ownKey);
     const otherKey = Object.keys(APP_CONFIG.profiles).find(k => k !== ownKey);
     const partnerCount = waterCountFor(otherKey);
-    const totalCount = ownCount + partnerCount;
     const bothDone = ownCount >= 8 && partnerCount >= 8;
     return `
       <article class="challenge-card water-challenge-card">
@@ -331,7 +335,6 @@ export function renderChallenges(el, user, profile) {
             <h2>Drink Water</h2>
             <small>8 glasses a day, together 💗</small>
           </div>
-          <span class="water-daily-total"><span>💧</span> ${totalCount} / 16 glasses</span>
         </div>
         <div class="water-widget">
           <div class="water-bottles">
@@ -343,18 +346,16 @@ export function renderChallenges(el, user, profile) {
                 <div class="water-person-title"><strong>${esc(person.name)}${isMine ? " · You" : ""}</strong><span aria-hidden="true">${key.toLowerCase().includes("shaz") ? "💗" : "💙"}</span></div>
                 <div class="water-person-main">
                   <div class="water-glass-wrap" aria-hidden="true"><div class="water-glass-fill" style="--water-level:${count / 8 * 82}%"></div><img src="./Asset/${glassAsset}" alt=""></div>
-                  <div class="water-person-details"><div class="water-count"><strong>${count}</strong><span>/ 8<br>glasses</span></div>
+                  <div class="water-person-details"><div class="water-count"><strong>${count}</strong><span>/ 8<br>glasses</span>${isMine ? `<div class="water-count-controls"><button type="button" class="water-count-minus" data-action="water-remove" data-id="${esc(assignment.id)}" aria-label="Remove one glass" ${!waterTrackersReady || !assignmentsReady || ownCount <= 0 ? "disabled" : ""}>−</button><button type="button" class="water-count-plus" data-action="water-add" data-id="${esc(assignment.id)}" aria-label="Add one glass" ${!waterTrackersReady || !assignmentsReady || ownCount >= 8 ? "disabled" : ""}>＋</button></div>` : ""}</div>
                     <div class="water-progress-track" role="progressbar" aria-label="${esc(person.name)} daily water progress" aria-valuemin="0" aria-valuemax="8" aria-valuenow="${count}"><span style="width:${count / 8 * 100}%"></span></div>
                     <small class="water-progress-caption">${count >= 8 ? "Daily goal complete ✓" : `${8 - count} glasses to go`}</small>
                   </div>
                 </div>
-                ${isMine ? `<div class="water-controls"><button type="button" class="water-remove" data-action="water-remove" data-id="${esc(assignment.id)}" aria-label="Remove one glass" ${!waterTrackersReady || !assignmentsReady || ownCount <= 0 ? "disabled" : ""}>−</button><button type="button" class="water-add" data-action="water-add" data-id="${esc(assignment.id)}" ${!waterTrackersReady || !assignmentsReady || ownCount >= 8 ? "disabled" : ""}>＋ Add a glass</button></div>` : ""}
               </section>`;
             }).join("")}
           </div>
           ${bothDone ? `<div class="water-celebrate">Hydrated together 💧✨</div>` : ""}
         </div>
-        <p class="water-together-note"><span></span>One glass at a time 💧<span></span></p>
       </article>
     `;
   }
@@ -372,18 +373,15 @@ export function renderChallenges(el, user, profile) {
     const otherKey = keys.find(key => key !== ownKey) || "";
     const rows = keys.map(key => {
       const person = partnerProfiles[key] || APP_CONFIG.profiles[key] || {};
-      const uid = person.authUid || "";
       const received = customAllChallenges.filter(item => item.recipientKey === key || (!item.recipientKey && item.authorKey === otherKey && key === ownKey));
-      const accepted = received.filter(item => item.status === "in-progress" || item.status === "completed" ||
-        item.acceptedBy === uid || (item.actions || []).some(action => action.profileKey === key && action.status === "accepted"));
-      const challenges = received.filter(item => item.kind !== "punishment");
-      const punishments = received.filter(item => item.kind === "punishment");
-      const acceptedChallenges = accepted.filter(item => item.kind !== "punishment");
-      const acceptedPunishments = accepted.filter(item => item.kind === "punishment").length;
+      const completed = received.filter(item => item.status === "completed");
+      const completedChallenges = completed.filter(item => item.kind !== "punishment").length;
+      const completedPunishments = completed.filter(item => item.kind === "punishment").length;
+      const pendingCount = received.filter(item => item.status === "upcoming" || item.status === "in-progress").length;
       const avatar = person.avatar
         ? `<img src="${esc(person.avatar)}" alt="">`
         : `<span aria-hidden="true">${esc((person.name || "♡").slice(0, 1))}</span>`;
-      return `<article class="challenge-summary-person"><div class="challenge-summary-person-head"><span class="challenge-summary-avatar">${avatar}</span><strong>${esc(person.name || "Partner")}</strong></div><div class="challenge-summary-stats"><span><b>${challenges.length}</b> challenges received</span><span><b>${punishments.length}</b> punishments received</span><span><b>${acceptedChallenges.length}</b> challenges accepted</span><span><b>${acceptedPunishments}</b> punishments accepted</span></div></article>`;
+      return `<article class="challenge-summary-person"><div class="challenge-summary-person-head"><span class="challenge-summary-avatar">${avatar}</span><strong>${esc(person.name || "Partner")}</strong></div><div class="challenge-summary-stats"><div class="challenge-summary-stat"><b>${completedChallenges}</b><span>Challenge</span></div><div class="challenge-summary-stat"><b>${completedPunishments}</b><span>Punishment</span></div><div class="challenge-summary-stat is-pending"><b>${pendingCount}</b><span>Pending</span></div></div></article>`;
     }).join("");
     const summary = $("#challenge-hub-summary", giveModalRoot);
     if (summary) summary.innerHTML = `<section class="challenge-summary-card" aria-label="Challenge summary"><p class="custom-eyebrow">A LITTLE CHECK-IN</p><h3>Our challenge story</h3><div class="challenge-summary-people">${rows}</div></section>`;
@@ -406,6 +404,7 @@ export function renderChallenges(el, user, profile) {
   function renderCustomSection() {
     const customListsRoot = $("#custom-assignment-lists", giveModalRoot);
     if (!customListsRoot) return;
+    const previousScrollTop = customListsRoot.scrollTop;
     const received = customAllChallenges.filter(i => i.recipientKey === ownKey);
     const sent = customAllChallenges.filter(i => i.author === user.uid);
     const all = [
@@ -465,6 +464,7 @@ export function renderChallenges(el, user, profile) {
         }
       </section>
     `;
+    customListsRoot.scrollTop = previousScrollTop;
 
     customListsRoot.querySelectorAll("[data-custom-filter]").forEach(button => {
       button.onclick = () => {
@@ -840,7 +840,7 @@ export function renderChallenges(el, user, profile) {
     if (event.key === "Escape") {
       const compose = giveModalRoot.querySelector(".challenge-compose-layer");
       if (compose) { compose.remove(); return; }
-      if (giveModalRoot.querySelector(".challenge-hub-page")) { giveModalRoot.innerHTML = ""; return; }
+      if (giveModalRoot.querySelector(".challenge-hub-page")) { closeChallengeHub(); return; }
       modalRoot.querySelector("[data-close-modal]")?.click();
     }
   }
@@ -894,6 +894,7 @@ export function renderChallenges(el, user, profile) {
 }
 
 export function disposeChallenges() {
+  document.body.classList.remove("challenge-hub-open");
   challengeRenderToken++;
   clearTimeout(dayRolloverTimer);
   dayRolloverTimer = null;

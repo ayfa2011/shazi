@@ -73,6 +73,7 @@
       <button type="button" data-route="letters" aria-label="Letters"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2"/><path d="m3 6 9 7 9-7"/></svg><span>Letters</span></button>
       <button type="button" data-route="more" aria-label="More"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2"/><circle cx="12" cy="5" r="2"/><circle cx="12" cy="19" r="2"/></svg><span>More</span></button>
     </nav>
+    <div id="partner-chat-root"></div>
   </section>
 
   <aside id="music-drawer" class="drawer music-drawer hidden">
@@ -110,14 +111,6 @@
         <h4>Saved music</h4>
         <div id="music-library" class="music-library"><p class="muted music-library-empty">Loading saved music…</p></div>
       </section>
-    </div>
-    <section class="music-chat" aria-label="Live music chat">
-      <div class="music-chat-heading"><strong>Live chat</strong><small class="muted">Clears when we're both off the website</small></div>
-      <div id="music-chat-messages" class="music-chat-messages" aria-live="polite"></div>
-      <form id="music-chat-form" class="music-chat-form">
-        <input id="music-chat-input" type="text" maxlength="500" placeholder="Say something…" autocomplete="off" aria-label="Chat message">
-        <button class="primary" type="submit">Send</button>
-      </form>
     </div>
   </aside>
 

@@ -4,7 +4,6 @@ import { rtdb } from "./firebase.js";
 import { $, toast } from "./utils.js";
 import { addItem, notifyPartnerSafely, removeItem, watchItems } from "./firestore.js";
 import {
-  onChildAdded,
   onDisconnect,
   onValue,
   push,
@@ -19,7 +18,6 @@ import {
 // serves files up to 50 MB. Uploads beyond that would store fine but never play,
 // so 50 MB is the real ceiling for anything that has to come back as a stream.
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
-const MAX_CHAT_LENGTH = 500;
 const SYNC_INTERVAL_MS = 4000;
 // While a song is uploading (or audio is being extracted) the uploader refreshes
 // session.updatedAt; a session with no heartbeat for this long is considered dead.
@@ -115,21 +113,6 @@ function setStatus(message) {
   if (status) status.textContent = message;
 }
 
-function appendChatMessage(message, profileName, ownMessage) {
-  const list = $("#music-chat-messages");
-  if (!list) return;
-  const item = document.createElement("div");
-  item.className = `music-chat-message${ownMessage ? " own" : ""}`;
-  const author = document.createElement("strong");
-  author.textContent = profileName || "Partner";
-  const text = document.createElement("span");
-  text.textContent = message;
-  item.append(author, text);
-  list.append(item);
-  while (list.children.length > 50) list.firstElementChild.remove();
-  list.scrollTop = list.scrollHeight;
-}
-
 export function initMusic(user) {
   cleanupCurrent?.();
   // Music-only visual refresh; index.html is intentionally not modified.
@@ -152,10 +135,6 @@ export function initMusic(user) {
       #music-queue-section { margin-top:24px; }
       #music-queue-section h3 { margin-bottom:12px; color:#492d3a; }
       #music-queue-list .muted { margin:8px 0 16px; }
-      #music-chat-messages { min-height:150px; max-height:260px; overflow:auto; padding:8px 2px; }
-      #music-chat-form { display:flex; gap:8px; align-items:center; }
-      #music-chat-input { flex:1; min-width:0; min-height:46px; border-radius:16px; }
-      #music-chat-form button { min-height:46px; border-radius:16px; }
       #music-upload { max-width:100%; }
       #stop-music, #replay-music { border-radius:16px; }
       .music-upload-status { min-height:16px; margin:0 2px 7px; font-size:11px; }
@@ -181,7 +160,6 @@ export function initMusic(user) {
         #music-library .music-library-item, #music-queue-list .music-library-item { padding:10px; }
         #music-library .music-library-item > span, #music-queue-list .music-library-item > span { font-size:12px; }
         .music-library-actions button { padding:6px 9px; }
-        #music-chat-messages { min-height:170px; }
         .music-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
       }
     `;
@@ -199,7 +177,6 @@ export function initMusic(user) {
   const uid = user.uid;
   const sessionRef = dbRef(rtdb, `${ROOT}/session`);
   const legacyLibraryRef = dbRef(rtdb, `${ROOT}/library`);
-  const chatRef = dbRef(rtdb, `${ROOT}/chat`);
   const queueRef = dbRef(rtdb, `${ROOT}/queue`);
   const presenceRef = dbRef(rtdb, `${ROOT}/presence`);
   const uploadsRef = dbRef(rtdb, `${ROOT}/uploads`);
@@ -912,30 +889,9 @@ export function initMusic(user) {
     }
   }
 
-  async function sendChat(event) {
-    event.preventDefault();
-    const input = $("#music-chat-input");
-    const message = input?.value.trim();
-    if (!message) return;
-    if (!siteActive) {
-      toast("Open the music room before sending a message.");
-      return;
-    }
-    try {
-      const messageRef = push(chatRef);
-      await set(messageRef, { uid, name, text: message.slice(0, MAX_CHAT_LENGTH), sentAt: serverTimestamp() });
-      if (ownKey) void notifyPartnerSafely(ownKey, "music", `${actorName} sent a music chat message.`, messageRef.key, "home");
-      input.value = "";
-    } catch (error) {
-      reportError(error, "Your chat message could not be sent.");
-    }
-  }
-
   async function startPresence() {
     if (disposed || siteActive) return;
     siteActive = true;
-    const partnerPresent = Object.values(presence || {}).some(entry => entry?.uid && entry.uid !== uid);
-    if (!partnerPresent) $("#music-chat-messages")?.replaceChildren();
     connectionRef = push(presenceRef);
     try {
       await onDisconnect(connectionRef).remove();
@@ -952,12 +908,10 @@ export function initMusic(user) {
     emptyPresenceTimer = setTimeout(async () => {
       const activeUids = new Set(Object.values(presence || {}).map(entry => entry?.uid).filter(Boolean));
       if (activeUids.size === 0) {
-        await clearSession();
         try {
-          await remove(chatRef);
-          $("#music-chat-messages")?.replaceChildren();
+          await clearSession();
         } catch (error) {
-          reportError(error, "The temporary music chat could not be cleared.");
+          reportError(error, "The music session could not be cleaned up.");
         }
       } else if (session?.ownerUid && !activeUids.has(session.ownerUid)) {
         await clearSession(session.ownerUid);
@@ -1013,12 +967,6 @@ export function initMusic(user) {
   }, error => {
     reportError(error, "Music-room presence could not be received.");
   }));
-  unsubscribers.push(onChildAdded(chatRef, snapshot => {
-    const message = snapshot.val();
-    if (message?.text) appendChatMessage(message.text, message.name, message.uid === uid);
-  }, error => {
-    reportError(error, "Live music chat could not be received.");
-  }));
 
   // Snapshots only arrive when data changes, so a dead uploader needs a timer to be noticed.
   staleCheckTimer = setInterval(() => { checkStaleUpload(); checkStaleUploads(); }, STALE_CHECK_MS);
@@ -1070,7 +1018,6 @@ export function initMusic(user) {
     stopButton.addEventListener("click", async () => { audio.pause(); await clearSession(); setStatus("Song stopped. Upload or choose another song."); });
     playerControls.append(stopButton);
   }
-  $("#music-chat-form").onsubmit = sendChat;
 
   // Seeking: the session owner publishes the new position so both devices agree.
   const onSeekStart = () => { seeking = true; };

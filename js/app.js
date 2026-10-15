@@ -2,6 +2,7 @@ import { initAuth, logout } from "./auth.js";
 import { $, $$, esc, toast } from "./utils.js";
 import { postCardComponent, commentComponent } from "./components.js";
 import { initPresence, watchAllPresence } from "./presence.js";
+import { initPartnerChat } from "./partner-chat.js";
 import { renderHome, disposeHome } from "./dashboard.js";
 import { renderMemories, disposeMemories } from "./memories.js";
 import { renderGames, disposeGames } from "./games.js";
@@ -24,7 +25,7 @@ import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramU
 import { getCoupleProfiles, saveCoupleProfile, watchCoupleProfiles } from "./firestore.js";
 import { applyCoupleProfiles, findProfileForAuthor, getDisplayName, getProfileKey, hydrateCoupleProfileAvatars } from "./profile-data.js";
 
-let currentUser = null, currentProfile = null, disposeMusic = null, stopPresence = null;
+let currentUser = null, currentProfile = null, disposeMusic = null, stopPresence = null, disposePartnerChat = null;
 let currentRoute = "home", stopCoupleProfiles = null, handlingPopState = false;
 
 function updateProfileAvatar(profile) {
@@ -1017,16 +1018,19 @@ initAuth(
         const partnerPresence = Object.values(presence).find(p => p.name === partnerProfile.name);
         if (partnerPresence && partnerPresence.online) {
             presenceEl.innerHTML = `
-                <div class="avatar" style="position:relative; width:38px; height:38px;">
-                    <img src="${esc(partnerProfile.avatar)}" alt="${esc(partnerProfile.name)}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">
-                    <span style="position:absolute; bottom:0; right:0; width:12px; height:12px; border-radius:50%; background:#22c55e; border:3px solid white"></span>
-                </div>
+                <button type="button" class="partner-presence-chat" data-open-partner-chat aria-label="Chat with ${esc(partnerProfile.name)}" title="Chat with ${esc(partnerProfile.name)}">
+                    ${partnerProfile.avatar ? `<img src="${esc(partnerProfile.avatar)}" alt="${esc(partnerProfile.name)}">` : `<span>${esc((partnerProfile.name || "♡")[0])}</span>`}
+                    <i class="partner-online-dot" aria-label="Online"></i>
+                </button>
             `;
         } else {
             presenceEl.innerHTML = "";
         }
     }
 
+    const partnerProfile = Object.values(APP_CONFIG.profiles).find(p => p.email !== currentUser.email);
+    disposePartnerChat?.();
+    disposePartnerChat = initPartnerChat(user, currentProfile, partnerProfile);
     initPresence(user.uid, currentProfile.name);
     stopPresence = watchAllPresence(renderPresence);
 
@@ -1062,6 +1066,8 @@ initAuth(
     stopCoupleProfiles = null;
     stopPresence?.();
     stopPresence = null;
+    disposePartnerChat?.();
+    disposePartnerChat = null;
     // Clean up all active Firestore subscriptions on logout
     disposeHome();
     disposeDrawing();
