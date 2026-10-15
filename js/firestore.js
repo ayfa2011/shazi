@@ -123,13 +123,27 @@ export async function removeItem(id) {
   return deleteDoc(doc(root(), id));
 }
 
-// Post helpers (lightweight: no extra fields, no transactions)
+// Diary posts live in their own collection, separate from generic items.
 export async function updatePost(postId, data) {
-  return setItem(postId, data);
+  if (!firebaseReady) throw new Error("Connect Firebase before editing posts.");
+  return updateDoc(doc(diaryCollection(), postId), data);
 }
 
 export async function deletePost(postId) {
-  return removeItem(postId);
+  if (!firebaseReady) throw new Error("Connect Firebase before deleting posts.");
+  const postRef = doc(diaryCollection(), postId);
+  const snapshot = await getDoc(postRef);
+  if (!snapshot.exists()) return;
+
+  // Hide the post and block new comments before clearing its subcollection.
+  if (!snapshot.data().deleting) await updateDoc(postRef, { deleting: true });
+  const comments = await getDocs(commentsCollection(postId));
+  for (let start = 0; start < comments.docs.length; start += 450) {
+    const batch = writeBatch(db);
+    comments.docs.slice(start, start + 450).forEach(comment => batch.delete(comment.ref));
+    await batch.commit();
+  }
+  await deleteDoc(postRef);
 }
 
 // Optimized backend listener filter
@@ -254,8 +268,16 @@ export function watchDiaryPosts(cb, maxItems, authorIds = []) {
 }
 
 export async function toggleDiaryLike(postId, uid, liked) {
+  if (!firebaseReady) throw new Error("Connect Firebase before liking posts.");
   const ref = doc(diaryCollection(), postId);
-  await updateDoc(ref, { likedBy: liked ? arrayRemove(uid) : arrayUnion(uid) });
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(ref);
+    if (!snapshot.exists() || snapshot.data().deleting) throw new Error("This post is no longer available.");
+    const likedBy = Array.isArray(snapshot.data().likedBy) ? snapshot.data().likedBy : [];
+    const currentlyLiked = likedBy.includes(uid);
+    if (currentlyLiked === liked) return;
+    transaction.update(ref, { likedBy: liked ? arrayRemove(uid) : arrayUnion(uid) });
+  });
 }
 
 const commentsCollection = postId => collection(diaryCollection(), postId, "comments");
@@ -300,24 +322,6 @@ export function watchDrawingMessages(cb, maxItems) {
 
 export async function deleteDrawingMessage(id) {
   return deleteDoc(doc(drawingCollection(), id));
-}
-
-export async function recordDailyGameWin(uid, dayKey) {
-  if (!firebaseReady) throw new Error("Connect Firebase before saving game scores.");
-  const reference = doc(root(), `game-${dayKey}-${uid}`);
-  return runTransaction(db, async transaction => {
-    const existing = await transaction.get(reference);
-    if (existing.exists()) return false;
-    transaction.set(reference, {
-      type: "game",
-      game: "Today's Hidden Heart",
-      result: "won",
-      author: uid,
-      gameDay: dayKey,
-      createdAt: serverTimestamp()
-    });
-    return true;
-  });
 }
 
 export async function recordGameMatchResult({ uid, authorId, matchId, game, winnerUid, players, scores }) {

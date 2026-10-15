@@ -551,7 +551,19 @@ function renderPostFeed(el, user, profile) {
     };
     detailBody.querySelectorAll(".tw-comment-del-btn").forEach(button => button.onclick = async () => { if (confirm("Delete this comment?")) await deleteDiaryComment(post.id, button.dataset.id); });
     detailBody.querySelectorAll(".tw-comment-edit-btn").forEach(button => button.onclick = async () => { const item = comments.find(comment => comment.id === button.dataset.id); const text = prompt("Edit comment:", item?.text || ""); if (text?.trim()) await updateDiaryComment(post.id, item.id, { text: text.trim() }); });
-    detailBody.querySelectorAll(".tw-del-btn").forEach(button => button.onclick = async () => { if (confirm("Delete this post?")) await deletePost(button.dataset.id); });
+    detailBody.querySelectorAll(".tw-del-btn").forEach(button => button.onclick = async () => {
+      if (!confirm("Delete this post?")) return;
+      button.disabled = true;
+      try {
+        await deletePost(button.dataset.id);
+        closePostDetail();
+        toast("Post deleted.");
+      } catch (error) {
+        console.error("Could not delete post:", error);
+        button.disabled = false;
+        toast("Could not delete post.");
+      }
+    });
     detailBody.querySelectorAll(".tw-edit-btn").forEach(button => button.onclick = async () => {
       const postId = button.dataset.id;
       const item = posts.find(p => p.id === postId);
@@ -632,6 +644,14 @@ function renderPostFeed(el, user, profile) {
   stopPostFeed = watchDiaryPosts((items) => {
     if (!active) return;
     posts = items || [];
+    const visibleIds = new Set(posts.map(post => post.id));
+    for (const [postId, stop] of postCommentStops) {
+      if (visibleIds.has(postId)) continue;
+      stop();
+      postCommentStops.delete(postId);
+      commentsByPost.delete(postId);
+    }
+    if (detailPostId && !visibleIds.has(detailPostId)) closePostDetail();
     render();
   });
 
@@ -692,6 +712,7 @@ function renderPostFeed(el, user, profile) {
       if (likeBtn) {
         likeBtn.onclick = async () => {
           const liked = (post.likedBy || []).includes(user.uid);
+          likeBtn.disabled = true;
           try {
             await toggleDiaryLike(post.id, user.uid, liked);
             if (!liked) {
@@ -700,6 +721,7 @@ function renderPostFeed(el, user, profile) {
           } catch (err) {
             console.error("Could not update post like:", err);
             toast("Could not update the like.");
+            likeBtn.disabled = false;
           }
         };
       }
@@ -755,11 +777,13 @@ function renderPostFeed(el, user, profile) {
           if (getPostAuthorKey(post) !== getProfileKey(profile)) return toast("Only you can delete your own post.");
           if (!confirm("Delete this post?")) return;
           try {
+            deleteBtn.disabled = true;
             await deletePost(post.id);
             toast("Post deleted.");
           } catch (error) {
             console.error(error);
             toast("Could not delete post.");
+            deleteBtn.disabled = false;
           }
         };
       }

@@ -122,9 +122,42 @@ export function renderQuestions(el, user, profile) {
       .question-history-locked { align-items:center; background:#f8f5f6; border-color:#eee7ea; color:#9b8c93; font-style:italic; }
       .question-empty { padding:14px; color:var(--muted); text-align:center; font-size:12px; }
       @media(max-width:420px) { .question-page-header h1 { font-size:22px; } .question-prompt { font-size:16px; } .question-card,.question-history-card { padding:12px; } .question-history-list { gap:12px; padding-left:20px; } .question-history-list::before { left:5px; } .question-history-item { padding:12px; border-radius:16px; } .question-history-item::before { left:-35px; top:15px; width:27px; height:27px; } .question-history-item h3 { font-size:14px; } .question-history-answer { gap:7px; padding:8px; font-size:11px; } .question-history-avatar { width:36px; height:36px; } }
+      #main-content .question-page-header { margin-bottom:16px; }
+      #main-content .question-day { padding:7px 11px; border:1px solid #f2d2df; border-radius:999px; background:#fff7fa; color:#873456; font-size:14px; font-weight:700; }
+      #main-content .question-card { padding:20px; border-radius:22px; box-shadow:0 10px 28px #873c5b0d; }
+      #main-content .question-category { padding:6px 12px; font-size:13px; }
+      #main-content .question-prompt { margin:14px 0 16px; padding:19px; border-radius:18px; font-size:23px; line-height:1.55; }
+      #main-content .question-answer-form textarea { min-height:110px; padding:14px; font-size:16px; line-height:1.55; }
+      #main-content .question-status { font-size:13px; line-height:1.5; }
+      #main-content .question-answers { gap:12px; margin-top:18px; }
+      #main-content .question-answer { gap:12px; padding:15px; border-radius:18px; }
+      #main-content .question-answer-body strong { font-size:15px; }
+      #main-content .question-answer-body time { font-size:12px; }
+      #main-content .question-answer-body p { margin-top:8px; font-size:17px; line-height:1.65; }
+      #main-content .question-history { margin-top:28px; }
+      #main-content .question-history-heading { margin-bottom:16px; }
+      #main-content .question-history-heading h2 { font-size:23px; }
+      #main-content .question-history-list { gap:18px; }
+      #main-content .question-history-item { padding:18px; border-radius:21px; }
+      #main-content .question-history-item time { font-size:15px; }
+      #main-content .question-history-item h3 { margin:2px 0 15px; font-size:19px; line-height:1.5; }
+      #main-content .question-history-answers { gap:10px; }
+      #main-content .question-history-answer { gap:12px; padding:12px 14px; border-radius:16px; font-size:16px; line-height:1.65; }
+      #main-content .question-history-copy strong { margin-bottom:5px; font-size:14px; }
+      @media(max-width:600px) {
+        #main-content .question-day { padding:6px 9px; font-size:13px; }
+        #main-content .question-card { padding:15px; }
+        #main-content .question-prompt { padding:16px; font-size:20px; }
+        #main-content .question-answer { gap:10px; padding:12px; }
+        #main-content .question-answer-body p { font-size:16px; }
+        #main-content .question-history-item { padding:14px; }
+        #main-content .question-history-item time { font-size:14px; }
+        #main-content .question-history-item h3 { font-size:17px; }
+        #main-content .question-history-answer { gap:9px; padding:10px; font-size:15px; }
+      }
     </style>
     <section class="question-page">
-      <header class="question-page-header"><h1>Today's Question</h1><span class="question-day">${esc(new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}))}</span></header>
+      <header class="question-page-header"><h1>Today's Question</h1><time class="question-day" datetime="${esc(dayKey)}">${esc(new Date(`${dayKey}T12:00:00`).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"long",year:"numeric"}))}</time></header>
       <article class="question-card" id="today-question-card"><p class="question-empty">Loading today's question…</p></article>
       <section class="question-history">
         <header class="question-history-heading"><h2>Question History</h2></header>

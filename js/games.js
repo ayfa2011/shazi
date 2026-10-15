@@ -1,5 +1,5 @@
-import { $, toast, todayKey, dailyIndex, scheduleDubaiDayRollover, esc } from "./utils.js";
-import { recordDailyGameWin, recordGameMatchResult, watchItems, notifyPartnerSafely } from "./firestore.js";
+import { $, toast, esc } from "./utils.js";
+import { recordGameMatchResult, watchItems, notifyPartnerSafely } from "./firestore.js";
 import { firebaseReady, rtdb } from "./firebase.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { APP_CONFIG } from "../config/app-config.js";
@@ -48,12 +48,7 @@ let stopSosPresence = null;
 let stopSosConnection = null;
 let stopGameMatch = null;
 let memoryTimer = null;
-let dailyRolloverTimer = null;
 let disposeFindTheWords = null;
-
-function getDailySeed() {
-  return dailyIndex(9);
-}
 
 function shuffle(items) {
   const shuffled = [...items];
@@ -84,8 +79,7 @@ const gameTitles = {
   "word-guess": "Word Guess",
   "spin-wheel": "Spin Wheel",
   "couple-trivia": "Couple Trivia",
-  sos: "SOS",
-  "daily-hidden-heart": "Today's Hidden Heart"
+  sos: "SOS"
 };
 
 function isValidSosState(state) {
@@ -209,21 +203,6 @@ function gamePlayerAvatar(uid, fallbackName = "") {
     : `<span class="game-player-avatar fallback" aria-hidden="true">${esc(name.slice(0, 1))}</span>`;
 }
 
-function isDailyHeartWin(item) {
-  return item.game === gameTitles["daily-hidden-heart"] || item.game === "Find the heart";
-}
-
-function uniqueMatchResults(items) {
-  const seen = new Set();
-  return items.filter(item => {
-    if (!item.matchId) return true;
-    const key = `${item.game}:${item.matchId}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
 /* ------------------------------------------------------------------ */
 /*  Scoreboard summary (both partners: wins / losses / games)         */
 /* ------------------------------------------------------------------ */
@@ -240,31 +219,19 @@ function computeGameStats(items) {
   };
   const seen = new Set();
   for (const item of items || []) {
-    if (!item || (item.result !== "won" && item.result !== "draw")) continue;
-    if (item.matchId) {
-      const key = `${item.game || ""}:${item.matchId}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-    }
-    const players = Array.isArray(item.players) && item.players.length === 2 ? item.players : null;
-    if (players) {
-      const winnerUid = item.winnerUid || "";
-      for (const uid of players) {
-        if (!uid) continue;
-        const entry = get(uid);
-        entry.games++;
-        if (!winnerUid) entry.draws++;
-        else if (winnerUid === uid) entry.wins++;
-        else entry.losses++;
-      }
-    } else {
-      const uid = item.winnerUid || item.author;
-      if (uid) {
-        const entry = get(uid);
-        entry.games++;
-        if (item.result === "draw") entry.draws++;
-        else entry.wins++;
-      }
+    if (!item || (item.result !== "won" && item.result !== "draw") ||
+        typeof item.matchId !== "string" || !Array.isArray(item.players) || item.players.length !== 2) continue;
+    const key = `${item.game || ""}:${item.matchId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const winnerUid = item.winnerUid || "";
+    for (const uid of item.players) {
+      if (!uid) continue;
+      const entry = get(uid);
+      entry.games++;
+      if (!winnerUid) entry.draws++;
+      else if (winnerUid === uid) entry.wins++;
+      else entry.losses++;
     }
   }
   return stats;
@@ -273,14 +240,10 @@ function computeGameStats(items) {
 function findPartnerUid(items, myUid) {
   if (!myUid) return "";
   for (const item of items || []) {
-    if (Array.isArray(item?.players) && item.players.includes(myUid)) {
+    if (typeof item?.matchId === "string" && Array.isArray(item.players) && item.players.includes(myUid)) {
       const other = item.players.find(uid => uid && uid !== myUid);
       if (other) return other;
     }
-  }
-  for (const item of items || []) {
-    const uid = item?.winnerUid || item?.author;
-    if (uid && uid !== myUid) return uid;
   }
   return "";
 }
@@ -411,17 +374,6 @@ function gamesHome() {
       ${gameCard("spin-wheel", "🎡", "Spin Wheel", "Complete three surprise challenges fastest", "2P")}
       ${gameCard("couple-trivia", "💞", "Couple Trivia", "Answer, then let your partner guess", "2P")}
     </div>
-    <section class="games-daily">
-      <button type="button" class="games-hub-card" data-start-game="daily-hidden-heart">
-        <span class="games-card-emoji" aria-hidden="true">♡</span>
-        <span class="games-card-copy"><strong>Today's Hidden Heart</strong><span>Find today's hidden heart. Its location changes every day.</span></span>
-        <span class="games-card-arrow" aria-hidden="true">›</span>
-      </button>
-      <div id="hidden-heart-game" class="hidden">
-        <div id="game-board" class="game-board" aria-label="Find the hidden heart"></div>
-        <p id="game-result" class="game-result" aria-live="polite"></p>
-      </div>
-    </section>
   </section>`;
 }
 
@@ -657,8 +609,6 @@ function isValidGameRoom(room, game) {
 }
 
 export function renderGames(el, user, profile) {
-  if (dailyRolloverTimer) clearTimeout(dailyRolloverTimer);
-  dailyRolloverTimer = null;
   stopGames?.();
   stopGames = null;
   if (memoryTimer) clearTimeout(memoryTimer);
@@ -673,108 +623,14 @@ export function renderGames(el, user, profile) {
   let gameRoomState = null;
   let roomStateInitializing = "";
   let savedMatchResults = new Set();
-  let dailyGameItems = null;
-  let dailyDayKey = todayKey();
-  let dailyTarget = getDailySeed();
-  let finished = false;
-  let savingDailyWin = false;
+  let gameResults = null;
 
   el.innerHTML = gamesHome();
 
   function renderScoreboard() {
     const container = $("#games-scoreboard", el);
     if (!container) return;
-    container.innerHTML = scoreboardSummaryMarkup(dailyGameItems || [], user);
-  }
-
-  function ownDailyWin() {
-    return (dailyGameItems || []).find(win => {
-      if (!isDailyHeartWin(win) || win.result !== "won" || win.author !== user.uid) return false;
-      if (win.gameDay) return win.gameDay === dailyDayKey;
-      const createdAt = win.createdAt?.toDate?.() || (win.createdAt ? new Date(win.createdAt) : null);
-      return createdAt && todayKey(createdAt) === dailyDayKey;
-    });
-  }
-
-  function buildDailyBoard() {
-    const board = $("#game-board", el);
-    if (!board) return;
-    board.replaceChildren();
-    const alreadyWon = Boolean(ownDailyWin());
-    finished = alreadyWon;
-    for (let index = 0; index < 9; index++) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "game-square";
-      const found = alreadyWon && index === dailyTarget;
-      button.textContent = found ? "♥" : "♡";
-      if (found) button.classList.add("found");
-      button.disabled = alreadyWon;
-      button.setAttribute("aria-label", `Heart tile ${index + 1}${found ? ", found" : ""}`);
-      button.onclick = async () => {
-        if (todayKey() !== dailyDayKey) {
-          refreshDailyTarget();
-          return;
-        }
-        if (finished || savingDailyWin) return;
-        if (index === dailyTarget) {
-          const winningDayKey = dailyDayKey;
-          savingDailyWin = true;
-          button.disabled = true;
-          try {
-            const recorded = await recordDailyGameWin(user.uid, winningDayKey);
-            if (dailyDayKey === winningDayKey) {
-              finished = true;
-              button.textContent = "♥";
-              button.classList.add("found");
-              button.setAttribute("aria-label", `Heart tile ${index + 1}, found`);
-              $("#game-board", el)?.querySelectorAll("button").forEach(tile => { tile.disabled = true; });
-              const resultText = $("#game-result", el);
-              if (resultText) resultText.textContent = recorded
-                ? "🎉 You found today's hidden heart! ♡"
-                : "You already found today's hidden heart ♡";
-              if (recorded) {
-                void notifyPartnerSafely(getProfileKey(profile), "game", `${profile.name} found today's hidden heart!`, `heart-${winningDayKey}-${user.uid}`, "games");
-                toast("Congratulations! Daily heart found! ♡");
-              }
-            }
-          } catch (error) {
-            console.error("Failed to save score:", error);
-            toast("Could not save score history.");
-            if (dailyDayKey === winningDayKey) button.disabled = false;
-          } finally {
-            if (dailyDayKey === winningDayKey) savingDailyWin = false;
-          }
-        } else {
-          button.disabled = true;
-          button.textContent = "·";
-          button.setAttribute("aria-label", `Heart tile ${index + 1}, not this one`);
-          const resultText = $("#game-result", el);
-          if (resultText) resultText.textContent = "Not there — try another tile!";
-        }
-      };
-      board.append(button);
-    }
-    const resultText = $("#game-result", el);
-    if (resultText && alreadyWon) resultText.textContent = "You already found today's hidden heart ♡";
-  }
-
-  function refreshDailyTarget() {
-    const currentDayKey = todayKey();
-    if (currentDayKey === dailyDayKey) return;
-    dailyDayKey = currentDayKey;
-    dailyTarget = getDailySeed();
-    finished = false;
-    savingDailyWin = false;
-    buildDailyBoard();
-  }
-
-  function scheduleDailyRollover() {
-    if (dailyRolloverTimer) clearTimeout(dailyRolloverTimer);
-    dailyRolloverTimer = scheduleDubaiDayRollover(() => {
-      refreshDailyTarget();
-      scheduleDailyRollover();
-    });
+    container.innerHTML = scoreboardSummaryMarkup(gameResults || [], user);
   }
 
   function clearSosSession() {
@@ -1056,10 +912,8 @@ export function renderGames(el, user, profile) {
       disposeFindTheWords = null;
       el.innerHTML = gamesHome();
       renderedShellGame = "";
-      buildDailyBoard();
       renderScoreboard();
-      if (dailyGameItems) renderDailyWins(dailyGameItems);
-      listenForDailyWins();
+      listenForGameResults();
       return;
     }
     if (activeGame === "sos") {
@@ -1099,19 +953,16 @@ export function renderGames(el, user, profile) {
     renderGameRoom();
   }
 
-  function listenForDailyWins() {
+  function listenForGameResults() {
     if (stopGames) return;
     if (!firebaseReady) {
       return;
     }
     try {
       stopGames = watchItems("game", items => {
-        dailyGameItems = items || [];
+        gameResults = items || [];
         if (activeGame) renderCurrentGame();
-        else {
-          renderDailyWins(dailyGameItems);
-          renderScoreboard();
-        }
+        else renderScoreboard();
       }, error => {
         console.error("Game scores could not be loaded:", error);
       });
@@ -1120,20 +971,7 @@ export function renderGames(el, user, profile) {
     }
   }
 
-  function renderDailyWins(items) {
-    refreshDailyTarget();
-    const alreadyWonToday = Boolean(ownDailyWin());
-    if (alreadyWonToday && !finished) buildDailyBoard();
-    if (alreadyWonToday) {
-      const resultText = $("#game-result", el);
-      if (resultText) resultText.textContent = "You already found today's hidden heart ♡";
-    }
-
-  }
-
-  buildDailyBoard();
-  scheduleDailyRollover();
-  listenForDailyWins();
+  listenForGameResults();
 
   el.onclick = async event => {
     const target = event.target.closest("button");
@@ -1150,11 +988,6 @@ export function renderGames(el, user, profile) {
     }
 
     if (target.hasAttribute("data-start-game")) {
-      if (target.dataset.startGame === "daily-hidden-heart") {
-        const board = $("#hidden-heart-game", el);
-        board.classList.toggle("hidden");
-        return;
-      }
       if (memoryTimer) clearTimeout(memoryTimer);
       memoryTimer = null;
       clearSosSession();
@@ -1585,8 +1418,6 @@ export function disposeGames() {
   stopGameMatch = null;
   if (memoryTimer) clearTimeout(memoryTimer);
   memoryTimer = null;
-  if (dailyRolloverTimer) clearTimeout(dailyRolloverTimer);
-  dailyRolloverTimer = null;
   disposeFindTheWords?.();
   disposeFindTheWords = null;
 }

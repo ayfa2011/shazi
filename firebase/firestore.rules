@@ -219,6 +219,36 @@ service cloud.firestore {
         );
     }
 
+    match /couples/{coupleId}/diaryPosts/{postId} {
+      allow read: if isCoupleMember() && coupleId == 'our-little-world';
+      allow update: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && isOwnAuthorId(resource.data.get('authorId', ''))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text'])
+        && request.resource.data.get('text', '') is string
+        && request.resource.data.text.size() <= 5000;
+      allow update: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && !resource.data.get('deleting', false)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likedBy'])
+        && resource.data.get('likedBy', []) is list
+        && request.resource.data.get('likedBy', []) is list
+        && request.resource.data.likedBy.toSet().difference(resource.data.likedBy.toSet()).hasOnly([request.auth.uid])
+        && resource.data.likedBy.toSet().difference(request.resource.data.likedBy.toSet()).hasOnly([request.auth.uid])
+        && resource.data.likedBy.toSet().hasAny([request.auth.uid])
+          != request.resource.data.likedBy.toSet().hasAny([request.auth.uid]);
+      allow update: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && isOwnAuthorId(resource.data.get('authorId', ''))
+        && !resource.data.get('deleting', false)
+        && request.resource.data.get('deleting', false) == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deleting']);
+      allow delete: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && isOwnAuthorId(resource.data.get('authorId', ''))
+        && resource.data.get('deleting', false) == true;
+    }
+
     match /couples/{coupleId}/scheduledLetterContents/{letterId} {
       function isValidContentCreate() {
         let data = request.resource.data;
