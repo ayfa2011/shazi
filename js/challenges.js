@@ -302,8 +302,8 @@ export function renderChallenges(el, user, profile) {
               const isMine = key === ownKey;
               const avatar = person.avatar ? `<img src="${esc(person.avatar)}" alt="">` : esc((person.name || "♡")[0]);
               return `<section class="snap-person-card ${sent ? "is-sent" : "is-pending"}">
-                <header class="snap-person-head"><span class="snap-brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2.1c-2.1 0-3.7 1.7-3.7 4.2 0 .9.1 1.6.2 2.2-.5.4-1.2.1-1.9-.3-.6-.3-1.1-.6-1.4-.2-.4.5.1 1 .7 1.3.7.4 1.6.7 2.2.6-.1.8-.5 1.5-1.3 2.2-.6.5-1.3.8-2.1 1-.6.2-.7.7-.1 1 .6.3 1.6.3 2.1.8.4.4.4 1.1 1.1 1.2.6.1 1-.3 1.6-.2.7.1 1.4.8 2.6.8s1.9-.7 2.6-.8c.6-.1 1 .3 1.6.2.7-.1.7-.8 1.1-1.2.5-.5 1.5-.5 2.1-.8.6-.3.5-.8-.1-1-.8-.2-1.5-.5-2.1-1-.8-.7-1.2-1.4-1.3-2.2.6.1 1.5-.2 2.2-.6.6-.3 1.1-.8.7-1.3-.3-.4-.8-.1-1.4.2-.7.4-1.4.7-1.9.3.1-.6.2-1.3.2-2.2 0-2.5-1.6-4.2-3.7-4.2Z"/></svg></span><strong>${esc(person.name || "Partner")}</strong><span class="snap-status-pill ${sent ? "sent" : "pending"}">${sent ? "✓ Sent" : "◷ Not Sent"}</span></header>
-                <div class="snap-person-state"><span class="snap-avatar">${avatar}</span><div class="snap-state-copy"><strong>${sent ? "Snap sent today" : "Snap not sent yet"}</strong><small>${sent ? (isMine ? "You're all caught up" : "Your partner is all caught up") : (isMine ? "Send your daily moment" : "Waiting for your partner")}</small></div>
+                <header class="snap-person-head"><strong>${esc(person.name || "Partner")}</strong><span class="snap-status-pill ${sent ? "sent" : "pending"}">${sent ? "✓ Sent" : "◷ Not Sent"}</span></header>
+                <div class="snap-person-state">${sent ? `<span class="snap-sent-check" role="img" aria-label="Snap sent">✓</span>` : `<span class="snap-avatar">${avatar}</span>`}<div class="snap-state-copy"><strong>${sent ? "Snap sent today" : "Snap not sent yet"}</strong><small>${sent ? (isMine ? "You're all caught up" : "Your partner is all caught up") : (isMine ? "Send your daily moment" : "Waiting for your partner")}</small></div>
                   ${isMine && !sent ? `<button type="button" class="snap-send-button" data-action="snap-complete" data-id="${esc(assignment.id)}">Send Snap</button>` : ""}
                 </div>
               </section>`;
@@ -342,7 +342,7 @@ export function renderChallenges(el, user, profile) {
               return `<section class="water-person-progress ${isMine ? "is-mine" : "is-partner"}" aria-label="${esc(person.name)}: ${count} of 8 glasses">
                 <div class="water-person-title"><strong>${esc(person.name)}${isMine ? " · You" : ""}</strong><span aria-hidden="true">${key.toLowerCase().includes("shaz") ? "💗" : "💙"}</span></div>
                 <div class="water-person-main">
-                  <div class="water-glass-wrap" aria-hidden="true"><div class="water-glass-fill" style="--water-level:${count / 8 * 100}%"></div><img src="./Asset/${glassAsset}" alt=""></div>
+                  <div class="water-glass-wrap" aria-hidden="true"><div class="water-glass-fill" style="--water-level:${count / 8 * 82}%"></div><img src="./Asset/${glassAsset}" alt=""></div>
                   <div class="water-person-details"><div class="water-count"><strong>${count}</strong><span>/ 8<br>glasses</span></div>
                     <div class="water-progress-track" role="progressbar" aria-label="${esc(person.name)} daily water progress" aria-valuemin="0" aria-valuemax="8" aria-valuenow="${count}"><span style="width:${count / 8 * 100}%"></span></div>
                     <small class="water-progress-caption">${count >= 8 ? "Daily goal complete ✓" : `${8 - count} glasses to go`}</small>
@@ -660,6 +660,7 @@ export function renderChallenges(el, user, profile) {
       const challenge = todayChallenges.find(i => i.id === assignmentId);
       if (!assignment && !challenge) return toast("Could not identify this.");
       const resolved = assignment || assignmentFor(challenge);
+      let previousSnapCompletedBy = null;
       button.disabled = true;
       try {
         const action = button.dataset.action;
@@ -674,6 +675,12 @@ export function renderChallenges(el, user, profile) {
           if (delta > 0 && next === 8) void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed today's water goal.`, `water-${dayKey}-${ownKey}`, "challenges");
           toast(next >= 8 ? "Daily water goal complete! 💧" : `Glass ${next}/8 saved.`);
         } else if (action === "snap-complete") {
+          const liveAssignment = assignments.find(item => item.id === assignmentId);
+          if (liveAssignment) {
+            previousSnapCompletedBy = [...(liveAssignment.completedBy || [])];
+            liveAssignment.completedBy = [...(liveAssignment.completedBy || []), { uid: user.uid, profileKey: ownKey, name: profile.name }];
+            scheduleRender();
+          }
           await completeChallengeAssignment(assignmentId, { uid: user.uid, profileKey: ownKey, name: profile.name }, "Sent today's Snap 📸", "");
           void notifyPartnerSafely(ownKey, "challenge", `${profile.name} sent today's Snap.`, `${assignmentId}-completed`, "challenges");
           triggerCompletionSplash();
@@ -681,6 +688,13 @@ export function renderChallenges(el, user, profile) {
         }
       } catch (error) {
         console.error(error);
+        if (button.dataset.action === "snap-complete") {
+          const liveAssignment = assignments.find(item => item.id === assignmentId);
+          if (liveAssignment) {
+            liveAssignment.completedBy = previousSnapCompletedBy || (liveAssignment.completedBy || []).filter(p => !(p.uid === user.uid && p.profileKey === ownKey));
+            scheduleRender();
+          }
+        }
         toast(error.message || "Could not update this.");
         button.disabled = false;
       }

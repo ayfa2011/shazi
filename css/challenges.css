@@ -309,8 +309,6 @@
 .snap-person-card { min-width:0; padding:18px; border:1px solid #f5e7ec; border-radius:22px; background:linear-gradient(145deg,#fff,#fff9fb); box-shadow:0 6px 18px #692c3f0a; }
 .snap-person-card.is-sent { border-color:#fff09a; background:linear-gradient(145deg,#fffef2,#fffbe1); }
 .snap-person-head { display:flex; align-items:center; gap:11px; min-width:0; }
-.snap-person-head .snap-brand-mark { width:48px; height:48px; border-radius:12px; }
-.snap-person-head .snap-brand-mark svg { width:32px; height:32px; }
 .snap-person-head > strong { min-width:0; flex:1; overflow:hidden; color:#29232a; font-size:20px; text-overflow:ellipsis; white-space:nowrap; }
 .snap-status-pill { flex:none; padding:8px 12px; border-radius:999px; font-size:12px; font-weight:800; }
 .snap-status-pill.sent { background:#e4f5e9; color:#278052; }
@@ -331,7 +329,6 @@
 @media(max-width:620px) {
   .snap-people-grid { grid-template-columns:1fr; gap:10px; }
   .snap-person-card { padding:14px; border-radius:18px; }
-  .snap-person-head .snap-brand-mark { width:42px; height:42px; }
   .snap-person-head > strong { font-size:17px; }
   .snap-person-state { margin-top:13px; }
   .snap-send-button { min-height:42px; padding:0 15px; font-size:12px; }
@@ -1136,4 +1133,59 @@
 @media (prefers-reduced-motion: reduce) {
   .custom-hub-filters button,
   .give-challenge-btn { transition: none; }
+}
+
+/* Compact, consistent water controls and a visible fill level inside the glass. */
+.water-challenge-card .water-glass-fill {
+  z-index: 3;
+  height: var(--water-level);
+  max-height: none;
+  bottom: 7%;
+  left: 14%;
+  right: 14%;
+  opacity: .72;
+}
+.water-challenge-card .water-controls {
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.water-challenge-card .water-controls button {
+  flex: none;
+  min-height: 40px;
+  height: 40px;
+  border-radius: 12px;
+  font: 700 12px "DM Sans", sans-serif;
+}
+.water-challenge-card .water-remove {
+  width: 40px;
+  min-width: 40px;
+  font-size: 18px !important;
+}
+.water-challenge-card .water-add {
+  width: 126px;
+  min-width: 0;
+  padding: 0 12px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.snap-sent-check {
+  width: 54px;
+  height: 54px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #31a66b;
+  color: #fff;
+  font: 800 38px/1 "DM Sans", sans-serif;
+  box-shadow: 0 5px 14px #31a66b38;
+}
+.snap-status-pill.sent { color: #278052; }
+.snap-person-card.is-sent .snap-state-copy strong { color: #278052; }
+@media(max-width:600px) {
+  .water-challenge-card .water-controls { margin-top: 10px; }
+  .water-challenge-card .water-controls button { min-height: 40px; height: 40px; font-size: 12px; }
+  .water-challenge-card .water-remove { width: 40px; min-width: 40px; }
+  .water-challenge-card .water-add { width: 116px; }
 }
