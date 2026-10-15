@@ -648,6 +648,7 @@ export function renderGames(el, user, profile) {
   let sosGameState = null;
   let sosPresence = {};
   let appPresence = {};
+  let sosRepairInProgress = false;
   let selectedSosLetter = "S";
   let gameRoomState = null;
   let roomStateInitializing = "";
@@ -684,6 +685,12 @@ export function renderGames(el, user, profile) {
     stopSosGame = onValue(sosGameRef(), snapshot => {
       const previousState = sosGameState;
       sosGameState = snapshot.val();
+      if (sosGameState && !isValidSosState(sosGameState) && !sosRepairInProgress) {
+        sosRepairInProgress = true;
+        void startOrJoinSosMatch().finally(() => {
+          sosRepairInProgress = false;
+        });
+      }
       if (isValidSosState(sosGameState) && sosGameState.status === "finished" &&
           previousState?.status !== "finished" && !savedMatchResults.has(sosGameState.matchId) && firebaseReady) {
         savedMatchResults.add(sosGameState.matchId);
