@@ -329,7 +329,6 @@ export function renderMemories(el, user, profile) {
   let activeMemoryForView = null;
   let selectedGalleryMedia = null;
   let lightboxMediaKey = "";
-  let lightboxZoom = 1;
   let lightboxTouchStart = null;
   let lightboxGalleryIndex = -1;
 
@@ -369,7 +368,7 @@ export function renderMemories(el, user, profile) {
     const dx = touch.clientX - lightboxTouchStart.x;
     const dy = touch.clientY - lightboxTouchStart.y;
     lightboxTouchStart = null;
-    if (Math.abs(dx) < 60 || Math.abs(dx) <= Math.abs(dy) || lightboxZoom > 1.02) return;
+    if (Math.abs(dx) < 60 || Math.abs(dx) <= Math.abs(dy)) return;
     void moveLightboxGallery(dx < 0 ? 1 : -1);
   }, { passive: true });
 
@@ -382,7 +381,6 @@ export function renderMemories(el, user, profile) {
     lightboxVideo.load();
     lightboxVideo.style.display = "none";
     lightboxMediaKey = "";
-    lightboxZoom = 1;
     lightboxGalleryIndex = -1;
     lightboxImage.style.transform = "scale(1)";
   }
@@ -396,7 +394,6 @@ export function renderMemories(el, user, profile) {
     lightboxImage.alt = image.alt || "Full size memory photo";
       const source = selectedGalleryMedia || activeMemoryForView || {};
     lightboxMediaKey = source.telegramFileId || source.url || "";
-    lightboxZoom = 1;
     const memory = activeMemoryForView || {};
     const additional = Array.isArray(memory.mediaItems) ? memory.mediaItems : [];
     const allMedia = [
@@ -405,7 +402,6 @@ export function renderMemories(el, user, profile) {
     ];
     lightboxGalleryIndex = allMedia.findIndex(item => (item.telegramFileId || item.url) === (selectedGalleryMedia?.telegramFileId || selectedGalleryMedia?.url || lightboxMediaKey));
     if (lightboxGalleryIndex < 0 && allMedia.length) lightboxGalleryIndex = 0;
-    lightboxImage.style.transform = "scale(1)";
     updateLightboxActions();
     imageLightbox.setAttribute("aria-hidden", "false");
     $("#memory-image-lightbox-close", el).focus();
@@ -420,8 +416,6 @@ export function renderMemories(el, user, profile) {
     ];
     lightboxGalleryIndex = allMedia.findIndex(media => (media.telegramFileId || media.url) === (item.telegramFileId || item.url));
     lightboxMediaKey = item.telegramFileId || item.url || "";
-    lightboxZoom = 1;
-    lightboxImage.style.transform = "scale(1)";
     updateLightboxActions(item.type === "video");
     imageLightbox.setAttribute("aria-hidden", "false");
     lightboxImage.removeAttribute("src");
@@ -449,11 +443,6 @@ export function renderMemories(el, user, profile) {
   function updateLightboxActions(video = selectedGalleryMedia?.type === "video") {
     $("#memory-lightbox-delete", el).style.display = lightboxMediaKey ? "inline-flex" : "none";
     $("#memory-lightbox-delete", el).textContent = video ? "Delete Video" : "Delete Photo";
-  }
-
-  function setLightboxZoom(nextZoom) {
-    lightboxZoom = Math.max(1, Math.min(4, nextZoom));
-    lightboxImage.style.transform = `scale(${lightboxZoom})`;
   }
 
   async function moveLightboxGallery(direction) {

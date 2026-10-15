@@ -282,35 +282,35 @@ export function renderChallenges(el, user, profile) {
   /* ─── The daily challenge cards ─────────────────── */
   function dailySnapCard(challenge) {
     const assignment = assignmentFor(challenge);
-    const hasCompleted = (assignment.completedBy || []).some(p => p.uid === user.uid || p.profileKey === ownKey);
-    const partnerKeys = Object.keys(partnerProfiles).filter(k => k !== ownKey);
-    const partnerDone = partnerKeys.some(k => (assignment.completedBy || []).some(p =>
-      p.profileKey === k || (partnerProfiles[k]?.authUid && p.uid === partnerProfiles[k].authUid)));
-    const badgeClass = hasCompleted && partnerDone ? "done" : hasCompleted ? "progress" : "";
-    const badgeText = hasCompleted && partnerDone ? "Together ✓" : hasCompleted ? "Sent ✓" : "Pending";
+    const completedBy = assignment.completedBy || [];
+    const people = Object.entries(partnerProfiles);
+    const allDone = people.length > 0 && people.every(([key, person]) => completedBy.some(p =>
+      p.profileKey === key || (person.authUid && p.uid === person.authUid)));
     return `
-      <article class="challenge-card">
+      <article class="challenge-card snap-challenge-card">
         <div class="challenge-card-head">
-          <span class="challenge-icon" aria-hidden="true">📸</span>
+          <span class="snap-brand-mark" aria-label="Snapchat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.1c-2.1 0-3.7 1.7-3.7 4.2 0 .9.1 1.6.2 2.2-.5.4-1.2.1-1.9-.3-.6-.3-1.1-.6-1.4-.2-.4.5.1 1 .7 1.3.7.4 1.6.7 2.2.6-.1.8-.5 1.5-1.3 2.2-.6.5-1.3.8-2.1 1-.6.2-.7.7-.1 1 .6.3 1.6.3 2.1.8.4.4.4 1.1 1.1 1.2.6.1 1-.3 1.6-.2.7.1 1.4.8 2.6.8s1.9-.7 2.6-.8c.6-.1 1 .3 1.6.2.7-.1.7-.8 1.1-1.2.5-.5 1.5-.5 2.1-.8.6-.3.5-.8-.1-1-.8-.2-1.5-.5-2.1-1-.8-.7-1.2-1.4-1.3-2.2.6.1 1.5-.2 2.2-.6.6-.3 1.1-.8.7-1.3-.3-.4-.8-.1-1.4.2-.7.4-1.4.7-1.9.3.1-.6.2-1.3.2-2.2 0-2.5-1.6-4.2-3.7-4.2Z"/></svg></span>
           <div class="challenge-head-copy">
-            <h2>Send Snap</h2>
-            <small>Send your daily Snap on Snapchat</small>
+            <h2>Daily Snap</h2>
+            <small>Share your daily moments with each other 💗</small>
           </div>
-          <span class="challenge-badge ${badgeClass}">${badgeText}</span>
         </div>
         <div class="snap-widget">
-          <button type="button" class="snap-toggle ${hasCompleted ? "is-done" : ""}"
-                  data-action="snap-complete" data-id="${esc(assignment.id)}"
-                  ${hasCompleted ? "disabled" : ""}>
-            <span class="snap-check" aria-hidden="true">${hasCompleted ? "✓" : "📸"}</span>
-            <span>${hasCompleted ? "You sent today's Snap" : "Mark today's Snap as sent"}</span>
-          </button>
-          <div class="challenge-mini-progress">
-            ${Object.entries(partnerProfiles).map(([key, person]) => {
-              const done = (assignment.completedBy || []).some(p => p.profileKey === key || (person.authUid && p.uid === person.authUid));
-              return `<span class="${done ? "done" : ""}">${esc(person.name)} · ${done ? "✓ Sent" : "⏳ Waiting"}</span>`;
+          <div class="snap-people-grid">
+            ${people.map(([key, person]) => {
+              const sent = completedBy.some(p => p.profileKey === key || (person.authUid && p.uid === person.authUid));
+              const isMine = key === ownKey;
+              const avatar = person.avatar ? `<img src="${esc(person.avatar)}" alt="">` : esc((person.name || "♡")[0]);
+              return `<section class="snap-person-card ${sent ? "is-sent" : "is-pending"}">
+                <header class="snap-person-head"><span class="snap-brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2.1c-2.1 0-3.7 1.7-3.7 4.2 0 .9.1 1.6.2 2.2-.5.4-1.2.1-1.9-.3-.6-.3-1.1-.6-1.4-.2-.4.5.1 1 .7 1.3.7.4 1.6.7 2.2.6-.1.8-.5 1.5-1.3 2.2-.6.5-1.3.8-2.1 1-.6.2-.7.7-.1 1 .6.3 1.6.3 2.1.8.4.4.4 1.1 1.1 1.2.6.1 1-.3 1.6-.2.7.1 1.4.8 2.6.8s1.9-.7 2.6-.8c.6-.1 1 .3 1.6.2.7-.1.7-.8 1.1-1.2.5-.5 1.5-.5 2.1-.8.6-.3.5-.8-.1-1-.8-.2-1.5-.5-2.1-1-.8-.7-1.2-1.4-1.3-2.2.6.1 1.5-.2 2.2-.6.6-.3 1.1-.8.7-1.3-.3-.4-.8-.1-1.4.2-.7.4-1.4.7-1.9.3.1-.6.2-1.3.2-2.2 0-2.5-1.6-4.2-3.7-4.2Z"/></svg></span><strong>${esc(person.name || "Partner")}</strong><span class="snap-status-pill ${sent ? "sent" : "pending"}">${sent ? "✓ Sent" : "◷ Not Sent"}</span></header>
+                <div class="snap-person-state"><span class="snap-avatar">${avatar}</span><div class="snap-state-copy"><strong>${sent ? "Snap sent today" : "Snap not sent yet"}</strong><small>${sent ? (isMine ? "You're all caught up" : "Your partner is all caught up") : (isMine ? "Send your daily moment" : "Waiting for your partner")}</small></div>
+                  ${isMine && !sent ? `<button type="button" class="snap-send-button" data-action="snap-complete" data-id="${esc(assignment.id)}">Send Snap</button>` : ""}
+                </div>
+              </section>`;
             }).join("")}
           </div>
+          <p class="snap-track-note"><span></span>💗 Track each person separately<span></span></p>
+          ${allDone ? `<div class="water-celebrate">You both sent today's Snap 💛</div>` : ""}
         </div>
       </article>
     `;
@@ -321,47 +321,40 @@ export function renderChallenges(el, user, profile) {
     const ownCount = waterCountFor(ownKey);
     const otherKey = Object.keys(APP_CONFIG.profiles).find(k => k !== ownKey);
     const partnerCount = waterCountFor(otherKey);
+    const totalCount = ownCount + partnerCount;
     const bothDone = ownCount >= 8 && partnerCount >= 8;
-    const badgeClass = bothDone ? "done" : ownCount > 0 ? "progress" : "";
-    const badgeText = bothDone ? "Together ✓" : `${ownCount}/8 today`;
     return `
-      <article class="challenge-card">
+      <article class="challenge-card water-challenge-card">
         <div class="challenge-card-head">
-          <span class="challenge-icon" aria-hidden="true">💧</span>
+          <span class="water-heading-icon" aria-hidden="true">💧</span>
           <div class="challenge-head-copy">
             <h2>Drink Water</h2>
-            <small>8 glasses a day, together</small>
+            <small>8 glasses a day, together 💗</small>
           </div>
-          <span class="challenge-badge ${badgeClass}">${badgeText}</span>
+          <span class="water-daily-total"><span>💧</span> ${totalCount} / 16 glasses</span>
         </div>
         <div class="water-widget">
-          <div class="water-bottle-row">
-            <div class="water-bottle" aria-label="Water bottle">
-              <div class="water-fill" style="height:${ownCount / 8 * 100}%"></div>
-            </div>
-            <div class="water-info">
-              <strong>${ownCount}<small>/8 glasses</small></strong>
-              <small>${waterTrackersReady ? "Your daily goal" : "Syncing…"}</small>
-            </div>
-          </div>
-          <div class="water-controls">
-            <button type="button" class="water-remove"
-                    data-action="water-remove" data-id="${esc(assignment.id)}"
-                    aria-label="Remove one glass"
-                    ${!waterTrackersReady || !assignmentsReady || ownCount <= 0 ? "disabled" : ""}>−</button>
-            <button type="button" class="water-add"
-                    data-action="water-add" data-id="${esc(assignment.id)}"
-                    aria-label="Add one glass"
-                    ${!waterTrackersReady || !assignmentsReady || ownCount >= 8 ? "disabled" : ""}>+ Add a glass</button>
-          </div>
-          <div class="challenge-mini-progress">
+          <div class="water-bottles">
             ${Object.entries(partnerProfiles).map(([key, person]) => {
               const count = key === ownKey ? ownCount : partnerCount;
-              return `<span class="${count >= 8 ? "done" : ""}">${esc(person.name)} · ${count}/8${count >= 8 ? " ✓" : ""}</span>`;
+              const isMine = key === ownKey;
+              const glassAsset = key.toLowerCase().includes("shaz") ? "Girl.png" : "Boy.png";
+              return `<section class="water-person-progress ${isMine ? "is-mine" : "is-partner"}" aria-label="${esc(person.name)}: ${count} of 8 glasses">
+                <div class="water-person-title"><strong>${esc(person.name)}${isMine ? " · You" : ""}</strong><span aria-hidden="true">${key.toLowerCase().includes("shaz") ? "💗" : "💙"}</span></div>
+                <div class="water-person-main">
+                  <div class="water-glass-wrap" aria-hidden="true"><div class="water-glass-fill" style="--water-level:${count / 8 * 100}%"></div><img src="./Asset/${glassAsset}" alt=""></div>
+                  <div class="water-person-details"><div class="water-count"><strong>${count}</strong><span>/ 8<br>glasses</span></div>
+                    <div class="water-progress-track" role="progressbar" aria-label="${esc(person.name)} daily water progress" aria-valuemin="0" aria-valuemax="8" aria-valuenow="${count}"><span style="width:${count / 8 * 100}%"></span></div>
+                    <small class="water-progress-caption">${count >= 8 ? "Daily goal complete ✓" : `${8 - count} glasses to go`}</small>
+                  </div>
+                </div>
+                ${isMine ? `<div class="water-controls"><button type="button" class="water-remove" data-action="water-remove" data-id="${esc(assignment.id)}" aria-label="Remove one glass" ${!waterTrackersReady || !assignmentsReady || ownCount <= 0 ? "disabled" : ""}>−</button><button type="button" class="water-add" data-action="water-add" data-id="${esc(assignment.id)}" ${!waterTrackersReady || !assignmentsReady || ownCount >= 8 ? "disabled" : ""}>＋ Add a glass</button></div>` : ""}
+              </section>`;
             }).join("")}
           </div>
           ${bothDone ? `<div class="water-celebrate">Hydrated together 💧✨</div>` : ""}
         </div>
+        <p class="water-together-note"><span></span>One glass at a time 💧<span></span></p>
       </article>
     `;
   }

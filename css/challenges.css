@@ -298,6 +298,44 @@
   background: #1f7a47;
   color: #fff;
 }
+.snap-challenge-card { padding: clamp(18px,3vw,30px); border-color:#fff0a6; background:linear-gradient(135deg,#fffef4,#fff9d9); }
+.snap-challenge-card .snap-brand-mark { width:46px; height:46px; flex:none; display:grid; place-items:center; border-radius:13px; background:#fffc00; box-shadow:0 4px 12px #d7c90030; }
+.snap-brand-mark svg { width:29px; height:29px; fill:#171717; }
+.snap-challenge-card .challenge-card-head { gap:13px; margin-bottom:15px; }
+.snap-challenge-card .challenge-head-copy h2 { font-size:22px; }
+.snap-challenge-card .challenge-head-copy small { font-size:13px; }
+.snap-widget { padding:0; border:0; background:transparent; }
+.snap-people-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.snap-person-card { min-width:0; padding:18px; border:1px solid #f5e7ec; border-radius:22px; background:linear-gradient(145deg,#fff,#fff9fb); box-shadow:0 6px 18px #692c3f0a; }
+.snap-person-card.is-sent { border-color:#fff09a; background:linear-gradient(145deg,#fffef2,#fffbe1); }
+.snap-person-head { display:flex; align-items:center; gap:11px; min-width:0; }
+.snap-person-head .snap-brand-mark { width:48px; height:48px; border-radius:12px; }
+.snap-person-head .snap-brand-mark svg { width:32px; height:32px; }
+.snap-person-head > strong { min-width:0; flex:1; overflow:hidden; color:#29232a; font-size:20px; text-overflow:ellipsis; white-space:nowrap; }
+.snap-status-pill { flex:none; padding:8px 12px; border-radius:999px; font-size:12px; font-weight:800; }
+.snap-status-pill.sent { background:#e4f5e9; color:#278052; }
+.snap-status-pill.pending { background:#fff0f4; color:#907784; }
+.snap-person-state { display:flex; align-items:center; gap:12px; margin-top:18px; }
+.snap-avatar { width:43px; height:43px; flex:none; display:grid; place-items:center; overflow:hidden; border-radius:50%; background:#e9f5eb; color:#288455; font-size:20px; }
+.snap-avatar img { width:100%; height:100%; object-fit:cover; }
+.snap-person-card.is-pending .snap-avatar { background:#fff0f4; color:#a18491; }
+.snap-state-copy { display:grid; gap:4px; min-width:0; flex:1; }
+.snap-state-copy strong { color:#29232a; font-size:15px; }
+.snap-person-card.is-sent .snap-state-copy strong { color:#278052; }
+.snap-state-copy small { color:#907e87; font-size:12px; }
+.snap-send-button { flex:none; min-height:44px; padding:0 20px; border:0; border-radius:999px; background:#fffc00; color:#171717; font:800 14px "DM Sans",sans-serif; box-shadow:0 4px 12px #d7c90038; cursor:pointer; transition:transform .15s,box-shadow .15s; }
+.snap-send-button:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 7px 16px #d7c90055; }
+.snap-send-button:disabled { opacity:.55; cursor:wait; }
+.snap-track-note { display:flex; align-items:center; justify-content:center; gap:12px; margin:18px 0 0; color:#977d88; font-size:12px; }
+.snap-track-note span { width:min(12vw,72px); height:1px; background:#f3cbd7; }
+@media(max-width:620px) {
+  .snap-people-grid { grid-template-columns:1fr; gap:10px; }
+  .snap-person-card { padding:14px; border-radius:18px; }
+  .snap-person-head .snap-brand-mark { width:42px; height:42px; }
+  .snap-person-head > strong { font-size:17px; }
+  .snap-person-state { margin-top:13px; }
+  .snap-send-button { min-height:42px; padding:0 15px; font-size:12px; }
+}
 
 /* ── 2. WATER ────────────────────────────────────── */
 .water-widget {
@@ -307,10 +345,73 @@
   background: linear-gradient(160deg, #f5fbff, #e6f5ff);
   border: 1px solid #d6ecfa;
 }
-.water-bottle-row {
+.water-challenge-card { padding:clamp(16px,3vw,28px); border-color:#f5dce8; border-radius:24px; background:linear-gradient(145deg,#fff,#fff9fc); }
+.water-challenge-card .challenge-card-head { margin-bottom:16px; }
+.water-heading-icon { width:58px; height:58px; flex:none; display:grid; place-items:center; border-radius:18px; background:linear-gradient(145deg,#fff0f5,#ffe4ee); font-size:31px; }
+.water-challenge-card .challenge-head-copy h2 { font-size:clamp(20px,4vw,28px); }
+.water-challenge-card .challenge-head-copy small { font-size:13px; }
+.water-daily-total { flex:none; display:flex; align-items:center; gap:7px; padding:12px 16px; border:1px solid #f7e1e9; border-radius:999px; background:#fff5f8; color:#51404c; font-size:15px; font-weight:700; white-space:nowrap; }
+.water-daily-total span { font-size:20px; }
+.water-widget { margin:0; padding:16px; border:1px solid #d9ebfa; border-radius:24px; background:linear-gradient(155deg,#f3faff,#eaf5ff); }
+.water-bottles {
   display: flex;
-  align-items: center;
-  gap: 14px;
+  justify-content: center;
+  gap: 16px;
+}
+.water-person-progress {
+  flex:1;
+  min-width: 0;
+  padding:16px;
+  border:1px solid #cce6fb;
+  border-radius:22px;
+  background:linear-gradient(145deg,#fff,#f8fcff);
+  box-shadow:0 6px 18px #3b80b00a;
+}
+.water-person-progress.is-partner { border-color:#f4d5e2; background:linear-gradient(145deg,#fff,#fff8fb); }
+.water-person-title { display:flex; align-items:center; justify-content:center; gap:9px; margin-bottom:10px; color:#173e70; font-size:19px; }
+.water-person-progress.is-partner .water-person-title { color:#703a58; }
+.water-person-title span { font-size:18px; }
+.water-person-main { display:flex; align-items:center; justify-content:center; gap:clamp(10px,2vw,22px); }
+.water-glass-wrap { position:relative; isolation:isolate; width:clamp(75px,10vw,112px); height:clamp(120px,17vw,168px); flex:none; }
+.water-glass-wrap img { position:absolute; z-index:2; inset:0; width:100%; height:100%; object-fit:fill; pointer-events:none; }
+.water-glass-fill { position:absolute; z-index:1; left:13%; right:13%; bottom:7%; height:var(--water-level); max-height:82%; border-radius:4px 4px 16px 16px; background:linear-gradient(180deg,#7fcbff,#2698ee); clip-path:polygon(0 0,100% 0,89% 100%,11% 100%); transition:height .45s cubic-bezier(.34,1.2,.64,1); opacity:.88; }
+.water-person-progress.is-partner .water-glass-fill { background:linear-gradient(180deg,#f7a9ca,#e75f98); }
+.water-person-details { min-width:0; flex:1; }
+.water-count { display:flex; align-items:baseline; gap:7px; color:#8992a5; }
+.water-count strong { color:#278de3; font-size:clamp(34px,5vw,52px); line-height:1; }
+.water-person-progress.is-partner .water-count strong { color:#df5b8e; }
+.water-count span { font-size:14px; line-height:1.25; }
+.water-progress-track { height:12px; overflow:hidden; margin-top:12px; border-radius:999px; background:#dceefa; }
+.water-progress-track span { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#60b9fa,#268ee8); transition:width .4s ease; }
+.water-person-progress.is-partner .water-progress-track { background:#f8e1eb; }
+.water-person-progress.is-partner .water-progress-track span { background:linear-gradient(90deg,#f5a5c5,#df5b8e); }
+.water-progress-caption { display:block; margin-top:8px; color:#7a8ba0; font-size:11px; }
+.water-person-progress.is-partner .water-progress-caption { color:#9a7185; }
+.water-controls { display:flex; align-items:center; gap:12px; margin-top:17px; }
+.water-controls button { min-height:54px; border-radius:999px; font:800 16px "DM Sans",sans-serif; }
+.water-remove { width:54px; min-width:54px; border:1px solid #bfdef8!important; background:#e6f4ff; color:#2589dd; font-size:22px!important; }
+.water-add { flex:1; border:1px solid #2389dc!important; background:linear-gradient(120deg,#48aafa,#258de7); color:#fff; box-shadow:0 7px 17px #228ce53b; }
+.water-add:hover:not(:disabled) { filter:brightness(1.04); transform:translateY(-1px); }
+.water-together-note { display:flex; align-items:center; justify-content:center; gap:12px; margin:17px 0 0; color:#7e879a; font-size:13px; }
+.water-together-note span { width:min(12vw,70px); height:1px; background:#f1c7d8; }
+@media(max-width:600px) {
+  .water-bottles { gap:9px; }
+  .water-person-progress { padding:12px 8px; border-radius:17px; }
+  .water-person-title { font-size:16px; }
+  .water-person-main { flex-direction:column; gap:8px; }
+  .water-glass-wrap { width:72px; height:112px; }
+  .water-person-details { width:100%; text-align:center; }
+  .water-count { justify-content:center; }
+  .water-progress-track { height:9px; margin-top:8px; }
+  .water-progress-caption { min-height:26px; font-size:10px; }
+  .water-controls { gap:8px; margin-top:12px; }
+  .water-controls button { min-height:46px; font-size:13px; }
+  .water-remove { width:46px; min-width:46px; }
+}
+@media(max-width:360px) {
+  .water-daily-total { padding:9px 10px; font-size:12px; }
+  .water-person-progress { padding:10px 5px; }
+  .water-person-title { gap:4px; font-size:14px; }
 }
 
 /* Bottle with animated waves */
