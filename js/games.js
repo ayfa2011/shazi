@@ -45,6 +45,7 @@ const triviaQuestions = [
 let stopGames = null;
 let stopSosGame = null;
 let stopSosPresence = null;
+let stopSosAppPresence = null;
 let stopSosConnection = null;
 let stopGameMatch = null;
 let memoryTimer = null;
@@ -131,9 +132,26 @@ function findSosLines(board, moveIndex, uid, knownLines) {
   return found;
 }
 
+function makeSosWaitingState(uid, name) {
+  return {
+    matchId: `${Date.now()}-${uid}`,
+    status: "waiting",
+    playerUids: [uid],
+    players: { [uid]: { name } },
+    board: Array(SOS_CELL_COUNT).fill(""),
+    owners: Array(SOS_CELL_COUNT).fill(""),
+    scores: { [uid]: 0 },
+    lines: [],
+    turnUid: "",
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+}
+
 function gameIsComplete(game, state) {
   if (!state) return false;
-  if (game === "memory-match") return state.matched.length === state.cards.length;
+  if (game === "memory-match") return Array.isArray(state.matched) && Array.isArray(state.cards) &&
+    state.cards.length > 0 && state.matched.length === state.cards.length;
   if (game === "word-guess") {
     const won = [...state.word.toLocaleLowerCase()].every(char => !/[a-z]/.test(char) || state.guessed.includes(char));
     return Boolean(state.word) && (won || state.guessesLeft === 0);
@@ -482,7 +500,7 @@ function renderSosGame(content, user, gameState, presence, selectedLetter) {
   const uid = user.uid;
   const state = gameState || null;
   if (state && !isValidSosState(state)) {
-    content.innerHTML = `<section class="sos-game-page"><header class="sos-header"><button class="sos-back" type="button" data-back-games>← Games</button><h1>SOS</h1></header><p class="error sos-error">This match has invalid game data. Please start a new match.</p></section>`;
+    content.innerHTML = `<section class="sos-game-page"><header class="sos-header"><button class="sos-back" type="button" data-back-games>← Games</button><h1>SOS</h1></header><p class="error sos-error">This match data is out of date. Start a fresh match to continue.</p><button type="button" class="primary sos-action" data-sos-start>Start a fresh match</button></section>`;
     return;
   }
 
@@ -590,6 +608,8 @@ function isValidGameRoom(room, game) {
   if (room.status === "waiting") return room.playerUids.length === 1;
   if (room.status === "cancelled") return true;
   if (room.playerUids.length !== 2 || !room.playerUids.every(uid => room.players[uid])) return false;
+  if (game === "memory-match" && room.playerUids.some(uid => room.players[uid].state != null &&
+      !isValidActiveGameState(game, room.players[uid].state))) return false;
   if (game === "word-guess" && (!["setter", "guessing", "result"].includes(room.wordPhase) ||
       !Number.isInteger(room.wordRoundNumber) || room.wordRoundNumber < 0 || room.wordRoundNumber > 1 ||
       (room.wordPhase === "guessing" &&
@@ -619,6 +639,7 @@ export function renderGames(el, user, profile) {
   let activeState = null;
   let sosGameState = null;
   let sosPresence = {};
+  let appPresence = {};
   let selectedSosLetter = "S";
   let gameRoomState = null;
   let roomStateInitializing = "";
@@ -638,6 +659,8 @@ export function renderGames(el, user, profile) {
     stopSosGame = null;
     stopSosPresence?.();
     stopSosPresence = null;
+    stopSosAppPresence?.();
+    stopSosAppPresence = null;
     stopSosConnection?.();
     stopSosConnection = null;
     document.body.classList.remove("sos-fullscreen");
@@ -684,6 +707,10 @@ export function renderGames(el, user, profile) {
     }, error => {
       console.error("SOS player presence could not be loaded:", error);
     });
+    stopSosAppPresence = onValue(ref(rtdb, `couples/${APP_CONFIG.coupleId}/presence`), snapshot => {
+      appPresence = snapshot.val() || {};
+      if (activeGame === "sos") renderCurrentGame();
+    }, error => console.error("Partner presence could not be loaded for SOS:", error));
     stopSosConnection = onValue(ref(rtdb, ".info/connected"), snapshot => {
       if (snapshot.val() !== true) return;
       const playerRef = sosPresenceRef(user.uid);
@@ -698,6 +725,91 @@ export function renderGames(el, user, profile) {
     });
   }
 
+  async function startOrJoinSosMatch() {
+    if (!rtdb) {
+      toast("SOS needs Firebase Realtime Database.");
+      return;
+    }
+    const partnerOnline = Object.entries({ ...appPresence, ...sosPresence }).some(([playerUid, value]) =>
+      playerUid !== user.uid && value?.online === true
+    );
+    try {
+      const transaction = await runTransaction(sosGameRef(), current => {
+        if (!isValidSosState(current) || current.status === "finished" || current.status === "cancelled") {
+          return makeSosWaitingState(user.uid, getDisplayName(user.uid, profile?.name));
+        }
+        if (current.status !== "waiting" || current.playerUids.includes(user.uid)) return;
+        if (!partnerOnline) return;
+        return {
+          ...current,
+          playerUids: [...current.playerUids, user.uid],
+          players: { ...current.players, [user.uid]: { name: getDisplayName(user.uid, profile?.name) } },
+          scores: { ...current.scores, [user.uid]: 0 },
+          status: "playing",
+          turnUid: current.playerUids[0],
+          updatedAt: Date.now()
+        };
+      });
+      if (!transaction.committed) {
+        toast(partnerOnline ? "This SOS match has already started. Please wait for the next match." : "Waiting for your partner to open SOS and join.");
+      }
+    } catch (error) {
+      console.error("Could not start or join SOS:", error);
+      toast("SOS could not start. Check your connection and try again.");
+    }
+  }
+
+  async function cancelSosWaitingMatch() {
+    try {
+      const transaction = await runTransaction(sosGameRef(), current => {
+        if (!isValidSosState(current) || current.status !== "waiting" || current.playerUids[0] !== user.uid) return;
+        return { ...current, status: "cancelled", updatedAt: Date.now() };
+      });
+      if (!transaction.committed) toast("This waiting match has already changed.");
+    } catch (error) {
+      console.error("Could not cancel SOS match:", error);
+      toast("The SOS match could not be cancelled.");
+    }
+  }
+
+  async function playSosMove(index) {
+    try {
+      const transaction = await runTransaction(sosGameRef(), current => {
+        if (!isValidSosState(current) || current.status !== "playing" || current.turnUid !== user.uid ||
+            !current.playerUids.includes(user.uid) || current.board[index]) return;
+        const board = [...current.board];
+        const owners = [...current.owners];
+        board[index] = selectedSosLetter;
+        owners[index] = user.uid;
+        const knownLines = new Set(current.lines.map(line => line.cells.join("-")));
+        const newLines = findSosLines(board, index, user.uid, knownLines);
+        const scores = { ...current.scores, [user.uid]: (current.scores[user.uid] || 0) + newLines.length };
+        const lines = [...current.lines, ...newLines];
+        const boardFull = board.every(Boolean);
+        const opponentUid = current.playerUids.find(playerUid => playerUid !== user.uid);
+        const finished = boardFull;
+        const winnerUid = !finished ? "" : scores[user.uid] === scores[opponentUid]
+          ? ""
+          : scores[user.uid] > scores[opponentUid] ? user.uid : opponentUid;
+        return {
+          ...current,
+          board,
+          owners,
+          scores,
+          lines,
+          status: finished ? "finished" : "playing",
+          turnUid: finished ? "" : newLines.length ? user.uid : opponentUid,
+          ...(finished ? { winnerUid } : {}),
+          updatedAt: Date.now()
+        };
+      });
+      if (!transaction.committed) toast("That square is no longer available, or it is your partner's turn.");
+    } catch (error) {
+      console.error("Could not save SOS move:", error);
+      toast("Your SOS move could not be saved. Please try again.");
+    }
+  }
+
   function renderGameRoom() {
     const statusEl = $("#games-room-status", el);
     const content = $("#games-active-content", el);
@@ -710,7 +822,7 @@ export function renderGames(el, user, profile) {
 
     const room = gameRoomState;
     if (room && !isValidGameRoom(room, activeGame)) {
-      statusEl.innerHTML = `<p class="error">This match has invalid saved data. Please cancel it or contact your partner before starting another.</p>`;
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="error">This match has incomplete saved data. Start a fresh match to continue.</p><button type="button" class="primary" data-room-start>Start a fresh match</button></div>`;
       content.replaceChildren();
       return;
     }
@@ -763,7 +875,9 @@ export function renderGames(el, user, profile) {
       ? activeGame === "emoji-quiz" || activeGame === "couple-trivia"
         ? `Question ${Math.min(opponentState.question + 1, opponentState.questions.length)} of ${opponentState.questions.length}`
         : activeGame === "memory-match"
-          ? `${opponentState.matched.length / 2} of ${symbols.length} pairs`
+          ? isValidActiveGameState(activeGame, opponentState)
+            ? `${opponentState.matched.length / 2} of ${opponentState.cards.length / 2} pairs`
+            : "their round hasn't started yet"
           : activeGame === "spin-wheel"
             ? `${opponentState.completedChallenges}/3 challenges`
             : "playing now"
@@ -842,7 +956,7 @@ export function renderGames(el, user, profile) {
       await runTransaction(gameMatchRef(activeGame), current => {
         if (!current || current.matchId !== room.matchId || current.status !== "playing" || current.turnUid !== user.uid) return;
         const player = current.players?.[user.uid];
-        if (!player || player.state) return;
+        if (!player || isValidActiveGameState(activeGame, player.state)) return;
         return {
           ...current,
           players: { ...current.players, [user.uid]: { ...player, state: initialState } },
@@ -926,7 +1040,7 @@ export function renderGames(el, user, profile) {
         $("#games-active-content", el).innerHTML = `<section class="sos-game-page"><header class="sos-header"><button class="sos-back" type="button" data-back-games>← Games</button><h1>SOS</h1></header><p class="error sos-error">Live SOS is unavailable because Firebase Realtime Database is not configured.</p></section>`;
         return;
       }
-      renderSosGame($("#games-active-content", el), user, sosGameState, sosPresence, selectedSosLetter);
+      renderSosGame($("#games-active-content", el), user, sosGameState, { ...appPresence, ...sosPresence }, selectedSosLetter);
       return;
     }
     document.body.classList.remove("sos-fullscreen");
@@ -1019,6 +1133,27 @@ export function renderGames(el, user, profile) {
       return;
     }
 
+    if (activeGame === "sos" && target.hasAttribute("data-sos-letter")) {
+      selectedSosLetter = target.dataset.sosLetter === "O" ? "O" : "S";
+      renderCurrentGame();
+      return;
+    }
+
+    if (activeGame === "sos" && (target.hasAttribute("data-sos-start") || target.hasAttribute("data-sos-join"))) {
+      await startOrJoinSosMatch();
+      return;
+    }
+
+    if (activeGame === "sos" && target.hasAttribute("data-sos-cancel")) {
+      await cancelSosWaitingMatch();
+      return;
+    }
+
+    if (activeGame === "sos" && target.hasAttribute("data-sos-cell")) {
+      await playSosMove(Number(target.dataset.sosCell));
+      return;
+    }
+
     if (target.hasAttribute("data-room-start")) {
       if (!rtdb) {
         toast("Two-player games need Firebase Realtime Database.");
@@ -1026,7 +1161,7 @@ export function renderGames(el, user, profile) {
       }
       try {
         const transaction = await runTransaction(gameMatchRef(activeGame), current => {
-          if (!current || current.status === "finished" || current.status === "cancelled") {
+          if (!isValidGameRoom(current, activeGame) || current.status === "finished" || current.status === "cancelled") {
             const matchId = `${Date.now()}-${user.uid}`;
             return {
               matchId,

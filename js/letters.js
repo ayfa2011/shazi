@@ -4,7 +4,7 @@ import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-d
 import { APP_CONFIG } from "../config/app-config.js";
 import { sendToTelegram } from "../src/services/telegramService.js";
 
-let stopLetters = null, deliveryTimer = null, active = false, visibilityHandler = null;
+let stopLetters = null, deliveryTimer = null, active = false, visibilityHandler = null, persistDraftOnDispose = null;
 
 export function renderLetters(el, user, profile) {
   stopLetters?.();
@@ -13,6 +13,11 @@ export function renderLetters(el, user, profile) {
   if (visibilityHandler) document.removeEventListener("visibilitychange", visibilityHandler);
   active = true;
   const ownKey = getProfileKey(profile);
+  const draftStorageKey = `olw-letter-draft:${user.uid}:${ownKey || "profile"}`;
+  let draftSaveTimer = null;
+  let sendingLetter = false;
+  let composeFontSize = 20;
+  let composerOpened = false;
   let currentTab = "Inbox";
   let allLetters = [];
   // Optimistic local state prevents the unread dot flashing back while Firestore syncs.
@@ -144,6 +149,10 @@ export function renderLetters(el, user, profile) {
       .letter-modal-box.is-fullscreen .letter-form { gap:10px; }
       .letter-modal-box.is-fullscreen .letter-prompt { display:none; }
       .letter-modal-box.is-fullscreen .letter-modal-head { position:sticky; top:0; z-index:2; background:#fffafd; }
+      #read-letter-modal { position:fixed; inset:0; z-index:1000; align-items:stretch; justify-content:center; overflow-y:auto; padding:0; background:linear-gradient(150deg,#fff3f8,#fffafd 50%,#f8f4ff); opacity:1; backdrop-filter:none; }
+      #read-letter-modal.is-open { animation:none; }
+      #read-letter-modal .letter-read-modal-box { width:min(900px,100%); max-width:none; height:auto; min-height:100dvh; max-height:none; overflow:visible; padding:clamp(20px,5vw,56px); border:0; border-radius:0; background:transparent; box-shadow:none; animation:none; }
+      #read-letter-modal .letter-paper { max-height:none; box-shadow:0 12px 35px rgba(48,19,33,.11); }
       .letter-modal-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:15px; }
       .letter-modal-head h3 { margin:0; color:#873456; font-size:clamp(22px,3vw,34px); font-family:"Playfair Display",serif; }
       .letter-close-btn { width:34px; height:34px; flex:none; border-radius:50%; border:none; background:#fff0f6; color:#9c3b64; font-size:21px; cursor:pointer; }
@@ -210,12 +219,11 @@ export function renderLetters(el, user, profile) {
         padding: 6px 22px 40px 74px; /* text starts right of margin line */
         outline: none;
         color: #1e3150;
-        font-size: 22px;
+        font-size: var(--letter-compose-font-size, 20px);
         line-height: 34px; /* MUST match ruling pitch so text sits ON the line */
         caret-color: #c83f78;
         overflow-wrap: anywhere;
         white-space: pre-wrap;
-        transform: translate(var(--letter-text-x,0px), var(--letter-text-y,0px));
         transform-origin: top left;
         touch-action: manipulation;
         -webkit-user-select: text;
@@ -223,22 +231,27 @@ export function renderLetters(el, user, profile) {
       }
       .letter-editor-content:empty:before { content: attr(data-placeholder); color: #b38d9e; white-space: pre-wrap; pointer-events: none; }
       .letter-editor-content p { margin: 0; }
-      .letter-editor-content.is-move-mode { cursor: grab; touch-action: none; user-select: none; }
-      .letter-editor-content.is-move-mode:active { cursor: grabbing; }
-      .letter-editor-paper.is-move-mode { border-color: #d982a7; }
-
-      .letter-editor-label { font-size:12px; font-weight:800; color:#754258; }
-      .letter-editor-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:8px; border:1px solid #f0dce6; border-radius:14px; background:#fffafd; }
-      .letter-editor-toolbar button { min-width:34px; min-height:34px; padding:6px 9px; border-radius:9px; background:#fff; color:#754258; border:1px solid #f0dce6; font-size:13px; touch-action:manipulation; }
-      .letter-editor-toolbar button[aria-pressed="true"] { background:#f8dce8; border-color:#d982a7; }
-      .letter-editor-toolbar select { min-width:0; max-width:145px; flex:1; padding:8px 6px; border-radius:9px; font-size:11px; touch-action:manipulation; }
-      .letter-editor-toolbar input[type="color"] { min-width:38px; height:34px; padding:2px; border-radius:9px; border:1px solid #f0dce6; background:#fff; cursor:pointer; touch-action:manipulation; }
+      .letter-editor-toolbar { display:inline-flex; align-items:center; gap:8px; width:fit-content; padding:4px 8px; border:1px solid #f0dce6; border-radius:999px; background:#fffafd; }
+      .letter-editor-toolbar button { min-width:34px; min-height:32px; padding:5px 8px; border-radius:999px; background:#fff; color:#754258; border:1px solid #f0dce6; font-size:13px; font-weight:800; touch-action:manipulation; }
+      .letter-font-label { color:#754258; font-size:11px; font-weight:700; }
+      .letter-font-size-value { min-width:34px; color:#947887; font-size:10px; text-align:center; }
+      .letter-draft-state { margin-left:auto; color:#8c7180; font-size:10px; font-weight:700; }
 
       .letter-prompt { margin:0; color:#9a7c89; font-size:10px; text-align:center; }
-      .letter-modal-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:3px; justify-content:flex-end; }
-      .letter-modal-actions button,.read-letter-actions button { min-height:40px; padding:9px 14px; border-radius:12px; font-size:12px; font-weight:700; cursor:pointer; border:none; }
-      .letter-cancel-btn { border:1px solid #efdde5 !important; background:#fff; color:#765a68; }
+      .read-letter-actions button { min-height:40px; padding:9px 14px; border-radius:12px; font-size:12px; font-weight:700; cursor:pointer; border:none; }
       .letter-send-btn { background:linear-gradient(135deg,#e85c91,#c73d76); color:#fff; box-shadow:0 6px 16px #d7478028; }
+      .letter-send-btn:disabled { opacity:.65; cursor:wait; }
+      .letter-compose-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px; margin-top:3px; }
+      .letter-compose-actions .letter-secondary-action { min-height:36px; padding:8px 10px; border:1px solid #efdde5; border-radius:11px; background:#fff; color:#765a68; font-size:11px; font-weight:700; }
+      .letter-compose-actions .letter-schedule-action.is-active { border-color:#d982a7; background:#fff0f6; color:#a72f62; }
+      .letter-compose-actions .letter-send-btn { min-height:42px; padding:10px 18px; font-size:13px; }
+      @media(max-width:600px) {
+        .letter-compose-actions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+        .letter-compose-actions .letter-secondary-action { min-width:0; padding:8px 5px; }
+        .letter-compose-actions .letter-send-btn { grid-column:1/-1; width:100%; }
+        .letter-editor-toolbar { gap:6px; }
+        .letter-draft-state { font-size:9px; }
+      }
 
       /* ── READ LETTER PAPER (reference-matching) ───────── */
       .letter-paper {
@@ -368,14 +381,13 @@ export function renderLetters(el, user, profile) {
         .letter-modal-box { width:100%; max-width:none; max-height:100dvh; height:100dvh; border-radius:0; padding:max(14px,env(safe-area-inset-top)) 14px max(14px,env(safe-area-inset-bottom)); }
         .letter-editor-paper { height:calc(100dvh - 350px); min-height:240px; }
         .letter-modal-box.is-fullscreen .letter-editor-paper { height:calc(100dvh - 340px); min-height:240px; }
-        #read-letter-modal { align-items:center; padding:12px; }
-        .letter-read-modal-box { width:100%; height:auto; min-height:0; max-height:calc(100dvh - 24px); border-radius:18px; padding:14px; }
-        .letter-paper { width:100%; min-height:0; max-height:calc(100dvh - 100px); border-radius:2px; }
+        #read-letter-modal { align-items:stretch; padding:0; }
+        #read-letter-modal .letter-read-modal-box { width:100%; height:auto; min-height:100dvh; max-height:none; border-radius:0; padding:max(18px,env(safe-area-inset-top)) 14px max(18px,env(safe-area-inset-bottom)); }
+        #read-letter-modal .letter-paper { width:100%; min-height:0; max-height:none; border-radius:2px; }
         .letter-paper-header { padding-left:64px; padding-right:12px; }
         .letter-paper-body { padding-left:64px; padding-right:14px; }
         .letter-editor-content { padding-left:66px; padding-right:14px; }
         .read-letter-actions { gap:8px 14px; }
-        .letter-editor-toolbar select { min-height:36px; font-size:12px; }
       }
       @media (prefers-reduced-motion:reduce) {
         .letter-modal-overlay.is-open,.letter-modal-overlay.is-open .letter-modal-box,.letter-modal-overlay.is-open .letter-paper { animation-duration:.01ms; animation-delay:0ms; }
@@ -422,41 +434,21 @@ export function renderLetters(el, user, profile) {
             ${Object.entries(APP_CONFIG.profiles).map(([key, person]) => `<option value="${esc(key)}">To ${esc(person.name)}</option>`).join("")}
           </select>
           </label>
-          <div class="letter-editor-label">Your letter</div>
           <div class="letter-editor-toolbar" role="toolbar" aria-label="Letter text formatting">
-            <button type="button" data-letter-command="bold" aria-label="Bold"><strong>B</strong></button>
-            <button type="button" data-letter-command="italic" aria-label="Italic"><em>I</em></button>
-            <button type="button" data-letter-command="underline" aria-label="Underline"><u>U</u></button>
-            <input type="color" id="letter-text-color" value="#1e3150" aria-label="Text color" title="Text color">
-            <select id="letter-font-family" aria-label="Font style">
-              <option value="Caveat">Handwritten</option>
-              <option value="Arial">Classic</option>
-              <option value="Georgia">Elegant</option>
-              <option value="Verdana">Clean</option>
-              <option value="monospace">Typewriter</option>
-            </select>
-            <select id="letter-font-size" aria-label="Text size">
-              <option value="16px">Small</option>
-              <option value="20px" selected>Normal</option>
-              <option value="24px">Large</option>
-              <option value="30px">Extra large</option>
-              <option value="38px">Huge</option>
-            </select>
-            <button type="button" data-letter-command="justifyLeft" aria-label="Align left">≡</button>
-            <button type="button" data-letter-command="justifyCenter" aria-label="Center text">☰</button>
-            <button type="button" data-letter-command="justifyRight" aria-label="Align right">☷</button>
-            <button type="button" id="letter-move-text" aria-pressed="false" title="Drag to reposition text">↔ Move text</button>
+            <button type="button" id="letter-font-decrease" aria-label="Decrease letter font size">A−</button>
+            <span class="letter-font-label">Font</span>
+            <button type="button" id="letter-font-increase" aria-label="Increase letter font size">A+</button>
+            <span class="letter-font-size-value" id="letter-font-size-value">20px</span>
+            <span class="letter-draft-state" id="letter-draft-state" aria-live="polite">Saved</span>
           </div>
           <div class="letter-editor-paper" id="letter-editor-paper">
             <div id="letter-body" class="letter-editor-content" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Write your letter" data-placeholder="My dearest…&#10;&#10;Write from your heart ♡"></div>
           </div>
           <p class="letter-prompt">Take your time. The loveliest words are the ones that sound like you.</p>
-          <label>When should it arrive?
-          <select id="letter-status">
+          <select id="letter-status" aria-label="Delivery status" hidden>
             <option value="Sent">Send Now</option>
-            <option value="Scheduled">Schedule for Later</option>
+            <option value="Scheduled">Send Later</option>
           </select>
-          </label>
 
           <div id="deliver-date-group" style="display:none;">
             <label>Deliver date &amp; time
@@ -464,9 +456,11 @@ export function renderLetters(el, user, profile) {
             </label>
           </div>
 
-          <div class="letter-modal-actions">
-            <button type="button" id="cancel-letter-btn" class="letter-cancel-btn">Maybe later</button>
-            <button type="submit" id="submit-letter-btn" class="letter-send-btn">Send with love ♡</button>
+          <div class="letter-compose-actions">
+            <button type="button" id="letter-preview-btn" class="letter-secondary-action">Preview ♡</button>
+            <button type="button" id="save-letter-draft-btn" class="letter-secondary-action">Draft</button>
+            <button type="button" id="toggle-letter-schedule-btn" class="letter-secondary-action letter-schedule-action">Send Later</button>
+            <button type="submit" id="submit-letter-btn" class="letter-send-btn">Send Letter ♡</button>
           </div>
         </form>
       </div>
@@ -485,6 +479,7 @@ export function renderLetters(el, user, profile) {
           <button id="reply-letter-btn" class="letter-reply-btn" type="button" hidden>Write a reply ♡</button>
           <button id="delete-read-letter-btn" class="letter-delete-btn" type="button">Delete letter</button>
           <button id="close-read-letter-btn" class="letter-read-close" type="button">Close letter</button>
+          <button id="preview-send-letter-btn" class="letter-reply-btn" type="button" hidden>Send Letter ♡</button>
         </div>
       </div>
     </div>
@@ -510,75 +505,31 @@ export function renderLetters(el, user, profile) {
   const recipientSelect = $("#letter-to", el);
   const letterBodyInput = $("#letter-body", el);
   const editorPaper = $("#letter-editor-paper", el);
-  const fontFamilySelect = $("#letter-font-family", el);
-  const fontSizeSelect = $("#letter-font-size", el);
-  const textColorInput = $("#letter-text-color", el);
-  const moveTextButton = $("#letter-move-text", el);
+  const fontSizeValue = $("#letter-font-size-value", el);
+  const draftState = $("#letter-draft-state", el);
+  const previewBtn = $("#letter-preview-btn", el);
+  const saveDraftBtn = $("#save-letter-draft-btn", el);
+  const scheduleBtn = $("#toggle-letter-schedule-btn", el);
+  const previewSendBtn = $("#preview-send-letter-btn", el);
   const writeHeading = $("#write-letter-heading", el);
   const repliesContainer = $("#read-letter-replies", el);
-  let moveTextState = { x: 0, y: 0 };
-  let dragState = null;
+  const previewText = $("#read-letter-paper-text", el);
+  const previewHeader = $("#read-letter-paper-header", el);
+  const closeReadBtn = $("#close-read-letter-btn", el);
 
   function focusLetterEditor() {
     letterBodyInput.focus({ preventScroll: true });
   }
 
-  function applyLetterCommand(command, value = null) {
-    focusLetterEditor();
-    document.execCommand(command, false, value);
+  function updateComposeFontSize(nextSize) {
+    composeFontSize = Math.max(14, Math.min(38, nextSize));
+    editorPaper.style.setProperty("--letter-compose-font-size", `${composeFontSize}px`);
+    fontSizeValue.textContent = `${composeFontSize}px`;
+    scheduleDraftSave();
   }
 
-  el.querySelectorAll("[data-letter-command]").forEach(button => {
-    button.addEventListener("mousedown", event => event.preventDefault());
-    button.addEventListener("click", () => applyLetterCommand(button.dataset.letterCommand));
-  });
-
-  fontFamilySelect.onchange = () => {
-    focusLetterEditor();
-    document.execCommand("fontName", false, fontFamilySelect.value);
-  };
-
-  fontSizeSelect.onchange = () => {
-    focusLetterEditor();
-    document.execCommand("fontSize", false, "7");
-    letterBodyInput.querySelectorAll('font[size="7"]').forEach(node => {
-      const span = document.createElement("span");
-      span.style.fontSize = fontSizeSelect.value;
-      while (node.firstChild) span.appendChild(node.firstChild);
-      node.replaceWith(span);
-    });
-  };
-
-  textColorInput.oninput = () => {
-    focusLetterEditor();
-    document.execCommand("foreColor", false, textColorInput.value);
-  };
-
-  moveTextButton.onclick = () => {
-    const enabled = moveTextButton.getAttribute("aria-pressed") !== "true";
-    moveTextButton.setAttribute("aria-pressed", String(enabled));
-    moveTextButton.textContent = enabled ? "✓ Drag text" : "↔ Move text";
-    letterBodyInput.classList.toggle("is-move-mode", enabled);
-    editorPaper.classList.toggle("is-move-mode", enabled);
-    if (enabled) toast("Drag the text to reposition it. Tap Move text again to type.");
-  };
-
-  letterBodyInput.addEventListener("pointerdown", event => {
-    if (!letterBodyInput.classList.contains("is-move-mode")) return;
-    dragState = { x: event.clientX, y: event.clientY, startX: moveTextState.x, startY: moveTextState.y };
-    letterBodyInput.setPointerCapture?.(event.pointerId);
-    event.preventDefault();
-  });
-  letterBodyInput.addEventListener("pointermove", event => {
-    if (!dragState) return;
-    moveTextState.x = Math.max(-120, Math.min(120, dragState.startX + event.clientX - dragState.x));
-    moveTextState.y = Math.max(-120, Math.min(240, dragState.startY + event.clientY - dragState.y));
-    letterBodyInput.style.setProperty("--letter-text-x", `${moveTextState.x}px`);
-    letterBodyInput.style.setProperty("--letter-text-y", `${moveTextState.y}px`);
-  });
-  const stopDrag = () => { dragState = null; };
-  letterBodyInput.addEventListener("pointerup", stopDrag);
-  letterBodyInput.addEventListener("pointercancel", stopDrag);
+  $("#letter-font-decrease", el).onclick = () => updateComposeFontSize(composeFontSize - 2);
+  $("#letter-font-increase", el).onclick = () => updateComposeFontSize(composeFontSize + 2);
 
   const replyBtn = $("#reply-letter-btn", el);
   const migratingLetters = new Set();
@@ -603,18 +554,94 @@ export function renderLetters(el, user, profile) {
     return now.toISOString().slice(0, 16);
   }
 
+  function syncScheduleControls() {
+    const scheduled = statusSelect.value === "Scheduled";
+    deliverGroup.style.display = scheduled ? "block" : "none";
+    deliverInput.required = scheduled;
+    if (scheduled) deliverInput.min = currentLocalDateTime();
+    scheduleBtn.classList.toggle("is-active", scheduled);
+    scheduleBtn.setAttribute("aria-pressed", String(scheduled));
+    if (scheduled && !deliverInput.value) deliverInput.value = currentLocalDateTime();
+    submitBtn.textContent = "Send Letter ♡";
+  }
+
+  function collectDraft() {
+    return {
+      recipient: recipientSelect.value,
+      body: letterBodyInput.innerHTML,
+      status: statusSelect.value,
+      deliverAt: deliverInput.value,
+      replyTo: replyToId,
+      fontSize: composeFontSize,
+      updatedAt: Date.now()
+    };
+  }
+
+  function saveDraftNow() {
+    clearTimeout(draftSaveTimer);
+    draftSaveTimer = null;
+    draftState.textContent = "Saving…";
+    try {
+      localStorage.setItem(draftStorageKey, JSON.stringify(collectDraft()));
+      draftState.textContent = "Saved";
+      return true;
+    } catch (error) {
+      console.error("Letter draft could not be saved:", error);
+      draftState.textContent = "Not saved";
+      return false;
+    }
+  }
+
+  function scheduleDraftSave() {
+    if (!draftState) return;
+    draftState.textContent = "Saving…";
+    clearTimeout(draftSaveTimer);
+    draftSaveTimer = setTimeout(saveDraftNow, 500);
+  }
+
+  function loadDraft() {
+    let draft;
+    try { draft = JSON.parse(localStorage.getItem(draftStorageKey) || "null"); }
+    catch { draft = null; }
+    if (!draft) return false;
+    letterBodyInput.innerHTML = sanitizeLetterHtml(draft.body || "");
+    if (Object.hasOwn(APP_CONFIG.profiles, draft.recipient)) recipientSelect.value = draft.recipient;
+    statusSelect.value = draft.status === "Scheduled" ? "Scheduled" : "Sent";
+    deliverInput.value = typeof draft.deliverAt === "string" ? draft.deliverAt : "";
+    replyToId = typeof draft.replyTo === "string" ? draft.replyTo : null;
+    writeHeading.textContent = replyToId ? "Write a Reply ♡" : "Write a Letter ♡";
+    updateComposeFontSize(Number(draft.fontSize) || 20);
+    syncScheduleControls();
+    draftState.textContent = "Saved";
+    return true;
+  }
+
+  function clearDraft() {
+    clearTimeout(draftSaveTimer);
+    draftSaveTimer = null;
+    try { localStorage.removeItem(draftStorageKey); } catch { /* Storage may be unavailable. */ }
+    draftState.textContent = "Saved";
+  }
+  persistDraftOnDispose = () => {
+    if (composerOpened) saveDraftNow();
+  };
+
   function resetLetterEditorState() {
     letterBodyInput.innerHTML = "";
-    letterBodyInput.style.setProperty("--letter-text-x", "0px");
-    letterBodyInput.style.setProperty("--letter-text-y", "0px");
-    moveTextState = { x: 0, y: 0 };
-    moveTextButton.setAttribute("aria-pressed", "false");
-    moveTextButton.textContent = "↔ Move text";
-    letterBodyInput.classList.remove("is-move-mode");
-    editorPaper.classList.remove("is-move-mode");
-    fontSizeSelect.value = "20px";
-    textColorInput.value = "#1e3150";
+    updateComposeFontSize(20);
   }
+
+  const writeForm = $("#write-letter-form", el);
+  writeForm.addEventListener("input", scheduleDraftSave);
+  writeForm.addEventListener("change", scheduleDraftSave);
+  scheduleBtn.onclick = () => {
+    statusSelect.value = statusSelect.value === "Scheduled" ? "Sent" : "Scheduled";
+    syncScheduleControls();
+    scheduleDraftSave();
+  };
+  saveDraftBtn.onclick = () => {
+    if (saveDraftNow()) toast("Draft saved ♡");
+  };
 
   function renderLetterBody(target, body) {
     target.innerHTML = "";
@@ -687,19 +714,7 @@ export function renderLetters(el, user, profile) {
     }
   }
 
-  statusSelect.onchange = () => {
-    if (statusSelect.value === "Scheduled") {
-      deliverGroup.style.display = "block";
-      deliverInput.required = true;
-      deliverInput.min = currentLocalDateTime();
-      if (!deliverInput.value || new Date(deliverInput.value).getTime() <= Date.now()) deliverInput.value = deliverInput.min;
-      submitBtn.textContent = "Schedule with love ♡";
-    } else {
-      deliverGroup.style.display = "none";
-      deliverInput.required = false;
-      submitBtn.textContent = "Send with love ♡";
-    }
-  };
+  statusSelect.onchange = syncScheduleControls;
 
   el.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.onclick = () => {
@@ -711,28 +726,55 @@ export function renderLetters(el, user, profile) {
   });
 
   $("#write-letter-btn", el).onclick = () => {
-    replyToId = null;
-    writeHeading.textContent = "Write a Letter ♡";
-    statusSelect.value = "Sent";
-    statusSelect.dispatchEvent(new Event("change"));
-    recipientSelect.value = Object.keys(APP_CONFIG.profiles).find(key => key !== ownKey) || ownKey;
+    composerOpened = true;
+    if (!loadDraft()) {
+      replyToId = null;
+      writeHeading.textContent = "Write a Letter ♡";
+      resetLetterEditorState();
+      statusSelect.value = "Sent";
+      recipientSelect.value = Object.keys(APP_CONFIG.profiles).find(key => key !== ownKey) || ownKey;
+      syncScheduleControls();
+    }
     openModal(writeModal);
   };
-  $("#close-letter-modal", el).onclick = () => closeModal(writeModal);
-  $("#cancel-letter-btn", el).onclick = () => {
-    resetLetterEditorState();
-    $("#write-letter-form", el).reset();
-    deliverGroup.style.display = "none";
-    deliverInput.required = false;
-    submitBtn.textContent = "Send with love ♡";
-    replyToId = null;
+  $("#close-letter-modal", el).onclick = () => {
+    if (composerOpened) saveDraftNow();
     closeModal(writeModal);
   };
   const closeReadModal = () => {
     openingLetterGeneration++;
     closeModal(readModal);
+    previewSendBtn.hidden = true;
+    replyBtn.hidden = true;
+    deleteLetterBtn.hidden = false;
+    closeReadBtn.textContent = "Close letter";
   };
   $("#close-read-letter-btn", el).onclick = closeReadModal;
+
+  previewBtn.onclick = () => {
+    if (!letterBodyInput.innerText.trim()) {
+      toast("Write your letter first to preview it ♡");
+      focusLetterEditor();
+      return;
+    }
+    saveDraftNow();
+    const senderName = profile.name || "You";
+    const avatar = profile.avatar ? `<img src="${esc(profile.avatar)}" alt="">` : esc(senderName[0] || "♡");
+    previewHeader.innerHTML = `<span class="letter-paper-avatar">${avatar}</span><span class="letter-paper-meta-text">Preview · Not sent</span>`;
+    renderLetterBody(previewText, letterBodyInput.innerHTML);
+    previewText.querySelectorAll(".letter-rich-text, .letter-stage-text").forEach(node => { node.style.fontSize = `${composeFontSize}px`; });
+    repliesContainer.innerHTML = "";
+    replyBtn.hidden = true;
+    deleteLetterBtn.hidden = true;
+    closeReadBtn.textContent = "Back to edit";
+    previewSendBtn.hidden = false;
+    openModal(readModal);
+    readModal.scrollTop = 0;
+  };
+  previewSendBtn.onclick = () => {
+    closeReadModal();
+    writeForm.requestSubmit();
+  };
 
   deleteLetterBtn.onclick = async () => {
     if (!openedLetter?.id) return;
@@ -754,6 +796,7 @@ export function renderLetters(el, user, profile) {
   replyBtn.onclick = () => {
     const replyRecipient = replyBtn.dataset.recipient;
     if (!replyRecipient) return;
+    composerOpened = true;
     const replyToIdToUse = openedLetter?.id || null;
     closeReadModal();
     recipientSelect.value = replyRecipient;
@@ -766,19 +809,18 @@ export function renderLetters(el, user, profile) {
     requestAnimationFrame(() => letterBodyInput.focus());
   };
 
-  [writeModal, readModal].forEach(modal => {
-    modal.addEventListener("click", event => {
-      if (event.target === modal) closeModal(modal);
-    });
+  writeModal.addEventListener("click", event => {
+    if (event.target === writeModal) closeModal(writeModal);
   });
 
   $("#write-letter-form", el).onsubmit = async (e) => {
     e.preventDefault();
-    const recipient = $("#letter-to", el).value;
+    if (sendingLetter) return;
+    const recipient = recipientSelect.value;
     const plainBody = letterBodyInput.innerText.trim();
     const rawContent = letterBodyInput.innerHTML.trim();
     const bodyContent = sanitizeLetterHtml(rawContent);
-    const body = `<div style="transform:translate(${moveTextState.x}px, ${moveTextState.y}px)">${bodyContent}</div>`;
+    const body = `<div style="font-size:${composeFontSize}px">${bodyContent}</div>`;
     if (!plainBody) {
       toast("Please write your letter first ♡");
       focusLetterEditor();
@@ -793,6 +835,9 @@ export function renderLetters(el, user, profile) {
     }
     const deliverDate = deliveryDate.toISOString();
 
+    sendingLetter = true;
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Sending…";
     try {
       const payload = {
         recipient, body, status, deliverDate,
@@ -835,6 +880,10 @@ export function renderLetters(el, user, profile) {
       submitBtn.textContent = "Send with love ♡";
       replyToId = null;
       writeHeading.textContent = "Write a Letter ♡";
+      statusSelect.value = "Sent";
+      syncScheduleControls();
+      clearDraft();
+      composerOpened = false;
       toast(status === "Scheduled" ? "Letter scheduled ♡" : "Letter sent ♡");
 
       if (letterImageData) {
@@ -852,6 +901,10 @@ export function renderLetters(el, user, profile) {
     } catch (err) {
       console.error("Could not send letter:", err);
       toast("Could not send letter. Try again.");
+    } finally {
+      sendingLetter = false;
+      submitBtn.disabled = false;
+      if (submitBtn.textContent === "Sending…") syncScheduleControls();
     }
   };
 
@@ -952,6 +1005,9 @@ export function renderLetters(el, user, profile) {
             senderKey !== ownKey;
           replyBtn.hidden = !canReply;
           replyBtn.dataset.recipient = canReply ? senderKey : "";
+          previewSendBtn.hidden = true;
+          deleteLetterBtn.hidden = false;
+          closeReadBtn.textContent = "Close letter";
           openModal(readModal);
 
           if (shouldMarkRead) {
@@ -1069,6 +1125,8 @@ export function renderLetters(el, user, profile) {
 }
 
 export function disposeLetters() {
+  persistDraftOnDispose?.();
+  persistDraftOnDispose = null;
   active = false;
   if (visibilityHandler) document.removeEventListener("visibilitychange", visibilityHandler);
   visibilityHandler = null;
