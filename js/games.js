@@ -535,7 +535,7 @@ function renderActiveGameBody(el, game, user, profile, state, liveMatch = false)
   }
 }
 
-function renderSosGame(content, user, gameState, presence, selectedLetter) {
+function renderSosGame(content, user, gameState, presence, pendingCell) {
   const uid = user.uid;
   const state = gameState || null;
   if (state && !isValidSosState(state)) {
@@ -559,7 +559,7 @@ function renderSosGame(content, user, gameState, presence, selectedLetter) {
           ? "Waiting for your partner to join from their device…"
         : "Your partner has started a match. Join to play!"
       : playing
-        ? state.turnUid === uid ? "Your turn — choose S or O, then tap a square." : "Your partner's turn…"
+        ? state.turnUid === uid ? "Your turn — tap an empty square, then choose S or O." : "Your partner's turn…"
         : finished
           ? state.winnerUid ? state.winnerUid === uid ? "You won! 🎉" : "Your partner won this round!" : "It's a tie! 🤝"
           : "This match was cancelled.";
@@ -567,7 +567,7 @@ function renderSosGame(content, user, gameState, presence, selectedLetter) {
   const lineCells = new Set((state?.lines || []).flatMap(line => line.cells));
   const playerCard = (playerUid, color) => {
     const isOnline = presence?.[playerUid]?.online === true;
-    const playerName = getDisplayName(playerUid, state?.players?.[playerUid]?.name || (isMe ? "You" : "Partner"));
+    const playerName = getDisplayName(playerUid, state?.players?.[playerUid]?.name || (playerUid === uid ? "You" : "Partner"));
     const score = state?.scores?.[playerUid] || 0;
     return `<div class="sos-player-card ${color}${state?.turnUid === playerUid && playing ? " turn-active" : ""}">
       <span class="sos-avatar-wrap">${gamePlayerAvatar(playerUid, playerName)}<i class="sos-presence${isOnline ? " online" : ""}" aria-label="${isOnline ? "Online" : "Offline"}"></i></span>
@@ -581,7 +581,13 @@ function renderSosGame(content, user, gameState, presence, selectedLetter) {
     const lineOwners = (state?.lines || []).filter(line => line.cells.includes(index)).map(line => line.uid);
     const lineClass = lineCells.has(index) ? ` sos-line-cell${lineOwners.includes(orderedPlayers[0]) ? " blue-line" : " red-line"}` : "";
     const disabled = !playing || state.turnUid !== uid || !member || Boolean(letter);
-    return `<button type="button" class="sos-cell${ownership}${lineClass}${state?.lastMove === index ? " latest-move" : ""}" data-sos-cell="${index}" aria-label="Row ${Math.floor(index / SOS_COLUMNS) + 1}, column ${index % SOS_COLUMNS + 1}${letter ? `, ${letter}` : ", empty"}${lineCells.has(index) ? ", part of SOS" : ""}${state?.lastMove === index ? ", latest move" : ""}"${disabled ? " disabled" : ""}>${esc(letter)}</button>`;
+    const latestClass = state?.lastMove === index ? " latest-move" : "";
+    const location = `Row ${Math.floor(index / SOS_COLUMNS) + 1}, column ${index % SOS_COLUMNS + 1}`;
+    const lineLabel = lineCells.has(index) ? ", part of SOS" : "";
+    if (!disabled && pendingCell === index) {
+      return `<div class="sos-cell sos-cell-open ${orderedPlayers[0] === uid ? "choice-blue" : "choice-red"}${ownership}${lineClass}${latestClass}" role="gridcell" aria-label="${location}, choose S or O"><div class="sos-cell-picker" role="group" aria-label="Choose a letter"><button type="button" data-sos-cell-choice="S" data-sos-index="${index}">S</button><button type="button" data-sos-cell-choice="O" data-sos-index="${index}">O</button></div></div>`;
+    }
+    return `<button type="button" class="sos-cell${ownership}${lineClass}${latestClass}" data-sos-cell="${index}" aria-label="${location}${letter ? `, ${letter}` : ", empty, tap to choose S or O"}${lineLabel}${state?.lastMove === index ? ", latest move" : ""}"${disabled ? " disabled" : ""}>${esc(letter)}</button>`;
   }).join("");
 
   const result = finished
@@ -618,11 +624,7 @@ function renderSosGame(content, user, gameState, presence, selectedLetter) {
     <div class="sos-turn${playing && state.turnUid === uid ? " your-turn" : ""}" aria-live="polite">${esc(turnMessage)}</div>
     <div class="sos-board-frame"><div class="sos-board" role="grid" aria-label="SOS game board, 7 columns by 7 rows">${cells}<svg class="sos-lines" viewBox="0 0 700 700" preserveAspectRatio="none" aria-hidden="true">${lineMarkup}</svg></div></div>
     ${result ? `<div class="sos-result" aria-live="polite">${result}<span>${ownScore} : ${partnerScore}</span></div>` : ""}
-    <footer class="sos-controls"><span class="sos-online-label${presence?.[uid]?.online ? " online" : ""}"><i></i>${presence?.[uid]?.online ? "ONLINE" : "OFFLINE"}<small>You</small></span>
-      <button type="button" class="sos-symbol${selectedLetter === "S" ? " selected" : ""}" data-sos-letter="S" aria-label="Select S" aria-pressed="${selectedLetter === "S"}">S</button>
-      <button type="button" class="sos-symbol${selectedLetter === "O" ? " selected" : ""}" data-sos-letter="O" aria-label="Select O" aria-pressed="${selectedLetter === "O"}">O</button>
-      ${partnerUid ? `<span class="sos-online-label${partnerOnline ? " online" : ""}"><i></i>${partnerOnline ? "ONLINE" : "OFFLINE"}<small>${esc(getDisplayName(partnerUid, state?.players?.[partnerUid]?.name || "Partner"))}</small></span>` : `<span class="sos-online-label"><i></i>OFFLINE<small>Partner</small></span>`}
-    </footer>
+    <footer class="sos-presence-strip"><span class="sos-online-label${presence?.[uid]?.online ? " online" : ""}"><i></i>${presence?.[uid]?.online ? "ONLINE" : "OFFLINE"}<small>You</small></span><span class="sos-tap-hint">Tap an empty cell to choose a letter</span>${partnerUid ? `<span class="sos-online-label${partnerOnline ? " online" : ""}"><i></i>${partnerOnline ? "ONLINE" : "OFFLINE"}<small>${esc(getDisplayName(partnerUid, state?.players?.[partnerUid]?.name || "Partner"))}</small></span>` : `<span class="sos-online-label"><i></i>OFFLINE<small>Partner</small></span>`}</footer>
     <div class="sos-timer" aria-live="off"><span aria-hidden="true">♡</span><b>◷</b><span>Time Left</span><strong data-sos-countdown>${String(secondsLeft).padStart(2, "0")}</strong><span aria-hidden="true">♡</span></div>
     <div class="sos-actions">${startAction}${member && playing ? `<button type="button" class="secondary sos-action" data-sos-leave>Leave game</button>` : ""}</div>
   </section>`;
@@ -713,7 +715,7 @@ export function renderGames(el, user, profile) {
   let appPresence = {};
   let sosLastExpiryRequest = 0;
   let sosRepairInProgress = false;
-  let selectedSosLetter = "S";
+  let pendingSosCell = -1;
   let gameRoomState = null;
   let roomStateInitializing = "";
   let savedMatchResults = new Set();
@@ -753,6 +755,7 @@ export function renderGames(el, user, profile) {
     stopSosGame = onValue(sosGameRef(), snapshot => {
       const previousState = sosGameState;
       sosGameState = snapshot.val();
+      if (sosGameState?.status !== "playing" || sosGameState.turnUid !== user.uid) pendingSosCell = -1;
       if (sosGameState && !isValidSosState(sosGameState) && !sosRepairInProgress) {
         sosRepairInProgress = true;
         void startOrJoinSosMatch().finally(() => {
@@ -882,15 +885,16 @@ export function renderGames(el, user, profile) {
     }
   }
 
-  async function playSosMove(index) {
+  async function playSosMove(index, letter) {
+    pendingSosCell = -1;
     try {
       const transaction = await runTransaction(sosGameRef(), current => {
         if (!isValidSosState(current) || current.status !== "playing" || current.turnUid !== user.uid ||
             !current.playerUids.includes(user.uid) || !Number.isInteger(index) || index < 0 || index >= SOS_CELL_COUNT ||
-            !["S", "O"].includes(selectedSosLetter) || current.board[index]) return;
+            !["S", "O"].includes(letter) || current.board[index]) return;
         const board = [...current.board];
         const owners = [...current.owners];
-        board[index] = selectedSosLetter;
+        board[index] = letter;
         owners[index] = user.uid;
         const knownLines = new Set((current.lines || []).map(line => line.cells.join("-")));
         const newLines = findSosLines(board, index, user.uid, knownLines);
@@ -917,10 +921,14 @@ export function renderGames(el, user, profile) {
           updatedAt: Date.now()
         };
       });
-      if (!transaction.committed) toast("That square is no longer available, or it is your partner's turn.");
+      if (!transaction.committed) {
+        toast("That square is no longer available, or it is your partner's turn.");
+        renderCurrentGame();
+      }
     } catch (error) {
       console.error("Could not save SOS move:", error);
       toast("Your SOS move could not be saved. Please try again.");
+      renderCurrentGame();
     }
   }
 
@@ -1156,7 +1164,7 @@ export function renderGames(el, user, profile) {
         $("#games-active-content", el).innerHTML = `<section class="sos-game-page"><header class="sos-header"><button class="sos-back" type="button" data-back-games>← Games</button><h1>SOS</h1></header><p class="error sos-error">Live SOS is unavailable because Firebase Realtime Database is not configured.</p></section>`;
         return;
       }
-      renderSosGame($("#games-active-content", el), user, sosGameState, { ...appPresence, ...sosPresence }, selectedSosLetter);
+      renderSosGame($("#games-active-content", el), user, sosGameState, { ...appPresence, ...sosPresence }, pendingSosCell);
       return;
     }
     document.body.classList.remove("sos-fullscreen");
@@ -1229,7 +1237,7 @@ export function renderGames(el, user, profile) {
       activeState = resetActiveGame(activeGame);
       sosGameState = null;
       sosPresence = {};
-      selectedSosLetter = "S";
+      pendingSosCell = -1;
       gameRoomState = null;
       if (activeGame === "sos") {
         startSosSession();
@@ -1249,9 +1257,8 @@ export function renderGames(el, user, profile) {
       return;
     }
 
-    if (activeGame === "sos" && target.hasAttribute("data-sos-letter")) {
-      selectedSosLetter = target.dataset.sosLetter === "O" ? "O" : "S";
-      renderCurrentGame();
+    if (activeGame === "sos" && target.hasAttribute("data-sos-cell-choice")) {
+      await playSosMove(Number(target.dataset.sosIndex), target.dataset.sosCellChoice === "O" ? "O" : "S");
       return;
     }
 
@@ -1266,7 +1273,8 @@ export function renderGames(el, user, profile) {
     }
 
     if (activeGame === "sos" && target.hasAttribute("data-sos-cell")) {
-      await playSosMove(Number(target.dataset.sosCell));
+      pendingSosCell = Number(target.dataset.sosCell);
+      renderCurrentGame();
       return;
     }
 
