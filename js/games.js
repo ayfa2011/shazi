@@ -174,8 +174,34 @@ function gameScore(game, state) {
   return 0;
 }
 
+// Firebase Realtime Database does not store empty arrays, so [] comes back as undefined.
+// Restore them so saved game state stays valid.
+function normalizeActiveState(game, state) {
+  if (!state || typeof state !== "object") return state;
+  if (game === "memory-match") {
+    state.flipped = state.flipped || [];
+    state.matched = state.matched || [];
+  } else if (game === "word-guess") {
+    state.guessed = state.guessed || [];
+  }
+  return state;
+}
+
+function normalizeRoom(room) {
+  if (!room || typeof room !== "object") return room;
+  const game = room.game;
+  if (room.players && typeof room.players === "object") {
+    for (const player of Object.values(room.players)) {
+      if (player?.state) normalizeActiveState(game, player.state);
+    }
+  }
+  if (room.wordRound) normalizeActiveState("word-guess", room.wordRound);
+  return room;
+}
+
 function isValidActiveGameState(game, state) {
   if (!state || typeof state !== "object") return false;
+  state = normalizeActiveState(game, { ...state });
   if (game === "memory-match") return Array.isArray(state.cards) &&
     (state.cards.length === symbols.length * 2 || state.cards.length === 20 || state.cards.length === 12) &&
     state.cards.every(symbol => typeof symbol === "string" && symbol) && Array.isArray(state.flipped) &&
@@ -269,16 +295,20 @@ function findPartnerUid(items, myUid) {
   return "";
 }
 
-function scoreboardSummaryMarkup(items, user) {
+function ownProfileKey(profile, user) {
+  return (profile && (profile.id || profile.email) ? getProfileKey(profile) : "") || getProfileKey(user);
+}
+
+function scoreboardSummaryMarkup(items, user, profile) {
   const myUid = user?.uid || "";
   const stats = computeGameStats(items);
   const partnerUid = findPartnerUid(items, myUid);
   const mine = stats.get(myUid) || emptyStats();
   const theirs = partnerUid ? (stats.get(partnerUid) || emptyStats()) : emptyStats();
   const partnerName = partnerUid ? getDisplayName(partnerUid, "Partner") : "Partner";
-  const ownProfile = APP_CONFIG.profiles[getProfileKey(user)] || {};
+  const ownProfile = APP_CONFIG.profiles[ownProfileKey(profile, user)] || {};
   const partnerProfile = Object.values(APP_CONFIG.profiles).find(person => person.authUid === partnerUid) ||
-    APP_CONFIG.profiles[Object.keys(APP_CONFIG.profiles).find(key => key !== getProfileKey(user))] || {};
+    APP_CONFIG.profiles[Object.keys(APP_CONFIG.profiles).find(key => key !== ownProfileKey(profile, user))] || {};
   const avatarMarkup = (person, name) => person.avatar
     ? `<img class="games-scoreboard-avatar" src="${esc(person.avatar)}" alt="${esc(name)}">`
     : `<span class="games-scoreboard-avatar fallback" aria-hidden="true">${esc((name || "♡").slice(0, 1))}</span>`;
@@ -460,7 +490,7 @@ function renderActiveGameBody(el, game, user, profile, state, liveMatch = false)
     const visibleWord = [...state.word].map(char => /[a-z]/i.test(char) && !state.guessed.includes(char.toLocaleLowerCase()) ? "_" : char).join(" ");
     const won = [...state.word.toLocaleLowerCase()].every(char => !/[a-z]/.test(char) || state.guessed.includes(char));
     const lost = state.guessesLeft === 0 && !won;
-    content.innerHTML = `<div class="game-panel"><p class="games-instructions">${liveMatch ? "Guess your own secret word to complete this turn, then pass the match to your partner." : "Pass the device to your partner, then guess the secret word."}</p><div class="word-guess-word" aria-label="Secret word">${visibleWord}</div><p class="game-result" aria-live="polite">${won ? "You guessed it! 🎉" : lost ? `Out of guesses! The word was ${esc(state.word)}.` : `${state.guessesLeft} guesses left`}</p>${won || lost ? (liveMatch ? "" : `<button type="button" class="primary" data-reset-game>Choose another word</button>`) : `<div class="letter-board">${alphabet.map(letter => `<button type="button" data-word-letter="${letter.toLocaleLowerCase()}"${state.guessed.includes(letter.toLocaleLowerCase()) ? " disabled" : ""}>${letter}</button>`).join("")}</div>${liveMatch ? "" : `<button type="button" class="secondary word-reset" data-reset-game>Start over</button>`}`}</div>`;
+    content.innerHTML = `<div class="game-panel"><p class="games-instructions">${liveMatch ? "Your partner chose a secret word. Guess it before you run out of guesses!" : "Pass the device to your partner, then guess the secret word."}</p><div class="word-guess-word" aria-label="Secret word">${visibleWord}</div><p class="game-result" aria-live="polite">${won ? "You guessed it! 🎉" : lost ? `Out of guesses! The word was ${esc(state.word)}.` : `${state.guessesLeft} guesses left`}</p>${won || lost ? (liveMatch ? "" : `<button type="button" class="primary" data-reset-game>Choose another word</button>`) : `<div class="letter-board">${alphabet.map(letter => `<button type="button" data-word-letter="${letter.toLocaleLowerCase()}"${state.guessed.includes(letter.toLocaleLowerCase()) ? " disabled" : ""}>${letter}</button>`).join("")}</div>${liveMatch ? "" : `<button type="button" class="secondary word-reset" data-reset-game>Start over</button>`}`}</div>`;
     return;
   }
 
@@ -636,9 +666,22 @@ function isValidGameRoom(room, game) {
   return !room.turnUid && (!room.winnerUid || room.playerUids.includes(room.winnerUid));
 }
 
+function stopSosListeners() {
+  stopSosGame?.(); stopSosGame = null;
+  stopSosPresence?.(); stopSosPresence = null;
+  stopSosAppPresence?.(); stopSosAppPresence = null;
+  stopSosConnection?.(); stopSosConnection = null;
+  document.body.classList.remove("sos-fullscreen");
+}
+
 export function renderGames(el, user, profile) {
   stopGames?.();
   stopGames = null;
+  stopGameMatch?.();
+  stopGameMatch = null;
+  stopSosListeners();
+  disposeFindTheWords?.();
+  disposeFindTheWords = null;
   if (memoryTimer) clearTimeout(memoryTimer);
   memoryTimer = null;
 
@@ -660,7 +703,7 @@ export function renderGames(el, user, profile) {
   function renderScoreboard() {
     const container = $("#games-scoreboard", el);
     if (!container) return;
-    container.innerHTML = scoreboardSummaryMarkup(gameResults || [], user);
+    container.innerHTML = scoreboardSummaryMarkup(gameResults || [], user, profile);
   }
 
   function clearSosSession() {
@@ -703,7 +746,7 @@ export function renderGames(el, user, profile) {
           players: sosGameState.playerUids,
           scores: sosGameState.scores
         }).then(() => {
-          if (sosGameState.winnerUid === user.uid) void notifyPartnerSafely(getProfileKey(profile), "game", `${profile.name} won a game of SOS!`, sosGameState.matchId, "games");
+          if (sosGameState.winnerUid === user.uid) void notifyPartnerSafely(ownProfileKey(profile, user), "game", `${profile?.name || getDisplayName(user.uid, "Your partner")} won a game of SOS!`, sosGameState.matchId, "games");
         }).catch(error => {
           savedMatchResults.delete(sosGameState.matchId);
           console.error("Could not save SOS result:", error);
@@ -842,6 +885,7 @@ export function renderGames(el, user, profile) {
     const opponentUid = playerUids.find(uid => uid !== user.uid);
     const opponentName = getDisplayName(opponentUid, players[opponentUid]?.name || "Your partner");
     let message = "";
+    content.style.opacity = "";
     if (!room || room.status === "finished" || room.status === "cancelled") {
       const finalScores = room?.status === "finished"
         ? `<div class="game-room-player-row">${room.playerUids.map(uid => `<div class="game-room-player">${gamePlayerAvatar(uid, players[uid]?.name)}<span>${esc(getDisplayName(uid, players[uid]?.name || "Partner"))}</span><strong>${esc(formatGameScore(activeGame, players[uid]?.score))}</strong></div>`).join("")}</div>`
@@ -864,8 +908,8 @@ export function renderGames(el, user, profile) {
       const isCreator = room.playerUids[0] === user.uid;
       statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${isCreator ? "Waiting for your partner to join from their device…" : `${esc(opponentName)} is waiting. Join the match to play!`}</p>${isCreator ? `<button type="button" class="secondary" data-room-cancel>Cancel match</button>` : `<button type="button" class="primary" data-room-start>Join match</button>`}</div>`;
       if (isCreator && activeState) {
-        content.innerHTML = `<div class="games-preview-note muted">Game preview · Waiting for your partner to join. You can look around, but play starts after they join.</div>`;
         renderActiveGame(el, activeGame, user, profile, activeState, true);
+        content.insertAdjacentHTML("afterbegin", `<div class="games-preview-note muted">Game preview · Waiting for your partner to join. You can look around, but play starts after they join.</div>`);
         content.style.opacity = "0.88";
       } else {
         content.replaceChildren();
@@ -943,7 +987,7 @@ export function renderGames(el, user, profile) {
           }
         : players[user.uid]?.state;
     if (playerState) {
-      activeState = activeGame === "memory-match" && playerState.locked
+      activeState = activeGame === "memory-match" && playerState.locked && !memoryTimer
         ? { ...playerState, flipped: [], locked: false }
         : playerState;
       renderActiveGame(el, activeGame, user, profile, activeState, true);
@@ -975,9 +1019,10 @@ export function renderGames(el, user, profile) {
         };
       });
     } catch (error) {
-      roomStateInitializing = "";
       console.error("Could not prepare game turn:", error);
       toast("Your turn could not be loaded. Please try again.");
+    } finally {
+      roomStateInitializing = "";
     }
   }
 
@@ -1005,14 +1050,14 @@ export function renderGames(el, user, profile) {
   }
 
   function renderAndSavePlayerProgress() {
-    renderCurrentGame();
     saveRoomPlayerState();
+    renderCurrentGame();
   }
 
   function recordFinishedMatch(room) {
     if (!room?.matchId || savedMatchResults.has(room.matchId) || !firebaseReady) return;
     savedMatchResults.add(room.matchId);
-    const scores = Object.fromEntries(room.playerUids.map(uid => [uid, room.players[uid]?.score]));
+    const scores = Object.fromEntries(room.playerUids.map(uid => [uid, room.players[uid]?.score ?? 0]));
     recordGameMatchResult({
       uid: user.uid,
       authorId: profile?.id || user.uid,
@@ -1022,7 +1067,7 @@ export function renderGames(el, user, profile) {
       players: room.playerUids,
       scores
     }).then(() => {
-      if (room.winnerUid === user.uid) void notifyPartnerSafely(getProfileKey(profile), "game", `${profile.name} won ${gameTitles[activeGame] || "a game"}!`, room.matchId, "games");
+      if (room.winnerUid === user.uid) void notifyPartnerSafely(ownProfileKey(profile, user), "game", `${profile?.name || getDisplayName(user.uid, "Your partner")} won ${gameTitles[activeGame] || "a game"}!`, room.matchId, "games");
     }).catch(error => {
       savedMatchResults.delete(room.matchId);
       console.error("Could not save game result:", error);
@@ -1066,7 +1111,7 @@ export function renderGames(el, user, profile) {
       return;
     }
     const gameInfo = {
-      "memory-match": ["Memory Match", "Flip the cards and find all six pairs.", "🧠"],
+      "memory-match": ["Memory Match", "Flip the cards and find all ten pairs.", "🧠"],
       "word-guess": ["Word Guess", "Pick a secret word, then let your partner guess.", "🔤"],
       "spin-wheel": ["Spin Wheel", "Spin for a sweet little challenge.", "🎡"],
       "couple-trivia": ["Couple Trivia", "Answer, pass the device, and see if your partner knows.", "💞"]
@@ -1130,7 +1175,7 @@ export function renderGames(el, user, profile) {
         startSosSession();
       } else if (rtdb && activeGame !== "find-words") {
         stopGameMatch = onValue(gameMatchRef(activeGame), snapshot => {
-          gameRoomState = snapshot.val();
+          gameRoomState = normalizeRoom(snapshot.val());
           if (gameRoomState?.status === "finished") recordFinishedMatch(gameRoomState);
           if (gameRoomState?.matchId !== roomStateInitializing?.split(":")[0]) roomStateInitializing = "";
           renderCurrentGame();
@@ -1313,10 +1358,12 @@ export function renderGames(el, user, profile) {
     if (target.hasAttribute("data-back-games")) {
       if (memoryTimer) clearTimeout(memoryTimer);
       memoryTimer = null;
+      clearSosSession();
       stopGameMatch?.();
       stopGameMatch = null;
       activeGame = "";
       activeState = null;
+      sosGameState = null;
       gameRoomState = null;
       renderCurrentGame();
       return;
@@ -1340,14 +1387,15 @@ export function renderGames(el, user, profile) {
           activeState.flipped = [];
         } else {
           activeState.locked = true;
-          renderAndSavePlayerProgress();
+          if (memoryTimer) clearTimeout(memoryTimer);
           memoryTimer = setTimeout(() => {
+            memoryTimer = null;
             if (activeGame !== "memory-match") return;
             activeState.flipped = [];
             activeState.locked = false;
-            memoryTimer = null;
             renderAndSavePlayerProgress();
           }, 800);
+          renderAndSavePlayerProgress();
           return;
         }
       }
@@ -1560,6 +1608,7 @@ export function renderGames(el, user, profile) {
 export function disposeGames() {
   stopGames?.();
   stopGames = null;
+  stopSosListeners();
   stopGameMatch?.();
   stopGameMatch = null;
   if (memoryTimer) clearTimeout(memoryTimer);
