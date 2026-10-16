@@ -6,12 +6,13 @@ import { APP_CONFIG } from "../config/app-config.js";
 import { mountFindTheWordsGame } from "./find-the-words.js";
 import { onDisconnect, onValue, ref, remove, runTransaction, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
-const sosGameRef = () => ref(rtdb, "couples/our-little-world/games/sos");
-const sosPresenceRef = uid => ref(rtdb, `couples/our-little-world/games/sosPresence/${uid}`);
+const sosGameRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sos`);
+const sosPresenceRef = uid => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sosPresence/${uid}`);
 const gameMatchRef = game => ref(rtdb, `couples/our-little-world/games/matches/${game}`);
-const SOS_ROWS = 9;
+const SOS_ROWS = 7;
 const SOS_COLUMNS = 7;
 const SOS_CELL_COUNT = SOS_ROWS * SOS_COLUMNS;
+const SOS_TURN_SECONDS = 20;
 const SOS_DIRECTIONS = [[0, 1], [1, 0], [1, 1], [1, -1]];
 const symbols = ["🌸", "🌙", "🍓", "🐻", "💌", "🦋", "✨", "🧸", "🌻", "💖"];
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
@@ -50,6 +51,9 @@ let stopSosConnection = null;
 let stopGameMatch = null;
 let memoryTimer = null;
 let disposeFindTheWords = null;
+let sosClock = null;
+let sosServerTimeOffset = 0;
+let stopSosServerTime = null;
 
 function shuffle(items) {
   const shuffled = [...items];
@@ -101,7 +105,7 @@ function isValidSosState(state) {
         state.board[line.cells[0]] === "S" && state.board[line.cells[1]] === "O" &&
         state.board[line.cells[2]] === "S" && state.playerUids.includes(line.uid))) return false;
   if (state.status === "waiting") return state.playerUids.length === 1 && !state.turnUid;
-  if (state.status === "playing") return state.playerUids.length === 2 && state.playerUids.includes(state.turnUid);
+  if (state.status === "playing") return state.playerUids.length === 2 && state.playerUids.includes(state.turnUid) && Number.isFinite(state.turnDeadline);
   if (state.status === "finished") return state.playerUids.length === 2 && !state.turnUid &&
     (!state.winnerUid || state.playerUids.includes(state.winnerUid));
   return !state.turnUid;
@@ -143,6 +147,8 @@ function makeSosWaitingState(uid, name) {
     scores: { [uid]: 0 },
     lines: [],
     turnUid: "",
+    turnDeadline: 0,
+    turnNumber: 0,
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
@@ -537,15 +543,14 @@ function renderSosGame(content, user, gameState, presence, selectedLetter) {
     return;
   }
 
-  const partnerOnline = Object.entries(presence || {}).some(([playerUid, value]) =>
-    playerUid !== uid && value?.online === true
-  );
+  const partnerOnline = Object.entries(presence || {}).some(([playerUid, value]) => playerUid !== uid && value?.online === true);
   const member = Boolean(state?.playerUids.includes(uid));
   const waiting = state?.status === "waiting";
   const playing = state?.status === "playing";
   const finished = state?.status === "finished";
   const ownScore = state?.scores?.[uid] || 0;
-  const partnerUid = state?.playerUids.find(playerUid => playerUid !== uid);
+  const orderedPlayers = state?.playerUids || [uid];
+  const partnerUid = orderedPlayers.find(playerUid => playerUid !== uid);
   const partnerScore = partnerUid ? state.scores[partnerUid] || 0 : 0;
   let turnMessage = !state
     ? partnerOnline ? "Your partner is online. Start a live match!" : "Waiting for your partner to come online…"
@@ -560,22 +565,29 @@ function renderSosGame(content, user, gameState, presence, selectedLetter) {
           : "This match was cancelled.";
 
   const lineCells = new Set((state?.lines || []).flatMap(line => line.cells));
+  const playerCard = (playerUid, color) => {
+    const isOnline = presence?.[playerUid]?.online === true;
+    const playerName = getDisplayName(playerUid, state?.players?.[playerUid]?.name || (isMe ? "You" : "Partner"));
+    const score = state?.scores?.[playerUid] || 0;
+    return `<div class="sos-player-card ${color}${state?.turnUid === playerUid && playing ? " turn-active" : ""}">
+      <span class="sos-avatar-wrap">${gamePlayerAvatar(playerUid, playerName)}<i class="sos-presence${isOnline ? " online" : ""}" aria-label="${isOnline ? "Online" : "Offline"}"></i></span>
+      <span class="sos-player-details"><span class="sos-player-name">${esc(playerName)}</span><span class="sos-player-label">${color === "blue" ? "Blue Player" : "Red Player"}</span></span>
+      <strong class="sos-live-score">${score}</strong>
+    </div>`;
+  };
   const cells = (state?.board || Array(SOS_CELL_COUNT).fill("")).map((letter, index) => {
     const owner = state?.owners?.[index];
-    const ownership = owner ? (owner === uid ? " own" : " partner") : "";
-    const lineInfo = (state?.lines || []).find(l => l.cells.includes(index));
-    const lineOwner = lineInfo?.uid;
-    const lineClass = lineCells.has(index)
-      ? ` sos-line-cell${lineOwner === uid ? " own-line" : lineOwner ? " partner-line" : ""}`
-      : "";
+    const ownership = owner ? (owner === orderedPlayers[0] ? " own" : " partner") : "";
+    const lineOwners = (state?.lines || []).filter(line => line.cells.includes(index)).map(line => line.uid);
+    const lineClass = lineCells.has(index) ? ` sos-line-cell${lineOwners.includes(orderedPlayers[0]) ? " blue-line" : " red-line"}` : "";
     const disabled = !playing || state.turnUid !== uid || !member || Boolean(letter);
-    return `<button type="button" class="sos-cell${ownership}${lineClass}" data-sos-cell="${index}" aria-label="Row ${Math.floor(index / SOS_COLUMNS) + 1}, column ${index % SOS_COLUMNS + 1}${letter ? `, ${letter}` : ", empty"}${lineCells.has(index) ? ", part of SOS" : ""}"${disabled ? " disabled" : ""}>${esc(letter)}</button>`;
+    return `<button type="button" class="sos-cell${ownership}${lineClass}${state?.lastMove === index ? " latest-move" : ""}" data-sos-cell="${index}" aria-label="Row ${Math.floor(index / SOS_COLUMNS) + 1}, column ${index % SOS_COLUMNS + 1}${letter ? `, ${letter}` : ", empty"}${lineCells.has(index) ? ", part of SOS" : ""}${state?.lastMove === index ? ", latest move" : ""}"${disabled ? " disabled" : ""}>${esc(letter)}</button>`;
   }).join("");
 
   const result = finished
     ? state.winnerUid
-      ? `${esc(getDisplayName(state.winnerUid, state.players?.[state.winnerUid]?.name || "Your partner"))} wins with ${Math.max(ownScore, partnerScore)} SOS!`
-      : `You both made ${ownScore} SOS. What a match!`
+      ? `${esc(getDisplayName(state.winnerUid, state.players?.[state.winnerUid]?.name || "Your partner"))} wins!`
+      : `It's a draw!`
     : "";
   const canJoin = waiting && state.playerUids[0] !== uid;
   const waitingOwner = waiting && state.playerUids[0] === uid;
@@ -589,25 +601,30 @@ function renderSosGame(content, user, gameState, presence, selectedLetter) {
           : `<button type="button" class="secondary sos-action" disabled>Waiting for your partner</button>`
         : "";
 
+  const secondsLeft = playing ? Math.max(0, Math.ceil((state.turnDeadline - (Date.now() + sosServerTimeOffset)) / 1000)) : SOS_TURN_SECONDS;
+  const lineMarkup = (state?.lines || []).map(line => {
+    const first = line.cells[0];
+    const last = line.cells[2];
+    const x1 = ((first % SOS_COLUMNS) + 0.5) * 100;
+    const y1 = (Math.floor(first / SOS_COLUMNS) + 0.5) * 100;
+    const x2 = ((last % SOS_COLUMNS) + 0.5) * 100;
+    const y2 = (Math.floor(last / SOS_COLUMNS) + 0.5) * 100;
+    const color = line.uid === orderedPlayers[0] ? "#1595ec" : "#ec3c55";
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}"/>`;
+  }).join("");
   content.innerHTML = `<section class="sos-game-page${finished && state.winnerUid === uid ? " sos-won" : ""}">
-    <header class="sos-header">
-      <button class="sos-back" type="button" data-back-games>← Games</button>
-      <div class="sos-heading"><p class="eyebrow">LIVE · TWO PLAYERS</p><h1>SOS</h1></div>
-      <span class="sos-online${partnerOnline ? " online" : ""}" aria-label="${partnerOnline ? "Partner online" : "Partner offline"}"></span>
-    </header>
-    <div class="sos-turn" aria-live="polite">${esc(turnMessage)}</div>
-    <div class="sos-symbol-picker" aria-label="Choose your letter">
-      <button type="button" class="sos-symbol${selectedLetter === "S" ? " selected" : ""}" data-sos-letter="S" aria-pressed="${selectedLetter === "S"}">S</button>
-      <button type="button" class="sos-symbol${selectedLetter === "O" ? " selected" : ""}" data-sos-letter="O" aria-pressed="${selectedLetter === "O"}">O</button>
-      ${startAction}
-    </div>
-    ${result ? `<div class="sos-result" aria-live="polite">${result}</div>` : ""}
-    <div class="sos-board" role="grid" aria-label="SOS game board, 7 columns by 9 rows">${cells}</div>
-    <footer class="sos-scoreboard" aria-label="Match scores">
-      <div class="sos-player-score own">${gamePlayerAvatar(uid)}<span>You</span><strong>${ownScore}</strong></div>
-      <span class="sos-versus">VS</span>
-      <div class="sos-player-score partner">${gamePlayerAvatar(partnerUid, state?.players?.[partnerUid]?.name)}<span>${esc(partnerUid ? getDisplayName(partnerUid, state?.players?.[partnerUid]?.name || "Partner") : "Partner")}</span><strong>${partnerScore}</strong></div>
+    <header class="sos-header"><button class="sos-back" type="button" data-back-games>← Games</button><div class="sos-heading"><p class="eyebrow">FIND · CONNECT · WIN</p><h1>S<span>♡</span>S</h1></div><span class="sos-header-note">Better Together</span></header>
+    <div class="sos-matchup">${playerCard(orderedPlayers[0], "blue")}<span class="sos-versus">♡ VS ♡</span>${partnerUid ? playerCard(partnerUid, "red") : `<div class="sos-player-card red waiting-player"><span class="sos-player-label">Red Player</span><span class="sos-waiting-label">Waiting to join…</span></div>`}</div>
+    <div class="sos-turn${playing && state.turnUid === uid ? " your-turn" : ""}" aria-live="polite">${esc(turnMessage)}</div>
+    <div class="sos-board-frame"><div class="sos-board" role="grid" aria-label="SOS game board, 7 columns by 7 rows">${cells}<svg class="sos-lines" viewBox="0 0 700 700" preserveAspectRatio="none" aria-hidden="true">${lineMarkup}</svg></div></div>
+    ${result ? `<div class="sos-result" aria-live="polite">${result}<span>${ownScore} : ${partnerScore}</span></div>` : ""}
+    <footer class="sos-controls"><span class="sos-online-label${presence?.[uid]?.online ? " online" : ""}"><i></i>${presence?.[uid]?.online ? "ONLINE" : "OFFLINE"}<small>You</small></span>
+      <button type="button" class="sos-symbol${selectedLetter === "S" ? " selected" : ""}" data-sos-letter="S" aria-label="Select S" aria-pressed="${selectedLetter === "S"}">S</button>
+      <button type="button" class="sos-symbol${selectedLetter === "O" ? " selected" : ""}" data-sos-letter="O" aria-label="Select O" aria-pressed="${selectedLetter === "O"}">O</button>
+      ${partnerUid ? `<span class="sos-online-label${partnerOnline ? " online" : ""}"><i></i>${partnerOnline ? "ONLINE" : "OFFLINE"}<small>${esc(getDisplayName(partnerUid, state?.players?.[partnerUid]?.name || "Partner"))}</small></span>` : `<span class="sos-online-label"><i></i>OFFLINE<small>Partner</small></span>`}
     </footer>
+    <div class="sos-timer" aria-live="off"><span aria-hidden="true">♡</span><b>◷</b><span>Time Left</span><strong data-sos-countdown>${String(secondsLeft).padStart(2, "0")}</strong><span aria-hidden="true">♡</span></div>
+    <div class="sos-actions">${startAction}${member && playing ? `<button type="button" class="secondary sos-action" data-sos-leave>Leave game</button>` : ""}</div>
   </section>`;
 }
 
@@ -667,10 +684,13 @@ function isValidGameRoom(room, game) {
 }
 
 function stopSosListeners() {
+  if (sosClock) clearInterval(sosClock);
+  sosClock = null;
   stopSosGame?.(); stopSosGame = null;
   stopSosPresence?.(); stopSosPresence = null;
   stopSosAppPresence?.(); stopSosAppPresence = null;
   stopSosConnection?.(); stopSosConnection = null;
+  stopSosServerTime?.(); stopSosServerTime = null;
   document.body.classList.remove("sos-fullscreen");
 }
 
@@ -691,6 +711,7 @@ export function renderGames(el, user, profile) {
   let sosGameState = null;
   let sosPresence = {};
   let appPresence = {};
+  let sosLastExpiryRequest = 0;
   let sosRepairInProgress = false;
   let selectedSosLetter = "S";
   let gameRoomState = null;
@@ -707,6 +728,8 @@ export function renderGames(el, user, profile) {
   }
 
   function clearSosSession() {
+    if (sosClock) clearInterval(sosClock);
+    sosClock = null;
     stopSosGame?.();
     stopSosGame = null;
     stopSosPresence?.();
@@ -715,6 +738,8 @@ export function renderGames(el, user, profile) {
     stopSosAppPresence = null;
     stopSosConnection?.();
     stopSosConnection = null;
+    stopSosServerTime?.();
+    stopSosServerTime = null;
     document.body.classList.remove("sos-fullscreen");
     if (!rtdb) return;
     const playerRef = sosPresenceRef(user.uid);
@@ -759,7 +784,7 @@ export function renderGames(el, user, profile) {
       const content = $("#games-active-content", el);
       if (content) content.innerHTML = `<p class="error">The live SOS game could not be loaded. Please try again.</p>`;
     });
-    stopSosPresence = onValue(ref(rtdb, "couples/our-little-world/games/sosPresence"), snapshot => {
+    stopSosPresence = onValue(ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sosPresence`), snapshot => {
       sosPresence = snapshot.val() || {};
       if (activeGame === "sos") renderCurrentGame();
     }, error => {
@@ -781,6 +806,35 @@ export function renderGames(el, user, profile) {
     }, error => {
       console.error("SOS connection status could not be loaded:", error);
     });
+    stopSosServerTime = onValue(ref(rtdb, ".info/serverTimeOffset"), snapshot => {
+      sosServerTimeOffset = Number(snapshot.val()) || 0;
+    });
+    sosClock = setInterval(() => {
+      if (activeGame !== "sos" || !isValidSosState(sosGameState) || sosGameState.status !== "playing") return;
+      const remaining = Math.max(0, Math.ceil((sosGameState.turnDeadline - sosNow()) / 1000));
+      const countdown = $("[data-sos-countdown]", el);
+      if (countdown) countdown.textContent = String(remaining).padStart(2, "0");
+      if (remaining === 0) void expireSosTurn(sosGameState.turnNumber, sosGameState.turnDeadline);
+    }, 250);
+  }
+
+  function sosNow() { return Date.now() + sosServerTimeOffset; }
+
+  async function expireSosTurn(turnNumber, deadline) {
+    if (Date.now() < sosLastExpiryRequest) return;
+    sosLastExpiryRequest = Date.now() + 1500;
+    try {
+      await runTransaction(sosGameRef(), current => {
+        if (!isValidSosState(current) || current.status !== "playing" || current.turnNumber !== turnNumber ||
+            current.turnDeadline !== deadline || current.turnDeadline > sosNow()) return;
+        const nextUid = current.playerUids.find(playerUid => playerUid !== current.turnUid);
+        return { ...current, turnUid: nextUid, turnNumber: current.turnNumber + 1,
+          turnDeadline: sosNow() + SOS_TURN_SECONDS * 1000, updatedAt: sosNow() };
+      });
+    } catch (error) {
+      sosLastExpiryRequest = 0;
+      console.error("SOS turn timeout could not be processed:", error);
+    }
   }
 
   async function startOrJoinSosMatch() {
@@ -800,7 +854,9 @@ export function renderGames(el, user, profile) {
           players: { ...current.players, [user.uid]: { name: getDisplayName(user.uid, profile?.name) } },
           scores: { ...current.scores, [user.uid]: 0 },
           status: "playing",
-          turnUid: current.playerUids[0],
+          turnUid: Math.random() < 0.5 ? current.playerUids[0] : user.uid,
+          turnDeadline: sosNow() + SOS_TURN_SECONDS * 1000,
+          turnNumber: (current.turnNumber || 0) + 1,
           updatedAt: Date.now()
         };
       });
@@ -830,7 +886,8 @@ export function renderGames(el, user, profile) {
     try {
       const transaction = await runTransaction(sosGameRef(), current => {
         if (!isValidSosState(current) || current.status !== "playing" || current.turnUid !== user.uid ||
-            !current.playerUids.includes(user.uid) || current.board[index]) return;
+            !current.playerUids.includes(user.uid) || !Number.isInteger(index) || index < 0 || index >= SOS_CELL_COUNT ||
+            !["S", "O"].includes(selectedSosLetter) || current.board[index]) return;
         const board = [...current.board];
         const owners = [...current.owners];
         board[index] = selectedSosLetter;
@@ -849,10 +906,13 @@ export function renderGames(el, user, profile) {
           ...current,
           board,
           owners,
+          lastMove: index,
           scores,
           lines,
           status: finished ? "finished" : "playing",
           turnUid: finished ? "" : newLines.length ? user.uid : opponentUid,
+          turnNumber: (current.turnNumber || 0) + 1,
+          turnDeadline: finished ? 0 : sosNow() + SOS_TURN_SECONDS * 1000,
           ...(finished ? { winnerUid } : {}),
           updatedAt: Date.now()
         };
@@ -1355,7 +1415,7 @@ export function renderGames(el, user, profile) {
       return;
     }
 
-    if (target.hasAttribute("data-back-games")) {
+    if (target.hasAttribute("data-back-games") || target.hasAttribute("data-sos-leave")) {
       if (memoryTimer) clearTimeout(memoryTimer);
       memoryTimer = null;
       clearSosSession();
