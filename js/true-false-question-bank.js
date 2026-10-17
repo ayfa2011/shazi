@@ -1242,6 +1242,8 @@ const BANK_FACTS = [
   ["History", "The Great Wall of China is in China.", "The Great Wall of China is in Japan.", "The Great Wall was built over many dynasties.", "history"],
   ["History", "The Pyramids of Giza are in Egypt.", "The Pyramids of Giza are in Mexico.", "The Great Pyramid was built for Pharaoh Khufu.", "history"],
 
+];
+
 const QUESTION_FORMS = [
   claim => `True or false: ${claim}`,
   claim => `Fact check: ${claim}`,
