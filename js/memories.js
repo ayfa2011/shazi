@@ -1,4 +1,4 @@
-import { $, esc, toast, generateThumbnail, compressImageFile, tinyBlurPlaceholder, lazyHydrateImages } from "./utils.js";
+import { $, esc, toast, generateThumbnail, tinyBlurPlaceholder, lazyHydrateImages } from "./utils.js";
 import { watchItems, addItem, removeItem, setItem, addMemoryMedia, removeMemoryMedia, notifyPartnerSafely } from "./firestore.js";
 import { getProfileKey } from "./profile-data.js";
 import { getTelegramMediaUrl, getCachedThumb, setCachedThumb, sendToTelegram, telegramMediaReferences, telegramUploadMimeType, deleteTelegramGalleryMessage } from "../src/services/telegramService.js";
@@ -8,7 +8,7 @@ let active = false;
 let removeMemoryEscapeListener = null;
 let memoryLoadTimer = null;
 let memoryWatchGeneration = 0;
-const MEMORY_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
+const MEMORY_PHOTO_MAX_BYTES = 1.5 * 1024 * 1024;
 
 async function prepareMemoryPhoto(file) {
   if (!file.type.startsWith("image/")) return file;
@@ -21,7 +21,8 @@ async function prepareMemoryPhoto(file) {
   try {
     bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
   } catch {
-    throw new Error("This image format cannot be compressed in your browser. Please save it as JPEG, PNG, or WebP and try again.");
+    console.warn("Memory photo compression unavailable; uploading original file.");
+    return file;
   }
 
   try {
@@ -44,7 +45,7 @@ async function prepareMemoryPhoto(file) {
   } finally {
     bitmap.close?.();
   }
-  // If all attempts fail, return the original file
+  // If compression cannot produce a valid target, retain the original file.
   return file;
 }
 
@@ -760,8 +761,9 @@ export function renderMemories(el, user, profile) {
           const createdAtMs = Date.now();
           const timestamp = new Date(createdAtMs).toLocaleString();
           // Compress before upload: prevents memory lag on sync + saves bandwidth.
-          const compressed = type === "photo" ? await compressImageFile(file) : file;
-          const uploadFile = type === "photo" ? await prepareMemoryPhoto(compressed) : compressed;
+          // Compress only photos over the 1.5 MB upload target. If browser
+          // decoding/canvas compression fails, prepareMemoryPhoto returns original.
+          const uploadFile = type === "photo" ? await prepareMemoryPhoto(file) : file;
 
           // Keep tiny blur placeholders in local cache only. Data-URL thumbnails
           // must not be saved inside the Firestore memory document.
