@@ -763,9 +763,8 @@ export function renderMemories(el, user, profile) {
           const compressed = type === "photo" ? await compressImageFile(file) : file;
           const uploadFile = type === "photo" ? await prepareMemoryPhoto(compressed) : compressed;
 
-          // Generate thumbnail before uploading
-          const thumbnail = type === "photo" ? await generateThumbnail(uploadFile) : null;
-          // Tiny blur-up placeholder for instant next-view rendering.
+          // Keep tiny blur placeholders in local cache only. Data-URL thumbnails
+          // must not be saved inside the Firestore memory document.
           const blurThumb = type === "photo" ? await tinyBlurPlaceholder(uploadFile).catch(() => "") : "";
 
           const result = await sendToTelegram(uploadFile, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`);
@@ -774,8 +773,8 @@ export function renderMemories(el, user, profile) {
 
           return {
             ...refs,
-            thumbnailUrl: thumbnail, // Ensure key matches usage in renderGrid
-            blurThumb: blurThumb || undefined,
+            // Full-size media is loaded from Telegram using telegramFileId.
+            // Do not store Base64 thumbnails in Firestore (1 MiB document limit).
             type,
             mimeType: telegramUploadMimeType(uploadFile),
             name: file.name || (type === "video" ? "Video" : "Photo"),

@@ -79,15 +79,37 @@ export async function setItem(id, data, customCollection = null) {
   return setDoc(doc(root(), id), data, { merge: true });
 }
 
+function sanitizeMemoryMediaItem(item) {
+  if (!item || typeof item !== "object") return null;
+  const clean = {};
+  // Thumbnails are generated as Base64 data URLs in the browser. Never store
+  // those in the Firestore document: a few photos can exceed Firestore's 1 MiB limit.
+  const blockedKeys = new Set(["thumbnailUrl", "thumbnail", "blurThumb", "previewDataUrl", "dataUrl"]);
+  for (const [key, value] of Object.entries(item)) {
+    if (blockedKeys.has(key)) continue;
+    if (typeof value === "string") {
+      if (/^data:(image|video)\//i.test(value)) continue;
+      // Avoid accidentally persisting large encoded payloads in metadata fields.
+      if (value.length > 8000 && !/^https?:\/\//i.test(value)) continue;
+    }
+    if (value !== undefined && typeof value !== "function") clean[key] = value;
+  }
+  return clean.telegramFileId || clean.url ? clean : null;
+}
+
 export async function addMemoryMedia(memoryId, mediaItems) {
   if (!firebaseReady) throw new Error("Connect Firebase before adding memory media.");
-  const items = Array.isArray(mediaItems) ? mediaItems.filter(item => item && (typeof item.telegramFileId === "string" || typeof item.url === "string")) : [];
+  const items = Array.isArray(mediaItems) ? mediaItems.map(sanitizeMemoryMediaItem).filter(Boolean) : [];
   if (!items.length) return;
   const reference = doc(root(), memoryId);
   return runTransaction(db, async transaction => {
     const snapshot = await transaction.get(reference);
     if (!snapshot.exists() || snapshot.data().type !== "memory") throw new Error("This memory no longer exists.");
-    const existing = Array.isArray(snapshot.data().mediaItems) ? snapshot.data().mediaItems : [];
+    const data = snapshot.data();
+    // Clean older records too, so a previous oversized thumbnail does not keep
+    // the document above Firestore's maximum size when new media is appended.
+    const existingRaw = Array.isArray(data.mediaItems) ? data.mediaItems : [];
+    const existing = existingRaw.map(sanitizeMemoryMediaItem).filter(Boolean);
     const keys = new Set(existing.map(item => item.telegramFileId || item.url).filter(Boolean));
     const additions = items.filter(item => {
       const key = item.telegramFileId || item.url;
@@ -95,8 +117,15 @@ export async function addMemoryMedia(memoryId, mediaItems) {
       keys.add(key);
       return true;
     });
-    if (additions.length) transaction.update(reference, { mediaItems: [...existing, ...additions] });
-    return [...existing, ...additions];
+    const nextMediaItems = [...existing, ...additions];
+    const update = { mediaItems: nextMediaItems };
+    // Remove legacy Base64 primary-media fields if present.
+    if (typeof data.photoUrl === "string" && /^data:(image|video)\//i.test(data.photoUrl)) update.photoUrl = deleteField();
+    if (typeof data.thumbnailUrl === "string" && /^data:(image|video)\//i.test(data.thumbnailUrl)) update.thumbnailUrl = deleteField();
+    if (additions.length || existingRaw.length !== existing.length || existingRaw.some((item, index) => JSON.stringify(item) !== JSON.stringify(existing[index]))) {
+      transaction.update(reference, update);
+    }
+    return nextMediaItems;
   });
 }
 
