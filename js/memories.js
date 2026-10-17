@@ -44,7 +44,8 @@ async function prepareMemoryPhoto(file) {
   } finally {
     bitmap.close?.();
   }
-  throw new Error("This photo could not be reduced below 2 MB while keeping good detail. Please choose a smaller image.");
+  // If all attempts fail, return the original file
+  return file;
 }
 
 function parseLocalMemoryDate(dateStr) {
