@@ -367,7 +367,9 @@ const QUESTION_FORMS = [
   claim => `Quick fact check: ${claim}`
 ];
 
-export const TRUE_FALSE_BANK_VERSION = 1;
+// Increment when the bank contents or persisted shape changes so stale Firebase
+// copies are replaced by the current source bank.
+export const TRUE_FALSE_BANK_VERSION = 2;
 export const TRUE_FALSE_QUESTION_BANK = BANK_FACTS.flatMap(([category, trueClaim, falseClaim, explanation, sourceKey], factIndex) => {
   const source = SOURCES[sourceKey];
   return [trueClaim, falseClaim].flatMap((statement, polarityIndex) => QUESTION_FORMS.map((format, formIndex) => ({

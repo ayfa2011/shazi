@@ -1181,9 +1181,10 @@ export function renderGames(el, user, profile) {
   }
 
   function hasValidQuestionBank(bank) {
-    return bank?.version === TRUE_FALSE_BANK_VERSION && bank.questionCount === 1000 &&
-      bank.questions && typeof bank.questions === "object" && Object.keys(bank.questions).length === 1000 &&
-      Array.from({ length: 1000 }, (_, index) => bank.questions[index]).every(question =>
+    const questionCount = TRUE_FALSE_QUESTION_BANK.length;
+    return bank?.version === TRUE_FALSE_BANK_VERSION && bank.questionCount === questionCount &&
+      bank.questions && typeof bank.questions === "object" && Object.keys(bank.questions).length === questionCount &&
+      Array.from({ length: questionCount }, (_, index) => bank.questions[index]).every(question =>
         question && typeof question.id === "string" && typeof question.statement === "string" &&
         typeof question.answer === "boolean" && typeof question.explanation === "string" &&
         typeof question.sourceUrl === "string");
@@ -1209,7 +1210,7 @@ export function renderGames(el, user, profile) {
     if (!hasValidQuestionBank(bank)) throw new Error("The True or False question bank could not be loaded.");
     trueFalseBankCache = Array.isArray(bank.questions)
       ? bank.questions
-      : Array.from({ length: 1000 }, (_, index) => bank.questions[index]);
+      : Array.from({ length: TRUE_FALSE_QUESTION_BANK.length }, (_, index) => bank.questions[index]);
     return trueFalseBankCache;
   }
 
