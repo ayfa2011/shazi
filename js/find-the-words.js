@@ -64,7 +64,7 @@ function makeBoard(excludedWords = []) {
   let board = null;
   let words = null;
 
-  for (let boardAttempt = 0; boardAttempt < 20 && !words; boardAttempt++) {
+  for (let boardAttempt = 0; boardAttempt < 100 && !words; boardAttempt++) {
     const candidate = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(""));
     const paths = new Map();
     let complete = true;
