@@ -4,11 +4,13 @@ import { firebaseReady, rtdb } from "./firebase.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { mountFindTheWordsGame } from "./find-the-words.js";
-import { onDisconnect, onValue, ref, remove, runTransaction, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
+import { TRUE_FALSE_BANK_VERSION, TRUE_FALSE_QUESTION_BANK, pickTrueFalseQuestions } from "./true-false-question-bank.js";
+import { get, onDisconnect, onValue, ref, remove, runTransaction, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
 const sosGameRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sos`);
 const sosPresenceRef = uid => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sosPresence/${uid}`);
 const gameMatchRef = game => ref(rtdb, `couples/our-little-world/games/matches/${game}`);
+const trueFalseBankRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/questionBanks/trueFalse`);
 const SOS_ROWS = 7;
 const SOS_COLUMNS = 7;
 const SOS_CELL_COUNT = SOS_ROWS * SOS_COLUMNS;
@@ -84,7 +86,8 @@ const gameTitles = {
   "word-guess": "Word Guess",
   "spin-wheel": "Spin Wheel",
   "couple-trivia": "Couple Trivia",
-  sos: "SOS"
+  sos: "SOS",
+  "true-false": "True or False"
 };
 
 function isValidSosState(state) {
@@ -202,7 +205,30 @@ function normalizeRoom(room) {
     }
   }
   if (room.wordRound) normalizeActiveState("word-guess", room.wordRound);
+  if (room.game === "true-false") room.trueFalseAnswers = room.trueFalseAnswers || {};
   return room;
+}
+
+function isValidTrueFalseRoom(room) {
+  const questions = room.trueFalseQuestions;
+  const answers = room.trueFalseAnswers || {};
+  if (!Array.isArray(questions) || questions.length !== 12 ||
+      !questions.every(question => question && typeof question.id === "string" && Number.isInteger(question.factId) &&
+        typeof question.statement === "string" && typeof question.answer === "boolean" &&
+        typeof question.explanation === "string" && typeof question.sourceUrl === "string") ||
+      !Number.isInteger(room.trueFalseQuestionIndex) || room.trueFalseQuestionIndex < 0 ||
+      room.trueFalseQuestionIndex >= questions.length ||
+      !["answering", "reveal", "finished"].includes(room.trueFalsePhase) ||
+      !answers || typeof answers !== "object" || Array.isArray(answers) ||
+      Object.entries(answers).some(([uid, answer]) => !room.playerUids.includes(uid) || typeof answer !== "boolean")) return false;
+  const answerCount = Object.keys(answers).length;
+  if (room.status === "waiting") return room.playerUids.length === 1 && !room.turnUid && answerCount === 0;
+  if (room.status === "playing") return room.playerUids.length === 2 && room.playerUids.includes(room.turnUid) &&
+    ((room.trueFalsePhase === "answering" && answerCount < 2) || (room.trueFalsePhase === "reveal" && answerCount === 2));
+  if (room.status === "finished") return room.playerUids.length === 2 && !room.turnUid &&
+    room.trueFalsePhase === "finished" && answerCount === 2 &&
+    (!room.winnerUid || room.playerUids.includes(room.winnerUid));
+  return false;
 }
 
 function isValidActiveGameState(game, state) {
@@ -430,6 +456,7 @@ function gamesHome() {
       ${gameCard("find-words", "🔎", "Find the Words", "Race to find 16 new words together", "LIVE")}
       ${gameCard("spin-wheel", "🎡", "Spin Wheel", "Complete three surprise challenges fastest", "2P")}
       ${gameCard("couple-trivia", "💞", "Couple Trivia", "Answer, then let your partner guess", "2P")}
+      ${gameCard("true-false", "💡", "True or False", "Discover surprising facts together", "2P")}
     </div>
   </section>`;
 }
@@ -680,6 +707,7 @@ function isValidGameRoom(room, game) {
       !Number.isInteger(room.quizRoundNumber) || room.quizRoundNumber < 0 ||
       !room.playerUids.includes(room.quizCreatorUid) ||
       (room.quizPhase === "guesser" && (!room.quizRound || typeof room.quizRound.emojis !== "string")))) return false;
+  if (game === "true-false") return isValidTrueFalseRoom(room);
   if (room.status === "waiting") return !room.turnUid;
   if (room.status === "playing") return room.playerUids.includes(room.turnUid);
   return !room.turnUid && (!room.winnerUid || room.playerUids.includes(room.winnerUid));
@@ -720,6 +748,7 @@ export function renderGames(el, user, profile) {
   let roomStateInitializing = "";
   let savedMatchResults = new Set();
   let gameResults = null;
+  let trueFalseBankCache = null;
 
   el.innerHTML = gamesHome();
 
@@ -948,6 +977,10 @@ export function renderGames(el, user, profile) {
       content.replaceChildren();
       return;
     }
+    if (activeGame === "true-false") {
+      renderTrueFalseRoom(room, statusEl, content);
+      return;
+    }
     const players = room?.players || {};
     const playerUids = room?.playerUids || [];
     const opponentUid = playerUids.find(uid => uid !== user.uid);
@@ -1143,6 +1176,93 @@ export function renderGames(el, user, profile) {
     });
   }
 
+  function hasValidQuestionBank(bank) {
+    return bank?.version === TRUE_FALSE_BANK_VERSION && bank.questionCount === 1000 &&
+      bank.questions && typeof bank.questions === "object" && Object.keys(bank.questions).length === 1000 &&
+      Array.from({ length: 1000 }, (_, index) => bank.questions[index]).every(question =>
+        question && typeof question.id === "string" && typeof question.statement === "string" &&
+        typeof question.answer === "boolean" && typeof question.explanation === "string" &&
+        typeof question.sourceUrl === "string");
+  }
+
+  async function loadTrueFalseQuestionBank() {
+    if (trueFalseBankCache) return trueFalseBankCache;
+    const bankRef = trueFalseBankRef();
+    let snapshot = await get(bankRef);
+    let bank = snapshot.val();
+    if (!hasValidQuestionBank(bank)) {
+      const transaction = await runTransaction(bankRef, current => {
+        if (hasValidQuestionBank(current)) return;
+        return {
+          version: TRUE_FALSE_BANK_VERSION,
+          questionCount: TRUE_FALSE_QUESTION_BANK.length,
+          seededAt: Date.now(),
+          questions: TRUE_FALSE_QUESTION_BANK
+        };
+      });
+      bank = transaction.snapshot.val();
+    }
+    if (!hasValidQuestionBank(bank)) throw new Error("The True or False question bank could not be loaded.");
+    trueFalseBankCache = Array.isArray(bank.questions)
+      ? bank.questions
+      : Array.from({ length: 1000 }, (_, index) => bank.questions[index]);
+    return trueFalseBankCache;
+  }
+
+  function trueFalsePlayerCards(room) {
+    return room.playerUids.map((playerUid, index) => {
+      const name = getDisplayName(playerUid, room.players[playerUid]?.name || (index ? "Partner" : "You"));
+      const score = room.players[playerUid]?.score || 0;
+      return `<div class="true-false-player-card">${gamePlayerAvatar(playerUid, name)}<span>${esc(name)}</span><strong>${score}</strong><small>points</small></div>`;
+    }).join("");
+  }
+
+  function renderTrueFalseRoom(room, statusEl, content) {
+    const playerRow = room ? `<div class="true-false-score-row">${trueFalsePlayerCards(room)}${room.playerUids.length < 2 ? `<div class="true-false-player-card waiting">♡<span>Waiting for partner</span><strong>—</strong><small>points</small></div>` : ""}</div>` : "";
+    if (!room || room.status === "finished" || room.status === "cancelled") {
+      const winner = room?.winnerUid ? getDisplayName(room.winnerUid, room.players?.[room.winnerUid]?.name || "Your partner") : "";
+      const outcome = room?.status === "cancelled" ? "This match was cancelled." : room?.status === "finished"
+        ? winner ? `${winner} won this round!` : "It’s a tie! You both did great."
+        : "Make a guess, learn a new fact, and compare your points.";
+      statusEl.innerHTML = `<div class="game-panel game-room-panel true-false-status"><p class="tic-tac-toe-status">${esc(outcome)}</p>${room?.status === "finished" ? `<div class="true-false-final-scores">${room.playerUids.map(playerUid => `<span>${esc(getDisplayName(playerUid, room.players[playerUid]?.name || "Partner"))}: <b>${room.players[playerUid]?.score || 0}</b></span>`).join("")}</div>` : ""}<button type="button" class="primary" data-room-start>${room ? "Play again" : "Start a match"}</button></div>`;
+      if (room?.status === "finished") {
+        const lastQuestion = room.trueFalseQuestions[room.trueFalseQuestionIndex];
+        content.innerHTML = `<article class="true-false-card true-false-finished"><p class="true-false-eyebrow">YOUR LITTLE KNOWLEDGE ROUND</p><h2>${esc(outcome)}</h2>${playerRow}<p class="true-false-statement">${esc(lastQuestion.statement)}</p><div class="true-false-correct">Correct answer: <strong>${lastQuestion.answer ? "True" : "False"}</strong></div><p class="true-false-explanation">${esc(lastQuestion.explanation)}</p><a class="true-false-source" href="${esc(lastQuestion.sourceUrl)}" target="_blank" rel="noopener noreferrer">Learn more · ${esc(lastQuestion.sourceTitle)}</a></article>`;
+      } else content.innerHTML = `<div class="true-false-card true-false-welcome"><span aria-hidden="true">💡</span><h2>Surprising facts, two guesses.</h2><p>Answer separately. The answer and explanation appear after both of you have submitted.</p>${playerRow}</div>`;
+      return;
+    }
+
+    if (room.status === "waiting") {
+      const creator = room.playerUids[0] === user.uid;
+      statusEl.innerHTML = `<div class="game-panel game-room-panel true-false-status"><p class="tic-tac-toe-status">${creator ? "Your question pack is ready. Waiting for your partner to join…" : `${esc(getDisplayName(room.playerUids[0], room.players[room.playerUids[0]]?.name || "Your partner"))} is ready to play.`}</p>${playerRow}${creator ? `<button type="button" class="secondary" data-room-cancel>Cancel match</button>` : `<button type="button" class="primary" data-room-start>Join match</button>`}</div>`;
+      content.innerHTML = `<div class="true-false-card true-false-welcome"><span aria-hidden="true">💡</span><h2>True or False?</h2><p>Both of you answer each fact. We’ll reveal the answer and a short explanation after you both submit.</p>${playerRow}</div>`;
+      return;
+    }
+
+    if (!room.playerUids.includes(user.uid)) {
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">This match is already in progress with your partner.</p></div>`;
+      content.replaceChildren();
+      return;
+    }
+
+    const question = room.trueFalseQuestions[room.trueFalseQuestionIndex];
+    const partnerUid = room.playerUids.find(playerUid => playerUid !== user.uid);
+    const answers = room.trueFalseAnswers || {};
+    const hasAnswered = Object.prototype.hasOwnProperty.call(answers, user.uid);
+    const partnerAnswered = Object.prototype.hasOwnProperty.call(answers, partnerUid);
+    const revealed = room.trueFalsePhase === "reveal";
+    const questionNumber = room.trueFalseQuestionIndex + 1;
+    statusEl.innerHTML = `<div class="game-panel game-room-panel true-false-status"><p class="tic-tac-toe-status">${revealed ? "Both answers are in — here’s the fact!" : hasAnswered ? "Your answer is locked. Waiting for your partner…" : partnerAnswered ? "Your partner has answered. Your turn to guess!" : "Answer this fact separately, then compare."}</p>${playerRow}<p class="true-false-rule">One point for each correct answer · ${questionNumber} of ${room.trueFalseQuestions.length}</p><button type="button" class="secondary" data-room-end>End this match</button></div>`;
+
+    const answerButtons = !revealed && !hasAnswered
+      ? `<div class="true-false-choices"><button type="button" class="true-false-choice true-choice" data-true-false-answer="true"><span>✓</span>True</button><button type="button" class="true-false-choice false-choice" data-true-false-answer="false"><span>✕</span>False</button></div>`
+      : !revealed ? `<div class="true-false-waiting-answer"><span class="true-false-lock">♡</span><strong>Your answer is submitted</strong><span>${partnerAnswered ? "Both answers are in — revealing…" : "The answer stays hidden until your partner answers too."}</span></div>` : "";
+    const reveal = revealed
+      ? `<div class="true-false-reveal"><p class="true-false-correct">Correct answer: <strong>${question.answer ? "True" : "False"}</strong></p><div class="true-false-answer-pair">${room.playerUids.map(playerUid => `<span>${esc(getDisplayName(playerUid, room.players[playerUid]?.name || "Partner"))} answered <b>${answers[playerUid] ? "True" : "False"}</b>${answers[playerUid] === question.answer ? " · +1 point" : ""}</span>`).join("")}</div><p class="true-false-explanation">${esc(question.explanation)}</p><a class="true-false-source" href="${esc(question.sourceUrl)}" target="_blank" rel="noopener noreferrer">Learn more · ${esc(question.sourceTitle)}</a><button type="button" class="primary true-false-next" data-next-true-false>${questionNumber === room.trueFalseQuestions.length ? "See our final score" : "Next fact"} <span aria-hidden="true">→</span></button></div>`
+      : "";
+    content.innerHTML = `<article class="true-false-card"><div class="true-false-question-meta"><span>${esc(question.category)}</span><span>FACT ${String(questionNumber).padStart(2, "0")} / ${room.trueFalseQuestions.length}</span></div><h2 class="true-false-statement">${esc(question.statement)}</h2>${answerButtons}${reveal}</article>`;
+  }
+
   function renderCurrentGame() {
     if (!activeGame) {
       document.body.classList.remove("sos-fullscreen");
@@ -1182,7 +1302,8 @@ export function renderGames(el, user, profile) {
       "memory-match": ["Memory Match", "Flip the cards and find all ten pairs.", "🧠"],
       "word-guess": ["Word Guess", "Pick a secret word, then let your partner guess.", "🔤"],
       "spin-wheel": ["Spin Wheel", "Spin for a sweet little challenge.", "🎡"],
-      "couple-trivia": ["Couple Trivia", "Answer, pass the device, and see if your partner knows.", "💞"]
+      "couple-trivia": ["Couple Trivia", "Answer, pass the device, and see if your partner knows.", "💞"],
+      "true-false": ["True or False", "Guess together, then learn a surprising fact.", "💡"]
     }[activeGame];
     if (renderedShellGame !== activeGame) {
       el.innerHTML = activeShell(activeGame, ...gameInfo);
@@ -1284,6 +1405,9 @@ export function renderGames(el, user, profile) {
         return;
       }
       try {
+        const trueFalseQuestions = activeGame === "true-false"
+          ? pickTrueFalseQuestions(await loadTrueFalseQuestionBank(), 12)
+          : [];
         const transaction = await runTransaction(gameMatchRef(activeGame), current => {
           if (!isValidGameRoom(current, activeGame) || current.status === "finished" || current.status === "cancelled") {
             const matchId = `${Date.now()}-${user.uid}`;
@@ -1304,6 +1428,10 @@ export function renderGames(el, user, profile) {
               triviaAnswererUid: user.uid,
               triviaAnswer: -1,
               triviaGuess: -1,
+              trueFalseQuestions,
+              trueFalseQuestionIndex: 0,
+              trueFalseAnswers: null,
+              trueFalsePhase: "answering",
               players: {
                 [user.uid]: { name: getDisplayName(user.uid, profile?.name), score: 0, completed: false, state: null }
               },
@@ -1351,7 +1479,8 @@ export function renderGames(el, user, profile) {
     if (target.hasAttribute("data-room-end")) {
       try {
         const transaction = await runTransaction(gameMatchRef(activeGame), current => {
-          if (!current || current.status !== "playing" || !current.playerUids.includes(user.uid)) return;
+          if (!current || current.status !== "playing" || !current.playerUids.includes(user.uid) ||
+              (activeGame === "true-false" && (current.trueFalsePhase !== "answering" || current.trueFalseQuestionIndex !== gameRoomState?.trueFalseQuestionIndex))) return;
           return { ...current, status: "cancelled", turnUid: "", updatedAt: Date.now() };
         });
         if (!transaction.committed) toast("This match is no longer active.");
@@ -1509,6 +1638,71 @@ export function renderGames(el, user, profile) {
       activeState.completedChallenges++;
       activeState.challenge = "";
       renderAndSavePlayerProgress();
+      return;
+    }
+
+    if (target.hasAttribute("data-true-false-answer") && activeGame === "true-false") {
+      const answer = target.dataset.trueFalseAnswer === "true";
+      try {
+        const transaction = await runTransaction(gameMatchRef(activeGame), current => {
+          if (!current || current.game !== "true-false" || current.status !== "playing" ||
+              current.trueFalsePhase !== "answering" || !current.playerUids.includes(user.uid) ||
+              Object.prototype.hasOwnProperty.call(current.trueFalseAnswers || {}, user.uid)) return;
+          const answers = { ...(current.trueFalseAnswers || {}), [user.uid]: answer };
+          const bothAnswered = current.playerUids.every(playerUid => Object.prototype.hasOwnProperty.call(answers, playerUid));
+          let players = current.players;
+          if (bothAnswered) {
+            const correctAnswer = current.trueFalseQuestions[current.trueFalseQuestionIndex].answer;
+            players = Object.fromEntries(current.playerUids.map(playerUid => {
+              const player = current.players[playerUid];
+              return [playerUid, { ...player, score: (player.score || 0) + (answers[playerUid] === correctAnswer ? 1 : 0) }];
+            }));
+          }
+          return {
+            ...current,
+            trueFalseAnswers: answers,
+            trueFalsePhase: bothAnswered ? "reveal" : "answering",
+            players,
+            updatedAt: Date.now()
+          };
+        });
+        if (!transaction.committed) toast("Your answer is already submitted, or this question has changed.");
+      } catch (error) {
+        console.error("Could not save True or False answer:", error);
+        toast("Your answer could not be saved. Please try again.");
+      }
+      return;
+    }
+
+    if (target.hasAttribute("data-next-true-false") && activeGame === "true-false") {
+      try {
+        const transaction = await runTransaction(gameMatchRef(activeGame), current => {
+          if (!current || current.game !== "true-false" || current.status !== "playing" ||
+              current.trueFalsePhase !== "reveal" || !current.playerUids.includes(user.uid)) return;
+          const finalQuestion = current.trueFalseQuestionIndex >= current.trueFalseQuestions.length - 1;
+          if (finalQuestion) {
+            return {
+              ...current,
+              status: "finished",
+              trueFalsePhase: "finished",
+              turnUid: "",
+              winnerUid: gameWinner("true-false", current.playerUids, current.players),
+              updatedAt: Date.now()
+            };
+          }
+          return {
+            ...current,
+            trueFalseQuestionIndex: current.trueFalseQuestionIndex + 1,
+            trueFalseAnswers: null,
+            trueFalsePhase: "answering",
+            updatedAt: Date.now()
+          };
+        });
+        if (!transaction.committed) toast("This question has already changed.");
+      } catch (error) {
+        console.error("Could not continue True or False:", error);
+        toast("The next fact could not be loaded.");
+      }
       return;
     }
 
