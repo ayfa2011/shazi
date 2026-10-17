@@ -109,6 +109,10 @@ export async function deleteTelegramGalleryMessage(chatId, messageId) {
   url.searchParams.set("galleryMessageId", messageId);
   const response = await authorizedRequest(url.toString(), { method: "DELETE" });
   const result = await response.json().catch(() => ({}));
-  if (!response.ok || result.ok === false) throw new Error(result.error || "Telegram could not delete this media.");
+  if (!response.ok) {
+    if (response.status === 502) console.warn("Telegram worker proxy returned 502 Bad Gateway");
+    throw new Error(result.error || `Telegram could not delete this media (HTTP ${response.status}).`);
+  }
+  if (result.ok === false) throw new Error(result.error || "Telegram could not delete this media.");
   return result;
 }
