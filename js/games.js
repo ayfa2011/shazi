@@ -11,8 +11,8 @@ const sosGameRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sos`);
 const sosPresenceRef = uid => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sosPresence/${uid}`);
 const gameMatchRef = game => ref(rtdb, `couples/our-little-world/games/matches/${game}`);
 const trueFalseBankRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/questionBanks/trueFalse`);
-const SOS_ROWS = 7;
-const SOS_COLUMNS = 7;
+const SOS_ROWS = 8;
+const SOS_COLUMNS = 8;
 const SOS_CELL_COUNT = SOS_ROWS * SOS_COLUMNS;
 const SOS_TURN_SECONDS = 20;
 const SOS_DIRECTIONS = [[0, 1], [1, 0], [1, 1], [1, -1]];
@@ -270,7 +270,7 @@ function formatGameScore(game, score) {
 }
 
 function gamePlayerProfile(uid, fallbackName = "") {
-  return Object.values(APP_CONFIG.profiles).find(person => person.authUid === uid ||
+  return Object.values(APP_CONFIG.profiles).find(person => person.authUid === uid || person.id === uid ||
     fallbackName && person.name?.toLocaleLowerCase() === fallbackName.toLocaleLowerCase()) || {};
 }
 
@@ -578,7 +578,11 @@ function renderSosGame(content, user, gameState, presence, pendingCell) {
   const ownScore = state?.scores?.[uid] || 0;
   const orderedPlayers = state?.playerUids || [uid];
   const partnerUid = orderedPlayers.find(playerUid => playerUid !== uid);
-  const partnerScore = partnerUid ? state.scores[partnerUid] || 0 : 0;
+  const partnerScore = partnerUid ? (state.scores?.[partnerUid] || 0) : 0;
+  const ownScore = state?.scores?.[uid] || 0;
+  const currentPlayer = state?.players?.[uid];
+  const partnerPlayer = partnerUid ? state?.players?.[partnerUid] : null;
+
   let turnMessage = !state
     ? partnerOnline ? "Your partner is online. Start a live match!" : "Waiting for your partner to come online…"
       : waiting
@@ -594,7 +598,8 @@ function renderSosGame(content, user, gameState, presence, pendingCell) {
   const lineCells = new Set((state?.lines || []).flatMap(line => line.cells));
   const playerCard = (playerUid, color) => {
     const isOnline = presence?.[playerUid]?.online === true;
-    const playerName = getDisplayName(playerUid, state?.players?.[playerUid]?.name || (playerUid === uid ? "You" : "Partner"));
+    const playerData = state?.players?.[playerUid] || {};
+    const playerName = getDisplayName(playerUid, playerData.name || (playerUid === uid ? "You" : "Partner"));
     const score = state?.scores?.[playerUid] || 0;
     return `<div class="sos-player-card ${color}${state?.turnUid === playerUid && playing ? " turn-active" : ""}">
       <span class="sos-avatar-wrap">${gamePlayerAvatar(playerUid, playerName)}<i class="sos-presence${isOnline ? " online" : ""}" aria-label="${isOnline ? "Online" : "Offline"}"></i></span>
@@ -649,7 +654,7 @@ function renderSosGame(content, user, gameState, presence, pendingCell) {
     <header class="sos-header"><button class="sos-back" type="button" data-back-games>← Games</button><div class="sos-heading"><p class="eyebrow">FIND · CONNECT · WIN</p><h1>S<span>♡</span>S</h1></div><span class="sos-header-note">Better Together</span></header>
     <div class="sos-matchup">${playerCard(orderedPlayers[0], "blue")}<span class="sos-versus">♡ VS ♡</span>${partnerUid ? playerCard(partnerUid, "red") : `<div class="sos-player-card red waiting-player"><span class="sos-player-label">Red Player</span><span class="sos-waiting-label">Waiting to join…</span></div>`}</div>
     <div class="sos-turn${playing && state.turnUid === uid ? " your-turn" : ""}" aria-live="polite">${esc(turnMessage)}</div>
-    <div class="sos-board-frame"><div class="sos-board" role="grid" aria-label="SOS game board, 7 columns by 7 rows">${cells}<svg class="sos-lines" viewBox="0 0 700 700" preserveAspectRatio="none" aria-hidden="true">${lineMarkup}</svg></div></div>
+    <div class="sos-board-frame"><div class="sos-board" role="grid" aria-label="SOS game board, ${SOS_COLUMNS} columns by ${SOS_ROWS} rows" style="grid-template-columns: repeat(${SOS_COLUMNS}, minmax(0, 1fr)); grid-template-rows: repeat(${SOS_ROWS}, minmax(0, 1fr));">${cells}<svg class="sos-lines" viewBox="0 0 ${SOS_COLUMNS * 100} ${SOS_ROWS * 100}" preserveAspectRatio="none" aria-hidden="true">${lineMarkup}</svg></div></div>
     ${result ? `<div class="sos-result" aria-live="polite">${result}<span>${ownScore} : ${partnerScore}</span></div>` : ""}
     <footer class="sos-presence-strip"><span class="sos-online-label${presence?.[uid]?.online ? " online" : ""}"><i></i>${presence?.[uid]?.online ? "ONLINE" : "OFFLINE"}<small>You</small></span><span class="sos-tap-hint">Tap an empty cell to choose a letter</span>${partnerUid ? `<span class="sos-online-label${partnerOnline ? " online" : ""}"><i></i>${partnerOnline ? "ONLINE" : "OFFLINE"}<small>${esc(getDisplayName(partnerUid, state?.players?.[partnerUid]?.name || "Partner"))}</small></span>` : `<span class="sos-online-label"><i></i>OFFLINE<small>Partner</small></span>`}</footer>
     <div class="sos-timer" aria-live="off"><span aria-hidden="true">♡</span><b>◷</b><span>Time Left</span><strong data-sos-countdown>${String(secondsLeft).padStart(2, "0")}</strong><span aria-hidden="true">♡</span></div>
