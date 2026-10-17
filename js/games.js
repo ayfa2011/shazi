@@ -11,8 +11,8 @@ const sosGameRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sos`);
 const sosPresenceRef = uid => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sosPresence/${uid}`);
 const gameMatchRef = game => ref(rtdb, `couples/our-little-world/games/matches/${game}`);
 const trueFalseBankRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/questionBanks/trueFalse`);
-const SOS_ROWS = 8;
-const SOS_COLUMNS = 8;
+const SOS_ROWS = 10;
+const SOS_COLUMNS = 10;
 const SOS_CELL_COUNT = SOS_ROWS * SOS_COLUMNS;
 const SOS_TURN_SECONDS = 20;
 const SOS_DIRECTIONS = [[0, 1], [1, 0], [1, 1], [1, -1]];
@@ -579,7 +579,6 @@ function renderSosGame(content, user, gameState, presence, pendingCell) {
   const orderedPlayers = state?.playerUids || [uid];
   const partnerUid = orderedPlayers.find(playerUid => playerUid !== uid);
   const partnerScore = partnerUid ? (state.scores?.[partnerUid] || 0) : 0;
-  const ownScore = state?.scores?.[uid] || 0;
   const currentPlayer = state?.players?.[uid];
   const partnerPlayer = partnerUid ? state?.players?.[partnerUid] : null;
 
