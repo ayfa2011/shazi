@@ -166,6 +166,7 @@ export function renderProfile(el, user, profile) {
         if (selectedPhoto) {
           const uploaded = await uploadProfilePhoto(selectedPhoto, name);
           savedProfile.avatar = "";
+          savedProfile.avatarTelegramFileId = uploaded.telegramFileId;
           Object.assign(savedProfile, uploaded);
         }
 
