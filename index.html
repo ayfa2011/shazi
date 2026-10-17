@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#f06a9b">
   <title>Keby &amp; Shazy — Our Little World</title>
   <link rel="manifest" href="manifest.webmanifest">
+  <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/app-icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/app-icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -113,5 +114,18 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script type="module" src="js/app.js"></script>
+  <script>
+    // 2) Service Worker registration (classic script = widest mobile support).
+    // js/app.js also registers via module; this inline fallback covers the
+    // case where the module graph fails before its DOMContentLoaded handler.
+    // `service-worker.js` is canonical; `sw.js` is kept as a legacy alias.
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("service-worker.js", { scope: "./" }).catch(function (error) {
+          console.warn("Offline app support could not be installed:", error);
+        });
+      });
+    }
+  </script>
 </body>
 </html>

@@ -132,6 +132,25 @@ export async function getQuestionParticipants(dayKey) {
   return Object.fromEntries(snapshot.docs.map(item => [item.id, item.data()]));
 }
 
+/* Realtime history: cache-first snapshot renders instantly, live patches follow. */
+export function watchQuestionHistory(callback, onError, maxItems = 90) {
+  requireFirebase();
+  const historyQuery = query(dailyCollection(), orderBy("dayKey", "desc"), limit(maxItems));
+  const clean = (snapshot) => callback(snapshot.docs
+    .map(item => ({ ...item.data(), id: item.id }))
+    .filter(item => typeof item.dayKey === "string" && typeof item.question === "string")
+    .sort((a, b) => b.dayKey.localeCompare(a.dayKey)));
+  return onSnapshot(historyQuery, clean, onError);
+}
+
+/* Realtime single answer: serves cache instantly, patches on reconnect. */
+export function watchQuestionAnswer(dayKey, profileKey, callback, onError) {
+  requireFirebase();
+  return onSnapshot(answerRef(dayKey, profileKey), snapshot => {
+    callback(snapshot.exists() ? snapshot.data() : null);
+  }, onError);
+}
+
 export async function getQuestionHistory() {
   requireFirebase();
   const snapshot = await getDocs(query(dailyCollection(), orderBy("dayKey", "desc"), limit(90)));

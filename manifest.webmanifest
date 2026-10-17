@@ -1,12 +1,18 @@
 {
+  "id": "./",
   "name": "Keby & Shazy — Our Little World",
   "short_name": "Our World",
+  "description": "A private offline-first home for Keby & Shazy — memories, letters, challenges, drawings, and music for two.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "orientation": "any",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "portrait",
   "background_color": "#fff7fb",
   "theme_color": "#f06a9b",
+  "categories": ["lifestyle", "social", "photo"],
+  "lang": "en",
+  "dir": "ltr",
   "icons": [
     {
       "src": "icons/app-icon-192.png",
@@ -21,10 +27,27 @@
       "purpose": "any"
     },
     {
-      "src": "icons/app-icon-192.png",
-      "sizes": "192x192",
+      "src": "icons/app-icon-512.png",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Today's Question",
+      "url": "./?open=questions",
+      "icons": [{ "src": "icons/app-icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Memories",
+      "url": "./?open=memories",
+      "icons": [{ "src": "icons/app-icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Letters",
+      "url": "./?open=letters",
+      "icons": [{ "src": "icons/app-icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

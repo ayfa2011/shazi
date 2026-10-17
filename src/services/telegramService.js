@@ -9,6 +9,108 @@ const mimeTypesByExtension = {
 };
 const mediaUrlCache = new Map();
 
+// ── Offline-First media cache (IndexedDB) ─────────────────────────────
+// Photo/video/audio bytes proxied from Telegram are stored here so
+// previously viewed memories, posts, drawings, and songs stay viewable
+// offline. Firestore/RTDB only hold lightweight references (file ids);
+// this store holds the actual bytes. Blob-URL cache above is memory-only
+// and is rehydrated from IndexedDB on repeat views.
+const MEDIA_DB_NAME = "olw-media-cache";
+const MEDIA_STORE = "media";
+const THUMB_STORE = "thumbs";
+const MEDIA_MAX_ENTRIES = 250;
+const THUMB_MAX_ENTRIES = 400;
+
+function openMediaDb() {
+  return new Promise((resolve, reject) => {
+    if (!("indexedDB" in globalThis)) {
+      reject(new Error("IndexedDB is unavailable."));
+      return;
+    }
+    const request = indexedDB.open(MEDIA_DB_NAME, 2);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(MEDIA_STORE)) {
+        db.createObjectStore(MEDIA_STORE);
+      }
+      if (!db.objectStoreNames.contains(THUMB_STORE)) {
+        db.createObjectStore(THUMB_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Could not open media cache."));
+  });
+}
+
+function idbGetFrom(storeName, key) {
+  return openMediaDb().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readonly");
+    const store = tx.objectStore(storeName);
+    const req = store.get(key);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error || new Error("Media cache read failed."));
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => reject(tx.error || new Error("Media cache read failed."));
+  }));
+}
+
+function idbGet(key) {
+  return idbGetFrom(MEDIA_STORE, key);
+}
+
+/** Read a tiny blurred thumbnail (~instant first paint). */
+export function getCachedThumb(fileId) {
+  if (!fileId) return Promise.resolve(null);
+  return idbGetFrom(THUMB_STORE, "thumb::" + fileId).catch(() => null);
+}
+
+/** Persist a tiny blurred thumbnail for instant blur-up rendering. */
+export function setCachedThumb(fileId, dataUrl) {
+  if (!fileId || !dataUrl) return Promise.resolve();
+  return openMediaDb().then(db => new Promise((resolve) => {
+    try {
+      const tx = db.transaction(THUMB_STORE, "readwrite");
+      const store = tx.objectStore(THUMB_STORE);
+      store.put({ dataUrl, savedAt: Date.now() }, "thumb::" + fileId);
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => { try { db.close(); } catch {} resolve(); };
+    } catch { try { db.close(); } catch {} resolve(); }
+  })).catch(() => {});
+}
+
+function idbSet(key, value) {
+  return openMediaDb().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(MEDIA_STORE, "readwrite");
+    const store = tx.objectStore(MEDIA_STORE);
+    store.put({ blob: value.blob, mimeType: value.mimeType, savedAt: Date.now() }, key);
+    // Best-effort LRU trim: keep the cache bounded on small phones.
+    try {
+      const countReq = store.count();
+      countReq.onsuccess = () => {
+        if (Number(countReq.result || 0) <= MEDIA_MAX_ENTRIES) return;
+        const cursorReq = store.openCursor();
+        let excess = Number(countReq.result) - MEDIA_MAX_ENTRIES;
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result;
+          if (!cursor || excess <= 0) return;
+          cursor.delete();
+          excess -= 1;
+          cursor.continue();
+        };
+      };
+    } catch { /* trim is best-effort only */ }
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => reject(tx.error || new Error("Media cache write failed."));
+  })).catch(error => {
+    // Private mode / blocked storage must never break media loading.
+    console.warn("Media cache write skipped:", error);
+  });
+}
+
+function mediaCacheKey(fileId, mimeType) {
+  return `${fileId}::${String(mimeType || "application/octet-stream").toLowerCase()}`;
+}
+
 export function telegramUploadMimeType(file) {
   if (file?.type) return file.type;
   const extension = String(file?.name || "").split(".").pop().toLowerCase();
@@ -37,24 +139,67 @@ export async function sendToTelegram(file, caption) {
 
 /** Load Gallery media through the authenticated Worker; the Telegram bot token stays server-side. */
 export async function getTelegramMediaBlob(fileId, mimeType = "application/octet-stream") {
+  const normalizedType = String(mimeType || "application/octet-stream").toLowerCase();
+  const cacheKey = mediaCacheKey(fileId, normalizedType);
+  const fixType = (blob) => {
+    if (!blob) return blob;
+    if (blob.type.toLowerCase() === normalizedType || normalizedType === "application/octet-stream") return blob;
+    return blob.slice(0, blob.size, normalizedType);
+  };
+
+  // 1) CACHE-FIRST: IndexedDB hit renders instantly with zero network wait.
+  const cached = await idbGet(cacheKey).catch(() => null);
+  if (cached?.blob) {
+    // Stale-while-revalidate: refresh bytes silently when online so the
+    // next view is fresh, but never block this render on the network.
+    if (navigator.onLine) void refreshMediaInBackground(fileId, mimeType, cacheKey);
+    return fixType(cached.blob);
+  }
+
+  // 2) Offline with no cache: fail fast (callers show placeholder).
+  if (!navigator.onLine) {
+    throw new Error("This photo is not cached yet. Connect once to save it for offline.");
+  }
+
+  const blob = await fetchMediaFromNetwork(fileId, mimeType);
+  void idbSet(cacheKey, { blob, mimeType: blob.type || normalizedType });
+  return blob;
+}
+
+/** Network fetch with cached fallback on any failure. */
+async function fetchMediaFromNetwork(fileId, mimeType) {
+  const normalizedType = String(mimeType || "application/octet-stream").toLowerCase();
+  const cacheKey = mediaCacheKey(fileId, normalizedType);
   const url = new URL(TELEGRAM_CONFIG.WORKER_URL);
   url.searchParams.set("fileId", fileId);
   url.searchParams.set("mimeType", mimeType);
-  const response = await authorizedRequest(url.toString());
-  if (!response.ok) throw new Error(`Could not load this Telegram media (HTTP ${response.status}).`);
+  let response;
+  try {
+    response = await authorizedRequest(url.toString());
+  } catch (networkError) {
+    const cached = await idbGet(cacheKey).catch(() => null);
+    if (cached?.blob) return cached.blob;
+    throw networkError;
+  }
+  if (!response.ok) {
+    const cached = await idbGet(cacheKey).catch(() => null);
+    if (cached?.blob) return cached.blob;
+    throw new Error(`Could not load this Telegram media (HTTP ${response.status}).`);
+  }
   const blob = await response.blob();
-
-  // Some Workers return application/octet-stream even when the media type is known.
-  // Restore the known MIME type so mobile browsers can identify supported video formats.
   const requestedType = String(mimeType || "").trim().toLowerCase();
-  if (
-    requestedType &&
-    requestedType !== "application/octet-stream" &&
-    blob.type.toLowerCase() !== requestedType
-  ) {
+  if (requestedType && requestedType !== "application/octet-stream" && blob.type.toLowerCase() !== requestedType) {
     return blob.slice(0, blob.size, requestedType);
   }
   return blob;
+}
+
+/** Silent background refresh — never throws, never blocks rendering. */
+async function refreshMediaInBackground(fileId, mimeType, cacheKey) {
+  try {
+    const blob = await fetchMediaFromNetwork(fileId, mimeType);
+    await idbSet(cacheKey, { blob, mimeType: blob.type || String(mimeType || "").toLowerCase() });
+  } catch { /* stale cache remains valid */ }
 }
 
 export function telegramMediaReferences(result) {

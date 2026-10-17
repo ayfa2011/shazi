@@ -22,7 +22,7 @@ import { renderChallenges, disposeChallenges } from "./challenges.js";
 import { initMusic } from "./music.js";
 import { firebaseReady } from "./firebase.js";
 import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
-import { getCoupleProfiles, saveCoupleProfile, watchCoupleProfiles } from "./firestore.js";
+import { saveCoupleProfile, watchCoupleProfiles } from "./firestore.js";
 import { applyCoupleProfiles, findProfileForAuthor, getDisplayName, getProfileKey, hydrateCoupleProfileAvatars } from "./profile-data.js";
 
 let currentUser = null, currentProfile = null, disposeMusic = null, stopPresence = null, disposePartnerChat = null;
@@ -1012,13 +1012,26 @@ initAuth(
     currentUser = user;
     stopCoupleProfiles?.();
     stopCoupleProfiles = null;
-    try {
-      applyCoupleProfiles(await getCoupleProfiles());
-    } catch (error) {
-      console.error("Could not load shared profiles:", error);
-      toast("Could not load saved profile settings.");
-    }
-    if (currentUser?.uid !== user.uid) return;
+    // Realtime-first: onSnapshot serves the persistent-cache snapshot
+    // instantly (zero-latency, works offline), then patches the UI live
+    // when the network returns — no one-time getDoc gate on login.
+    stopCoupleProfiles = watchCoupleProfiles(data => {
+      if (currentUser?.uid !== user.uid) return;
+      if (applyCoupleProfiles(data)) {
+        currentProfile = Object.values(APP_CONFIG.profiles).find(person => person.email === user.email) || currentProfile || profile;
+        updateProfileAvatar(currentProfile);
+        if (currentRoute === "profile") $("#main-content")?.dispatchEvent(new Event("couple-profile-settings-changed"));
+        window.dispatchEvent(new CustomEvent("couple-profiles-updated"));
+      }
+      void hydrateCoupleProfileAvatars().then(changed => {
+        if (!changed || currentUser?.uid !== user.uid) return;
+        updateProfileAvatar(currentProfile);
+        window.dispatchEvent(new CustomEvent("couple-profiles-updated"));
+      }).catch(error => console.error("Telegram profile photos could not load:", error));
+    }, error => {
+      console.error("Shared profile updates failed:", error);
+      toast("Profile updates could not be synced.");
+    });
     currentProfile = Object.values(APP_CONFIG.profiles).find(person => person.email === user.email) || profile;
     initNavBadges(user);
     void hydrateCoupleProfileAvatars().then(() => {
@@ -1038,23 +1051,6 @@ initAuth(
       }
     }
     if (currentUser?.uid !== user.uid) return;
-
-    stopCoupleProfiles = watchCoupleProfiles(data => {
-      if (currentUser?.uid !== user.uid) return;
-      if (applyCoupleProfiles(data)) {
-        currentProfile = Object.values(APP_CONFIG.profiles).find(person => person.email === user.email) || currentProfile;
-        updateProfileAvatar(currentProfile);
-        if (currentRoute === "profile") $("#main-content")?.dispatchEvent(new Event("couple-profile-settings-changed"));
-      }
-      void hydrateCoupleProfileAvatars().then(changed => {
-        if (!changed || currentUser?.uid !== user.uid) return;
-        updateProfileAvatar(currentProfile);
-        window.dispatchEvent(new CustomEvent("couple-profiles-updated"));
-      }).catch(error => console.error("Telegram profile photos could not load:", error));
-    }, error => {
-      console.error("Shared profile updates failed:", error);
-      toast("Profile updates could not be synced.");
-    });
 
     // Hide Login Screen and Show Main App
     const authView = $("#auth-view");
@@ -1156,10 +1152,29 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register(new URL("../sw.js", import.meta.url), {
-      scope: new URL("../", import.meta.url).pathname
+    // Canonical file is service-worker.js; sw.js is a legacy alias.
+    const swUrl = new URL("../service-worker.js", import.meta.url);
+    const scope = new URL("../", import.meta.url).pathname;
+    navigator.serviceWorker.register(swUrl, { scope }).then(registration => {
+      // Take updates ASAP so a fresh deploy activates without 2 restarts.
+      if (registration.waiting) registration.waiting.postMessage({ type: "SKIP_WAITING" });
+      registration.addEventListener("updatefound", () => {
+        const worker = registration.installing;
+        worker?.addEventListener("statechange", () => {
+          if (worker.state === "installed" && navigator.serviceWorker.controller) {
+            toast("A fresh update is ready — reopen the app to use it ♡");
+          }
+        });
+      });
     }).catch(error => {
       console.error("Offline app support could not be installed:", error);
+    });
+    // Reload once when the new worker takes control (standard PWA pattern).
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
     });
   }
 

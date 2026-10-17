@@ -9,11 +9,13 @@ import {
   migrateLegacyQuestionAnswers,
   submitQuestionAnswer,
   watchQuestionParticipants,
+  watchQuestionHistory,
+  watchQuestionAnswer,
   updateDailyQuestion,
   watchDailyQuestion
 } from "./question-service.js";
 
-let stopParticipants = null, stopDailyQuestion = null, dayRolloverTimer = null, questionRenderToken = 0;
+let stopParticipants = null, stopDailyQuestion = null, stopHistory = null, stopOwnAnswer = null, stopPartnerAnswer = null, dayRolloverTimer = null, questionRenderToken = 0, historyAnswerStops = [];
 const legacyMigrationPromises = new Map();
 
 function timestamp(value) {
@@ -281,6 +283,8 @@ export function renderQuestions(el, user, profile) {
   }
 
   async function refreshAnswers() {
+    // Listener-driven now (see loadQuestion): kept as a one-shot fallback
+    // for the submit path. Reads hit the persistent cache first.
     const token = ++loadToken;
     try {
       const currentParticipants = await getQuestionParticipants(dayKey);
@@ -316,31 +320,25 @@ export function renderQuestions(el, user, profile) {
   }
 
   async function loadHistoryAnswers(todayOnly = false) {
+    // Past-day answers: realtime listeners per visible card. Each listener
+    // serves its persistent-cache snapshot instantly, then live-patches when
+    // the network returns. Old one-shot getDoc/getDocs loop removed.
     const historyItems = todayOnly ? [] : history.filter(item => item.id < dayKey);
-    await Promise.all(historyItems.map(async item => {
-      try {
-        let status, mine, partner;
-        if (item.id === dayKey) {
-          status = participants;
-          mine = ownAnswer;
-          partner = partnerAnswer;
-        } else {
-          status = await getQuestionParticipants(item.id);
-          mine = status[ownKey] ? await getQuestionAnswer(item.id, ownKey) : null;
-          partner = status[ownKey] && status[partnerKey]
-            ? await getQuestionAnswer(item.id, partnerKey)
-            : null;
-        }
+    historyItems.forEach(item => {
+      const card = el.querySelector(`[data-history-day="${item.id}"] .question-history-answers`);
+      if (!card || card.dataset.listening) return;
+      card.dataset.listening = "1";
+      let status = {}, mine = null, partner = null, settled = false;
+      const paint = () => {
+        if (!isCurrent() || !card.isConnected) return;
         const canReveal = Boolean(status[ownKey] && status[partnerKey]);
-        const card = el.querySelector(`[data-history-day="${item.id}"] .question-history-answers`);
-        if (!card || !isCurrent()) return;
         const entries = Object.keys(APP_CONFIG.profiles).map(key => [
           key,
           key === ownKey ? mine : canReveal ? partner : null
         ]).filter(([key]) => key);
         card.innerHTML = entries.map(([key, answer]) => {
           const person = APP_CONFIG.profiles[key];
-          const avatar = person.avatar ? `<img src="${esc(person.avatar)}" alt="">` : esc((person.name || "♡")[0]);
+          const avatar = person.avatar ? `<img src="${esc(person.avatar)}" alt="" loading="lazy" decoding="async">` : esc((person.name || "♡")[0]);
           const content = answer?.answer
             ? esc(answer.answer)
             : key === partnerKey && status[partnerKey] && !canReveal
@@ -349,19 +347,39 @@ export function renderQuestions(el, user, profile) {
           const lockedClass = answer?.answer ? "" : " question-history-locked";
           return `<div class="question-history-answer${lockedClass}"><span class="question-history-avatar">${avatar}</span><span class="question-history-copy"><strong>${esc(person.name || "Partner")}</strong><span>${content}</span></span></div>`;
         }).join("");
-      } catch (error) {
+      };
+      const stops = [];
+      historyAnswerStops.push(() => stops.forEach(stop => stop?.()));
+      const fail = (error) => {
         console.error(`Could not load question history for ${item.dayKey}:`, error);
-        const card = el.querySelector(`[data-history-day="${item.id}"] .question-history-answers`);
-        if (card) card.innerHTML = `<p class="question-history-locked">Answers could not be loaded.</p>`;
-      }
-    }));
+        if (card.isConnected && !settled) card.innerHTML = `<p class="question-history-locked">Answers could not be loaded.</p>`;
+      };
+      stops.push(watchQuestionParticipants(item.id, next => {
+        status = next || {};
+        settled = true;
+        // (Re)subscribe answers as participation state changes.
+        stops.push(watchQuestionAnswer(item.id, ownKey, answer => { mine = answer; paint(); }, fail));
+        const both = Boolean(status[ownKey] && status[partnerKey]);
+        if (both) stops.push(watchQuestionAnswer(item.id, partnerKey, answer => { partner = answer; paint(); }, fail));
+        else { partner = null; paint(); }
+        paint();
+      }, fail));
+    });
   }
 
-  async function refreshHistory() {
-    history = await getQuestionHistory();
-    if (!isCurrent()) return;
-    renderHistory();
-    await loadHistoryAnswers();
+  function refreshHistory() {
+    // Realtime history listener (cache-first). Renders instantly from the
+    // persistent cache, then patches live on reconnect.
+    stopHistory?.();
+    stopHistory = watchQuestionHistory(items => {
+      if (!isCurrent()) return;
+      history = items || [];
+      renderHistory();
+      loadHistoryAnswers();
+    }, error => {
+      console.error("Question history sync failed:", error);
+      if (isCurrent()) toast("Question history could not be synced.");
+    });
   }
 
   async function loadQuestion() {
@@ -376,24 +394,44 @@ export function renderQuestions(el, user, profile) {
         renderToday();
         renderHistory();
       }, error => console.error("Today's question sync failed:", error));
+      // Today's answers via realtime listeners: cache-first instant render,
+      // seamless background patch on reconnect (no one-time getDoc gating).
+      stopOwnAnswer?.(); stopPartnerAnswer?.();
+      stopOwnAnswer = watchQuestionAnswer(dayKey, ownKey, answer => {
+        if (!isCurrent()) return;
+        ownAnswer = answer;
+        renderToday();
+      }, error => console.error("Today's answer sync failed:", error));
       stopParticipants = watchQuestionParticipants(dayKey, status => {
         if (!isCurrent()) return;
-        participants = status;
-        refreshAnswers().then(() => loadHistoryAnswers(true));
+        participants = status || {};
+        stopPartnerAnswer?.(); stopPartnerAnswer = null;
+        const bothAnswered = Boolean(ownKey && partnerKey && participants[ownKey] && participants[partnerKey]);
+        if (bothAnswered) {
+          stopPartnerAnswer = watchQuestionAnswer(dayKey, partnerKey, answer => {
+            if (!isCurrent()) return;
+            partnerAnswer = answer;
+            renderToday();
+            loadHistoryAnswers(true);
+          }, error => console.error("Partner answer sync failed:", error));
+        } else {
+          partnerAnswer = null;
+          renderToday();
+          loadHistoryAnswers(true);
+        }
       }, error => {
         if (!isCurrent()) return;
         console.error("Question status updates failed:", error);
         toast("Answer status could not be synced.");
       });
       const migration = migrateLegacyAnswersOnce(user, ownKey, isCurrent);
-      await refreshAnswers();
-      await refreshHistory();
+      refreshHistory();
       migration?.then(migrated => {
         if (!migrated || !isCurrent()) return;
-        refreshHistory().catch(error => {
-          console.error("Migrated question history could not be refreshed:", error);
-          if (isCurrent()) toast("Migrated question history could not be loaded.");
-        });
+        refreshHistory();
+      }).catch(error => {
+        console.error("Migrated question history could not be refreshed:", error);
+        if (isCurrent()) toast("Migrated question history could not be loaded.");
       });
     } catch (error) {
       if (!isCurrent()) return;
@@ -419,4 +457,12 @@ export function disposeQuestions() {
   stopParticipants = null;
   stopDailyQuestion?.();
   stopDailyQuestion = null;
+  stopHistory?.();
+  stopHistory = null;
+  stopOwnAnswer?.();
+  stopOwnAnswer = null;
+  stopPartnerAnswer?.();
+  stopPartnerAnswer = null;
+  historyAnswerStops.forEach(stop => { try { stop(); } catch {} });
+  historyAnswerStops = [];
 }

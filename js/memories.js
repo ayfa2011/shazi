@@ -1,7 +1,7 @@
-import { $, esc, toast, generateThumbnail } from "./utils.js";
+import { $, esc, toast, generateThumbnail, compressImageFile, tinyBlurPlaceholder, lazyHydrateImages } from "./utils.js";
 import { watchItems, addItem, removeItem, setItem, addMemoryMedia, removeMemoryMedia, notifyPartnerSafely } from "./firestore.js";
 import { getProfileKey } from "./profile-data.js";
-import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType, deleteTelegramGalleryMessage } from "../src/services/telegramService.js";
+import { getTelegramMediaUrl, getCachedThumb, setCachedThumb, sendToTelegram, telegramMediaReferences, telegramUploadMimeType, deleteTelegramGalleryMessage } from "../src/services/telegramService.js";
 
 let stopMemories = null;
 let active = false;
@@ -711,22 +711,29 @@ export function renderMemories(el, user, profile) {
   }
 
   function hydrateMemoryThumbnails(container) {
-    const pending = [...container.querySelectorAll("img[data-memory-file-id], img[data-memory-src]")];
-    pending.forEach(async image => {
-      try {
-        const source = image.dataset.memorySrc || await getTelegramMediaUrl(image.dataset.memoryFileId, image.dataset.memoryMime);
-        if (!image.isConnected) return;
-        if (image.dataset.memoryKind === "video") {
-          const response = await fetch(source);
-          if (!response.ok) throw new Error(`Video thumbnail request failed (${response.status})`);
-          const blob = await response.blob();
-          image.src = await createVideoThumbnail(blob);
-        } else image.src = source;
-      } catch (error) {
-        console.error("Memory thumbnail could not load:", error);
-        if (image.isConnected && image.dataset.memoryKind === "video") image.alt = "Video preview unavailable — tap to play";
-      }
+    // Zero-latency: cached thumbs paint instantly as blur-up backgrounds;
+    // full images hydrate lazily only when scrolled into view.
+    void paintCachedThumbs(container);
+    lazyHydrateImages(container, async ({ fileId, mime }) => {
+      const source = await getTelegramMediaUrl(fileId, mime);
+      return source;
     });
+  }
+
+  async function paintCachedThumbs(container) {
+    const pending = Array.from(container.querySelectorAll("img[data-memory-file-id]:not([src])"));
+    await Promise.all(pending.map(async (image) => {
+      try {
+        const record = await getCachedThumb(image.dataset.memoryFileId);
+        const dataUrl = record?.dataUrl;
+        if (dataUrl && image.isConnected && !image.src) {
+          image.setAttribute("data-thumb", dataUrl);
+          image.style.background = "url('" + dataUrl + "') center/cover";
+          image.style.filter = "blur(8px)";
+          image.style.transition = "filter .35s ease";
+        }
+      } catch { /* thumbnails are best-effort */ }
+    }));
   }
 
   $("#memory-add-photos", el).onclick = () => {
@@ -752,16 +759,23 @@ export function renderMemories(el, user, profile) {
           const type = file.type.startsWith("video/") ? "video" : "photo";
           const createdAtMs = Date.now();
           const timestamp = new Date(createdAtMs).toLocaleString();
-          const uploadFile = type === "photo" ? await prepareMemoryPhoto(file) : file;
+          // Compress before upload: prevents memory lag on sync + saves bandwidth.
+          const compressed = type === "photo" ? await compressImageFile(file) : file;
+          const uploadFile = type === "photo" ? await prepareMemoryPhoto(compressed) : compressed;
 
           // Generate thumbnail before uploading
           const thumbnail = type === "photo" ? await generateThumbnail(uploadFile) : null;
+          // Tiny blur-up placeholder for instant next-view rendering.
+          const blurThumb = type === "photo" ? await tinyBlurPlaceholder(uploadFile).catch(() => "") : "";
 
           const result = await sendToTelegram(uploadFile, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`);
+          const refs = telegramMediaReferences(result);
+          if (blurThumb) void setCachedThumb(refs.telegramFileId, blurThumb);
 
           return {
-            ...telegramMediaReferences(result),
+            ...refs,
             thumbnailUrl: thumbnail, // Ensure key matches usage in renderGrid
+            blurThumb: blurThumb || undefined,
             type,
             mimeType: telegramUploadMimeType(uploadFile),
             name: file.name || (type === "video" ? "Video" : "Photo"),
@@ -843,10 +857,11 @@ export function renderMemories(el, user, profile) {
   function memoryCardHtml(item, index) {
     const isVideo = item.mediaType === "video";
     const thumbnail = item.thumbnail || "";
+    const blurAttr = item.blurThumb ? ` data-thumb="${esc(item.blurThumb)}"` : "";
     const photo = item.photoUrl
-      ? `<img src="${esc(item.photoUrl)}" alt="" loading="lazy" decoding="async" style="background:${thumbnail ? `url('${esc(thumbnail)}') center/cover` : '#f9dde8'}">`
+      ? `<img src="${esc(item.photoUrl)}" alt="" loading="lazy" decoding="async"${blurAttr} style="background:${thumbnail ? `url('${esc(thumbnail)}') center/cover` : '#f9dde8'}">`
       : item.telegramFileId
-        ? `<img data-memory-file-id="${esc(item.telegramFileId)}" data-memory-mime="${esc(item.photoMimeType || "application/octet-stream")}" data-memory-kind="${esc(item.mediaType || "image")}" alt="" loading="lazy" decoding="async" style="background:${thumbnail ? `url('${esc(thumbnail)}') center/cover` : '#f9dde8'}">`
+        ? `<img data-memory-file-id="${esc(item.telegramFileId)}" data-memory-mime="${esc(item.photoMimeType || "application/octet-stream")}" data-memory-kind="${esc(item.mediaType || "image")}" alt="" loading="lazy" decoding="async"${blurAttr} style="background:${thumbnail ? `url('${esc(thumbnail)}') center/cover` : '#f9dde8'}">`
       : `💖`;
     return `
       <button class="memory-item${index === 0 ? " is-hero" : ""}" type="button" data-id="${esc(item.id)}" style="--i:${index}" aria-label="Open memory: ${esc(item.title || "Our Memory")}${isVideo ? ", video" : ""}">
