@@ -171,8 +171,11 @@ export function renderProfile(el, user, profile) {
 
         await saveCoupleProfile(key, savedProfile);
         applyCoupleProfiles({ [key]: savedProfile });
-        void hydrateCoupleProfileAvatars().then(() => window.dispatchEvent(new CustomEvent("couple-profiles-updated")))
-          .catch(error => console.error("Telegram profile photo could not load:", error));
+        try {
+          await hydrateCoupleProfileAvatars();
+        } catch (error) {
+          console.error("Telegram profile photo could not load:", error);
+        }
         selectedPhoto = null;
         photoInput.value = "";
         window.dispatchEvent(new CustomEvent("couple-profiles-updated"));

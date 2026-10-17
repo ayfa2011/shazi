@@ -572,6 +572,12 @@ body.word-search-fullscreen .content{width:100%;max-width:none;min-height:100vh;
 }
 
 /* Touch-first safety and readability improvements */
+.scroll-pass-through {
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
 button, a, input[type="range"], input[type="color"], select { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, canvas:focus-visible { outline: 3px solid #b52f70; outline-offset: 3px; }
 button:disabled { cursor: not-allowed; opacity: .58; }
