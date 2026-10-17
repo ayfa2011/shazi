@@ -308,6 +308,9 @@ function renderPostFeed(el, user, profile) {
         border-radius: 16px;
         object-fit: cover;
         cursor: zoom-in;
+        pointer-events: none;
+        user-select: none;
+        -webkit-user-drag: none;
       }
       .tw-post-detail-photo-frame { height:min(65dvh,600px); aspect-ratio:auto; display:grid; place-items:center; background:#fff8fb; cursor:zoom-in; }
       .tw-post-detail-photo-frame .tw-post-photo { width:auto; height:auto; max-width:100%; max-height:100%; object-fit:contain; }
