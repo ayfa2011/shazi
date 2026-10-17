@@ -1,7 +1,7 @@
 import { $, esc, toast, generateThumbnail } from "./utils.js";
 import { watchItems, addItem, removeItem, setItem, addMemoryMedia, removeMemoryMedia, notifyPartnerSafely } from "./firestore.js";
 import { getProfileKey } from "./profile-data.js";
-import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
+import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType, deleteTelegramGalleryMessage } from "../src/services/telegramService.js";
 
 let stopMemories = null;
 let active = false;
@@ -480,6 +480,18 @@ export function renderMemories(el, user, profile) {
     deleteButton.disabled = true;
     try {
       const result = await removeMemoryMedia(memory.id, key);
+
+      // Attempt to remove from Telegram
+      const mediaToRemove = (memory.mediaItems || []).find(item => (item.telegramFileId || item.url) === key) ||
+                            ((memory.telegramFileId === key || memory.photoUrl === key) ? memory : null);
+      if (mediaToRemove?.telegramChatId && mediaToRemove?.telegramMessageId) {
+          try {
+              await deleteTelegramGalleryMessage(mediaToRemove.telegramChatId, mediaToRemove.telegramMessageId);
+          } catch (tgErr) {
+              console.warn("Telegram file deletion failed, but removed from database:", tgErr);
+          }
+      }
+
       const mediaItems = result.mediaItems;
       const nextMemory = { ...memory, mediaItems };
       if (memory.telegramFileId === key || memory.photoUrl === key) {
@@ -732,10 +744,11 @@ export function renderMemories(el, user, profile) {
     addButton.textContent = "Uploading…";
     try {
       const uploadedMedia = [];
+      const failedFiles = [];
       // Chunk uploads to avoid browser/network limits
       for (let i = 0; i < files.length; i += 3) {
         const chunk = files.slice(i, i + 3);
-        const chunkResults = await Promise.all(chunk.map(async file => {
+        const settled = await Promise.allSettled(chunk.map(async file => {
           const type = file.type.startsWith("video/") ? "video" : "photo";
           const createdAtMs = Date.now();
           const timestamp = new Date(createdAtMs).toLocaleString();
@@ -755,18 +768,30 @@ export function renderMemories(el, user, profile) {
             createdAtMs
           };
         }));
-        uploadedMedia.push(...chunkResults);
-        addButton.textContent = `Uploading (${uploadedMedia.length}/${files.length})…`;
+
+        settled.forEach((r, idx) => {
+          if (r.status === "fulfilled") {
+            uploadedMedia.push(r.value);
+          } else {
+            console.error("Upload failed for", chunk[idx].name, r.reason);
+            failedFiles.push(chunk[idx].name);
+          }
+        });
+        addButton.textContent = `Uploading (${uploadedMedia.length + failedFiles.length}/${files.length})…`;
       }
 
-      const current = allMemories.find(item => item.id === memory.id) || memory;
-      const mediaItems = await addMemoryMedia(memory.id, uploadedMedia);
-      const updateMemory = item => item.id === memory.id ? { ...item, mediaItems } : item;
-      allMemories = allMemories.map(updateMemory);
-      sortedMemories = sortedMemories.map(updateMemory);
-      activeMemoryForView = { ...current, mediaItems };
-      toast(`${uploadedMedia.length} item${uploadedMedia.length === 1 ? "" : "s"} added to this memory ♡`);
-      renderMemoryGallery(activeMemoryForView);
+      if (uploadedMedia.length > 0) {
+        const current = allMemories.find(item => item.id === memory.id) || memory;
+        const mediaItems = await addMemoryMedia(memory.id, uploadedMedia);
+        const updateMemory = item => item.id === memory.id ? { ...item, mediaItems } : item;
+        allMemories = allMemories.map(updateMemory);
+        sortedMemories = sortedMemories.map(updateMemory);
+        activeMemoryForView = { ...current, mediaItems };
+        renderMemoryGallery(activeMemoryForView);
+      }
+
+      const message = `${uploadedMedia.length} item${uploadedMedia.length === 1 ? "" : "s"} added successfully.${failedFiles.length > 0 ? ` Failed: ${failedFiles.join(", ")}` : ""}`;
+      toast(message);
     } catch (error) {
       console.error("Could not add memory media:", error);
       toast(error.message || "Could not upload media to Telegram. Please try again.");
