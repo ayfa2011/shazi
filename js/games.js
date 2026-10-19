@@ -826,6 +826,7 @@ export function renderGames(el, user, profile) {
   let pendingSosCell = -1;
   let gameRoomState = null;
   let roomStateInitializing = "";
+  let battleshipActionPending = false;
   let savedMatchResults = new Set();
   let gameResults = null;
   let trueFalseBankCache = null;
@@ -1400,7 +1401,35 @@ export function renderGames(el, user, profile) {
 
   function callBattleshipAction(payload) {
     if (!functions) throw new Error("Firebase Functions is not configured.");
-    return httpsCallable(functions, "battleshipAction")(payload).then(result => result.data);
+    if (battleshipActionPending) return Promise.reject(new Error("A Battleship action is already in progress."));
+    battleshipActionPending = true;
+    updateBattleshipActionUi();
+    return httpsCallable(functions, "battleshipAction")(payload)
+      .then(result => result.data)
+      .finally(() => {
+        battleshipActionPending = false;
+        if (activeGame === "battleship") renderCurrentGame();
+        else updateBattleshipActionUi();
+      });
+  }
+
+  function updateBattleshipActionUi() {
+    const status = $("#games-room-status", el);
+    if (!status) return;
+    status.setAttribute("aria-busy", String(battleshipActionPending));
+    el.querySelectorAll("#games-room-status button, [data-bs-fire], [data-bs-ready]").forEach(button => {
+      if (battleshipActionPending) button.disabled = true;
+    });
+    let notice = status.querySelector(".battleship-request-status");
+    if (battleshipActionPending && !notice) {
+      notice = document.createElement("p");
+      notice.className = "battleship-request-status";
+      notice.setAttribute("role", "status");
+      notice.innerHTML = `<span class="battleship-request-spinner" aria-hidden="true"></span>Connecting to the game server… The first request may take a few seconds.`;
+      (status.querySelector(".battleship-status") || status).append(notice);
+    } else if (!battleshipActionPending) {
+      notice?.remove();
+    }
   }
 
   function renderBattleshipGrid({ room, own = false, clickable = false, ships = [], shots = {} }) {
@@ -1604,6 +1633,7 @@ export function renderGames(el, user, profile) {
       renderedShellGame = activeGame;
     }
     renderGameRoom();
+    if (activeGame === "battleship" && battleshipActionPending) updateBattleshipActionUi();
   }
 
   function listenForGameResults() {
@@ -1632,6 +1662,7 @@ export function renderGames(el, user, profile) {
   el.onclick = async event => {
     const target = event.target.closest("button");
     if (!target || !el.contains(target)) return;
+    if (activeGame === "battleship" && battleshipActionPending) return;
     const turnOnlyActions = [
       "data-memory-card", "data-emoji-answer", "data-next-emoji", "data-puzzle-submit"
     ];
