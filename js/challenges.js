@@ -870,9 +870,11 @@ export function renderChallenges(el, user, profile) {
         return;
       }
       if (!assignmentsReady) {
-        list.innerHTML = `<div class="challenge-empty">Loading today's challenges…</div>`;
+        list.setAttribute("aria-busy", "true");
+        list.innerHTML = `<div class="challenge-loading-skeleton" aria-label="Loading today's challenges">${Array.from({ length: 2 }, () => `<article class="challenge-skeleton-card" aria-hidden="true"><div class="challenge-skeleton-head"><i class="skeleton-shape challenge-skeleton-icon"></i><span><i class="skeleton-shape challenge-skeleton-title"></i><i class="skeleton-shape challenge-skeleton-subtitle"></i></span></div><i class="skeleton-shape challenge-skeleton-line"></i><i class="skeleton-shape challenge-skeleton-line short"></i><i class="skeleton-shape challenge-skeleton-action"></i></article>`).join("")}</div>`;
         return;
       }
+      list.setAttribute("aria-busy", "false");
       renderToday();
       renderChallengeHub();
       hydrateTelegramImages();

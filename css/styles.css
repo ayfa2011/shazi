@@ -5,6 +5,11 @@
   --shadow:0 18px 50px rgba(139,47,88,.10); --radius:22px;
 }
 .home-feed-loading{margin:0;padding:16px;text-align:center;color:var(--muted);font-size:12px}
+.skeleton-shape{position:relative;overflow:hidden;background:linear-gradient(110deg,#f8e8ef 8%,#fff5f8 18%,#f8e8ef 33%);background-size:220% 100%;animation:skeleton-shimmer 1.35s linear infinite;border-radius:10px}
+.skeleton-shape::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,#ffffff55,transparent);transform:translateX(-100%);animation:skeleton-glint 1.5s ease-in-out infinite}
+@keyframes skeleton-shimmer{to{background-position-x:-220%}}
+@keyframes skeleton-glint{to{transform:translateX(100%)}}
+@media(prefers-reduced-motion:reduce){.skeleton-shape,.skeleton-shape::after{animation:none!important}}
 *{box-sizing:border-box} html,body{touch-action:manipulation} html{background:#ffeef5} body{margin:0;color:var(--text);font-family:"DM Sans",sans-serif;min-height:100vh;min-height:100dvh}
 button,[role="button"],a,input,select,textarea,label{touch-action:manipulation}
 button,input,textarea,select{font:inherit} button{cursor:pointer;border:0}

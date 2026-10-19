@@ -170,6 +170,11 @@ export function renderMemories(el, user, profile) {
       .memories-empty { margin: 0; padding: 38px 16px; border: 1.5px dashed #efc9d8; border-radius: 22px; background: #fffafc99; color: #987e8b; font-size: 13px; line-height: 1.7; text-align: center; }
       .memories-empty span { display: block; margin-bottom: 8px; color: #e9648f; font-size: 28px; animation: mem-beat 2.4s ease-in-out infinite; }
       .memories-empty .memory-soft-btn { margin-top: 12px; }
+      .memory-skeleton { pointer-events:none; }
+      .memory-skeleton .memory-skeleton-photo { position:absolute; inset:0; border-radius:inherit; }
+      .memory-skeleton .memory-skeleton-title { position:absolute; z-index:2; right:12px; bottom:27px; left:12px; height:14px; }
+      .memory-skeleton .memory-skeleton-date { position:absolute; z-index:2; bottom:10px; left:12px; width:42%; height:9px; }
+      .memory-skeleton[aria-hidden="true"] { list-style:none; }
 
       /* ───────── Modals ───────── */
       .mem-modal-overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; background: rgba(48, 31, 42, .62); backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px); }
@@ -289,8 +294,8 @@ export function renderMemories(el, user, profile) {
         <button id="add-mem-btn" class="add-memory-btn"><span class="add-memory-icon">＋</span><span>Add memory</span></button>
       </header>
       <section class="memories-shelf" aria-label="Our saved memories">
-        <div id="memories-grid-container" class="memories-grid">
-          <p class="memories-empty"><span>♡</span>Gathering your little moments…</p>
+        <div id="memories-grid-container" class="memories-grid" aria-busy="true" aria-label="Loading memories">
+          ${Array.from({ length: 4 }, () => `<div class="memory-item memory-skeleton" aria-hidden="true"><div class="skeleton-shape memory-skeleton-photo"></div><div class="skeleton-shape memory-skeleton-title"></div><div class="skeleton-shape memory-skeleton-date"></div></div>`).join("")}
         </div>
       </section>
     </div>
@@ -982,6 +987,7 @@ export function renderMemories(el, user, profile) {
     const count = $("#memories-count", el);
     const since = $("#memories-since", el);
 
+    container.setAttribute("aria-busy", "false");
     if (allMemories.length === 0) {
       sortedMemories = [];
       activeMemoryIndex = -1;
@@ -1112,7 +1118,10 @@ export function renderMemories(el, user, profile) {
       if (container) container.innerHTML = `<p class="memories-empty"><span>♡</span>${esc(message)}<br><button type="button" id="retry-memories" class="memory-soft-btn">Try again</button></p>`;
       $("#retry-memories", el)?.addEventListener("click", () => {
         if (count) count.textContent = "Loading…";
-        if (container) container.innerHTML = `<p class="memories-empty"><span>♡</span>Gathering your little moments…</p>`;
+        if (container) {
+          container.innerHTML = `${Array.from({ length: 4 }, () => `<div class="memory-item memory-skeleton" aria-hidden="true"><div class="skeleton-shape memory-skeleton-photo"></div><div class="skeleton-shape memory-skeleton-title"></div><div class="skeleton-shape memory-skeleton-date"></div></div>`).join("")}`;
+          container.setAttribute("aria-busy", "true");
+        }
         updateWatch();
       }, { once: true });
     };
@@ -1128,7 +1137,8 @@ export function renderMemories(el, user, profile) {
           const count = $("#memories-count", el);
           const container = $("#memories-grid-container", el);
           if (count) count.textContent = "Checking for saved memories…";
-          if (container) container.innerHTML = `<p class="memories-empty"><span>♡</span>Checking your saved moments…</p>`;
+          if (container) container.innerHTML = `${Array.from({ length: 4 }, () => `<div class="memory-item memory-skeleton" aria-hidden="true"><div class="skeleton-shape memory-skeleton-photo"></div><div class="skeleton-shape memory-skeleton-title"></div><div class="skeleton-shape memory-skeleton-date"></div></div>`).join("")}`;
+          container?.setAttribute("aria-busy", "true");
           return;
         }
         const incomingIds = new Set(incomingItems.map(i => i.id));

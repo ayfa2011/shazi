@@ -20,6 +20,13 @@ export function renderBucket(el, user, profile) {
       .tab-btn { padding: 6px 16px; border-radius: 20px; border: none; background: #f3f4f6; color: #6b7280; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; }
       .tab-btn.active { background: #f43f5e; color: #ffffff; }
       .bucket-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f3f4f6; }
+      .bucket-skeleton-row { min-height:58px; }
+      .bucket-skeleton-main { display:flex; align-items:center; gap:12px; }
+      .bucket-skeleton-icon { width:26px; height:26px; border-radius:50%; }
+      .bucket-skeleton-copy { display:grid; gap:7px; }
+      .bucket-skeleton-title { width:155px; max-width:42vw; height:13px; }
+      .bucket-skeleton-date { width:82px; height:10px; }
+      .bucket-skeleton-status { width:76px; height:24px; border-radius:12px; }
       .status-badge { padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; cursor: pointer; border: none; }
       .status-Completed { background: #dcfce7; color: #16a34a; }
       .status-In-Progress { background: #dbeafe; color: #2563eb; }
@@ -49,7 +56,9 @@ export function renderBucket(el, user, profile) {
         <button class="tab-btn" data-tab="Completed">Completed</button>
       </div>
 
-      <div id="bucket-list-items"></div>
+      <div id="bucket-list-items" aria-busy="true" aria-label="Loading bucket list">
+        ${Array.from({ length: 4 }, () => `<div class="bucket-item bucket-skeleton-row" aria-hidden="true"><div class="bucket-skeleton-main"><span class="skeleton-shape bucket-skeleton-icon"></span><span class="bucket-skeleton-copy"><i class="skeleton-shape bucket-skeleton-title"></i><i class="skeleton-shape bucket-skeleton-date"></i></span></div><span class="skeleton-shape bucket-skeleton-status"></span></div>`).join("")}
+      </div>
     </div>
 
     <!-- Bucket Modal -->
@@ -165,6 +174,7 @@ export function renderBucket(el, user, profile) {
 
   function renderList() {
     const listEl = $("#bucket-list-items", el);
+    listEl.setAttribute("aria-busy", "false");
     const filteredItems = allItems.filter((item) => {
       if (currentFilter === "All") return true;
       return item.status === currentFilter;
