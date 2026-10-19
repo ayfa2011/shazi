@@ -2245,16 +2245,17 @@ body.home-dashboard .home-canvas-action {
 body.home-dashboard #main-content .home-feature-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: stretch;
+  align-items: start;
   width: 100%;
   gap: clamp(7px, 1.5vw, 14px);
 }
 body.home-dashboard #main-content .home-post-panel,
 body.home-dashboard #main-content .home-drawing-panel {
   min-width: 0;
-  min-height: clamp(220px, 32vw, 360px);
+  min-height: 0;
   height: auto;
-  aspect-ratio: auto;
+  aspect-ratio: 1 / 1;
+  align-self: start;
   margin: 0;
   padding: clamp(8px, 1.5vw, 14px);
 }
@@ -2296,8 +2297,6 @@ body.home-dashboard #main-content .home-drawing-panel .home-drawing-preview img 
 body.home-dashboard #main-content .home-drawing-panel .home-canvas-action { flex: none; }
 @media(max-width:600px) {
   body.home-dashboard #main-content .home-feature-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
-  body.home-dashboard #main-content .home-post-panel,
-  body.home-dashboard #main-content .home-drawing-panel { min-height: clamp(190px, 54vw, 250px); }
   body.home-dashboard #main-content .home-post-panel .home-post-card { padding: 7px; }
   body.home-dashboard #main-content .home-post-panel .home-post-author strong { font-size: 11px; }
   body.home-dashboard #main-content .home-post-panel .home-post-author small { font-size: 9px; }
