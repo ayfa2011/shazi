@@ -17,17 +17,6 @@ const SOS_CELL_COUNT = SOS_ROWS * SOS_COLUMNS;
 const SOS_TURN_SECONDS = 20;
 const SOS_DIRECTIONS = [[0, 1], [1, 0], [1, 1], [1, -1]];
 const symbols = ["🌸", "🌙", "🍓", "🐻", "💌", "🦋", "✨", "🧸", "🌻", "💖"];
-const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-const challenges = [
-  "Choose today's movie.",
-  "Give each other a ten-second hug.",
-  "Make your partner a little snack.",
-  "Take a silly selfie together.",
-  "Pick a song and have a tiny dance party.",
-  "Tell each other one thing you appreciate.",
-  "Plan your next little date.",
-  "Let your partner choose your dessert."
-];
 const emojiQuestions = [
   { emojis: "🌙 ✈️ ❤️", options: ["Love you to the moon and back", "A romantic trip at night", "Our first holiday"], answer: 0 },
   { emojis: "🐝 💛 🐝", options: ["Busy day ahead", "You are my honey", "A picnic in the garden"], answer: 1 },
@@ -36,14 +25,7 @@ const emojiQuestions = [
   { emojis: "🌹 💌 💋", options: ["A love note and a kiss", "A flower delivery", "A secret admirer"], answer: 0 },
   { emojis: "🍓 🍫 😋", options: ["A sweet treat to share", "Strawberry shopping", "Chocolate for breakfast"], answer: 0 }
 ];
-const triviaQuestions = [
-  { prompt: "Who made the first move?", options: ["Keby", "Shazy", "Both of us", "Still debating"] },
-  { prompt: "Who is more likely to fall asleep during a movie?", options: ["Keby", "Shazy", "Both of us", "Neither of us"] },
-  { prompt: "Who takes longer to get ready?", options: ["Keby", "Shazy", "About the same", "It depends on the plans"] },
-  { prompt: "Who is more likely to suggest a spontaneous date?", options: ["Keby", "Shazy", "Both of us", "Neither of us"] },
-  { prompt: "Which kind of date sounds best right now?", options: ["A cozy movie night", "A yummy dinner out", "A little adventure", "A quiet day together"] },
-  { prompt: "Who gives the best hugs?", options: ["Keby", "Shazy", "It's a tie", "We need a rematch"] }
-];
+
 
 let stopGames = null;
 let stopSosGame = null;
@@ -77,15 +59,11 @@ function makeEmojiQuestions() {
   });
 }
 
-function makeTriviaQuestions() {
-  return shuffle(triviaQuestions).map(question => ({ ...question, options: shuffle(question.options) }));
-}
+
 
 const gameTitles = {
   "memory-match": "Memory Match",
-  "word-guess": "Word Guess",
-  "spin-wheel": "Spin Wheel",
-  "couple-trivia": "Couple Trivia",
+  "emoji-quiz": "Emoji Quiz",
   sos: "SOS",
   "true-false": "True or False"
 };
@@ -166,25 +144,13 @@ function gameIsComplete(game, state) {
   if (!state) return false;
   if (game === "memory-match") return Array.isArray(state.matched) && Array.isArray(state.cards) &&
     state.cards.length > 0 && state.matched.length === state.cards.length;
-  if (game === "word-guess") {
-    if (typeof state.word !== "string" || !Array.isArray(state.guessed)) return false;
-    const won = [...state.word.toLocaleLowerCase()].every(char => !/[a-z]/.test(char) || state.guessed.includes(char));
-    return Boolean(state.word) && (won || state.guessesLeft === 0);
-  }
-  if (game === "emoji-quiz" || game === "couple-trivia") return state.question >= state.questions.length;
-  if (game === "spin-wheel") return state.completedChallenges >= 3;
+  if (game === "emoji-quiz") return state.question >= state.questions.length;
   return false;
 }
 
 function gameScore(game, state) {
   if (game === "memory-match") return state.moves;
-  if (game === "word-guess") {
-    if (typeof state.word !== "string" || !Array.isArray(state.guessed) || !Number.isInteger(state.guessesLeft)) return 0;
-    const solved = [...state.word.toLocaleLowerCase()].every(char => !/[a-z]/.test(char) || state.guessed.includes(char));
-    return solved ? state.guessesLeft + 1 : 0;
-  }
-  if (game === "emoji-quiz" || game === "couple-trivia") return state.score;
-  if (game === "spin-wheel") return Date.now() - state.startedAt;
+  if (game === "emoji-quiz") return state.score;
   return 0;
 }
 
@@ -195,8 +161,6 @@ function normalizeActiveState(game, state) {
   if (game === "memory-match") {
     state.flipped = state.flipped || [];
     state.matched = state.matched || [];
-  } else if (game === "word-guess") {
-    state.guessed = state.guessed || [];
   }
   return state;
 }
@@ -209,7 +173,6 @@ function normalizeRoom(room) {
       if (player?.state) normalizeActiveState(game, player.state);
     }
   }
-  if (room.wordRound) normalizeActiveState("word-guess", room.wordRound);
   if (room.game === "true-false") room.trueFalseAnswers = room.trueFalseAnswers || {};
   return room;
 }
@@ -244,17 +207,10 @@ function isValidActiveGameState(game, state) {
     state.cards.every(symbol => typeof symbol === "string" && symbol) && Array.isArray(state.flipped) &&
     Array.isArray(state.matched) && Number.isInteger(state.moves) && state.moves >= 0 &&
     typeof state.locked === "boolean";
-  if (game === "word-guess") return typeof state.word === "string" && state.word.length <= 32 &&
-    (state.word === "" || (/^[a-zA-Z ]{3,32}$/.test(state.word) && (state.word.match(/[a-z]/gi) || []).length >= 3)) &&
-    Array.isArray(state.guessed) && state.guessed.every(letter => /^[a-z]$/.test(letter)) &&
-    Number.isInteger(state.guessesLeft) && state.guessesLeft >= 0 && state.guessesLeft <= 7;
-  if (game === "emoji-quiz" || game === "couple-trivia") return Array.isArray(state.questions) &&
-    state.questions.length === (game === "emoji-quiz" ? emojiQuestions.length : triviaQuestions.length) &&
+  if (game === "emoji-quiz") return Array.isArray(state.questions) &&
+    state.questions.length === emojiQuestions.length &&
     Number.isInteger(state.question) && state.question >= 0 && state.question <= state.questions.length &&
     Number.isInteger(state.score) && state.score >= 0;
-  if (game === "spin-wheel") return typeof state.challenge === "string" &&
-    Number.isInteger(state.completedChallenges) && state.completedChallenges >= 0 && state.completedChallenges <= 3 &&
-    Number.isFinite(state.startedAt);
   return false;
 }
 
@@ -263,14 +219,13 @@ function gameWinner(game, playerUids, results) {
   const firstScore = results[firstUid]?.score;
   const secondScore = results[secondUid]?.score;
   if (firstScore === secondScore) return "";
-  if (game === "memory-match" || game === "spin-wheel") return firstScore < secondScore ? firstUid : secondUid;
+  if (game === "memory-match") return firstScore < secondScore ? firstUid : secondUid;
   return firstScore > secondScore ? firstUid : secondUid;
 }
 
 function formatGameScore(game, score) {
   if (score == null) return "—";
   if (game === "memory-match") return `${score} moves`;
-  if (game === "spin-wheel") return `${(score / 1000).toFixed(1)}s`;
   return `${score} points`;
 }
 
@@ -460,10 +415,7 @@ function gamesHome() {
     <div class="games-hub-grid">
       ${gameCard("sos", "🔠", "SOS", "Make SOS lines, earn points, and play live", "LIVE")}
       ${gameCard("memory-match", "🧠", "Memory Match", "Take turns finding matching pairs", "2P")}
-      ${gameCard("word-guess", "🔤", "Word Guess", "Set words for each other to guess", "2P")}
       ${gameCard("find-words", "🔎", "Find the Words", "Race to find 16 new words together", "LIVE")}
-      ${gameCard("spin-wheel", "🎡", "Spin Wheel", "Complete three surprise challenges fastest", "2P")}
-      ${gameCard("couple-trivia", "💞", "Couple Trivia", "Answer, then let your partner guess", "2P")}
       ${gameCard("true-false", "💡", "True or False", "Discover surprising facts together", "2P")}
     </div>
   </section>`;
@@ -484,15 +436,9 @@ function miniScoreboardMarkup(game, state, user, liveMatch) {
   if (game === "memory-match") {
     label = "Moves"; value = Number.isInteger(state.moves) ? state.moves : 0;
     detail = `${(state.matched?.length || 0) / 2}/${symbols.length} pairs`;
-  } else if (game === "word-guess") {
-    label = "Guesses left"; value = Number.isInteger(state.guessesLeft) ? state.guessesLeft : 7;
-    detail = state.word ? "Guess the hidden word" : "Choose a word to start";
-  } else if (game === "emoji-quiz" || game === "couple-trivia") {
+  } else if (game === "emoji-quiz") {
     label = "Points"; value = Number.isFinite(state.score) ? state.score : 0;
     detail = `${Math.min(state.question || 0, state.questions?.length || 0)}/${state.questions?.length || 0} questions`;
-  } else if (game === "spin-wheel") {
-    label = "Challenges"; value = `${Math.min(state.completedChallenges || 0, 3)}/3`;
-    detail = "Complete three challenges";
   } else return "";
   return `<aside class="game-mini-scoreboard" aria-label="Current game score" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 10px;padding:9px 12px;border:1px solid #f3d5e2;border-radius:12px;background:#fff8fb;font-size:12px"><span style="font-weight:700;color:#75435a">${esc(label)}</span><strong style="font-size:15px;color:#b64f7b">${esc(String(value))}</strong><span style="margin-left:auto;color:#8c7480;text-align:right">${esc(detail)}</span></aside>`;
 }
@@ -523,21 +469,9 @@ function renderActiveGameBody(el, game, user, profile, state, liveMatch = false)
     return;
   }
 
-  if (game === "word-guess") {
-    if (!state.word) {
-      content.innerHTML = `<div class="game-panel"><p class="games-instructions">${liveMatch ? "Choose a secret word for your partner to guess." : "One of you picks a word, then passes the device so your partner can guess it. The word stays hidden after you submit it."}</p><form id="word-guess-setup" class="game-form"><label for="word-guess-word">Choose a secret word</label><input id="word-guess-word" type="password" maxlength="32" autocomplete="off" placeholder="At least 3 letters" required><button class="primary" type="submit">Set the secret word</button><p class="game-form-error" aria-live="polite"></p></form></div>`;
-      return;
-    }
-    const visibleWord = [...state.word].map(char => /[a-z]/i.test(char) && !state.guessed.includes(char.toLocaleLowerCase()) ? "_" : char).join(" ");
-    const won = [...state.word.toLocaleLowerCase()].every(char => !/[a-z]/.test(char) || state.guessed.includes(char));
-    const lost = state.guessesLeft === 0 && !won;
-    content.innerHTML = `<div class="game-panel"><p class="games-instructions">${liveMatch ? "Your partner chose a secret word. Guess it before you run out of guesses!" : "Pass the device to your partner, then guess the secret word."}</p><div class="word-guess-word" aria-label="Secret word">${visibleWord}</div><p class="game-result" aria-live="polite">${won ? "You guessed it! 🎉" : lost ? `Out of guesses! The word was ${esc(state.word)}.` : `${state.guessesLeft} guesses left`}</p>${won || lost ? (liveMatch ? "" : `<button type="button" class="primary" data-reset-game>Choose another word</button>`) : `<div class="letter-board">${alphabet.map(letter => `<button type="button" data-word-letter="${letter.toLocaleLowerCase()}"${state.guessed.includes(letter.toLocaleLowerCase()) ? " disabled" : ""}>${letter}</button>`).join("")}</div>${liveMatch ? "" : `<button type="button" class="secondary word-reset" data-reset-game>Start over</button>`}`}</div>`;
-    return;
-  }
-
   if (game === "emoji-quiz") {
     if (state.question >= state.questions.length) {
-      content.innerHTML = `<div class="game-panel quiz-panel"><p class="eyebrow">QUIZ COMPLETE</p><h2 class="trivia-question">You got ${state.score} of ${state.questions.length} right! 💖</h2>${liveMatch ? "" : `<button type="button" class="primary" data-reset-game>Play again</button>`}</div>`;
+      content.innerHTML = `<div class="game-panel quiz-panel"><p class="eyebrow">QUIZ COMPLETE</p><h2 class="quiz-heading">You got ${state.score} of ${state.questions.length} right! 💖</h2>${liveMatch ? "" : `<button type="button" class="primary" data-reset-game>Play again</button>`}</div>`;
       return;
     }
     const question = state.questions[state.question];
@@ -545,29 +479,6 @@ function renderActiveGameBody(el, game, user, profile, state, liveMatch = false)
     return;
   }
 
-  if (game === "spin-wheel") {
-    content.innerHTML = `<div class="game-panel spin-panel"><div class="spin-wheel" aria-hidden="true">🎡</div><p class="games-instructions">${liveMatch ? `Complete three challenges for your turn (${state.completedChallenges}/3).` : "Ready for a little surprise?"}</p><button type="button" class="primary" data-spin-wheel${liveMatch && state.completedChallenges >= 3 ? " disabled" : ""}>Spin for a challenge</button>${state.challenge ? `<div class="spin-result" aria-live="polite"><p class="eyebrow">🎉 YOUR CHALLENGE</p><strong>${esc(state.challenge)}</strong>${liveMatch ? `<button type="button" class="secondary" data-complete-challenge${state.completedChallenges >= 3 ? " disabled" : ""}>I completed it</button>` : `<button type="button" class="secondary" data-spin-wheel>Spin again</button>`}</div>` : ""}</div>`;
-    return;
-  }
-
-  if (game === "couple-trivia") {
-    if (state.question >= state.questions.length) {
-      content.innerHTML = `<div class="game-panel quiz-panel"><p class="eyebrow">TRIVIA COMPLETE</p><h2 class="trivia-question">Final score: ${state.score} of ${state.questions.length} 💞</h2>${liveMatch ? "" : `<button type="button" class="primary" data-reset-game>Play again</button>`}</div>`;
-      return;
-    }
-    const question = state.questions[state.question];
-    if (state.stage === "guess") {
-      content.innerHTML = `<div class="game-panel quiz-panel"><p class="games-instructions">${liveMatch ? `${esc(state.answerer)} answered. Choose what you think they picked.` : `Now pass the device to your partner. Guess what ${esc(state.answerer)} picked!`}</p><h2 class="trivia-question">${esc(question.prompt)}</h2><div class="quiz-options">${question.options.map((option, index) => `<button type="button" class="quiz-option" data-trivia-guess="${index}">${esc(option)}</button>`).join("")}</div></div>`;
-      return;
-    }
-    if (state.stage === "result") {
-      const matched = state.guess === state.answer;
-      content.innerHTML = `<div class="game-panel quiz-panel"><p class="eyebrow">THE REVEAL</p><h2 class="trivia-question">${esc(question.prompt)}</h2><p class="trivia-answer">${esc(state.answerer)} picked <strong>${esc(question.options[state.answer])}</strong>.</p><p class="trivia-answer">Their partner guessed <strong>${esc(question.options[state.guess])}</strong>.</p><p class="game-result" aria-live="polite">${matched ? "You know each other so well! 💞" : "The fun is in learning something new! 💗"} Score: ${state.score}</p>${liveMatch ? state.canAdvance ? `<button type="button" class="primary" data-next-trivia>Next question</button>` : "" : `<button type="button" class="primary" data-next-trivia>Next question</button>`}</div>`;
-      return;
-    }
-    content.innerHTML = `<div class="game-panel quiz-panel"><p class="games-instructions">${liveMatch ? "Choose your honest answer. Your partner will guess from their device." : `First, ${esc(getDisplayName(user.uid, profile?.name))} answers honestly. Your partner will guess after you pass the device.`}</p><h2 class="trivia-question">${esc(question.prompt)}</h2><div class="quiz-options">${question.options.map((option, index) => `<button type="button" class="quiz-option" data-trivia-answer="${index}">${esc(option)}</button>`).join("")}</div></div>`;
-    return;
-  }
 }
 
 function renderSosGame(content, user, gameState, presence, pendingCell) {
@@ -684,10 +595,7 @@ function resetActiveGame(game) {
   if (memoryTimer) clearTimeout(memoryTimer);
   memoryTimer = null;
   if (game === "memory-match") return makeMemoryState();
-  if (game === "word-guess") return { word: "", guessed: [], guessesLeft: 7 };
   if (game === "emoji-quiz") return { questions: makeEmojiQuestions(), question: 0, answered: false, selected: -1, score: 0 };
-  if (game === "spin-wheel") return { challenge: "", completedChallenges: 0, startedAt: Date.now() };
-  if (game === "couple-trivia") return { questions: makeTriviaQuestions(), question: 0, stage: "first", answer: -1, guess: -1, answerer: "", score: 0 };
   return {};
 }
 
@@ -704,19 +612,6 @@ function isValidGameRoom(room, game) {
       (room.playerUids.length !== 2 || !room.playerUids.every(uid => room.players[uid]))) return false;
   if (game === "memory-match" && room.playerUids.some(uid => room.players[uid].state != null &&
       !isValidActiveGameState(game, room.players[uid].state))) return false;
-  if (game === "word-guess" && (!['setter', 'guessing', 'result'].includes(room.wordPhase) ||
-      !Number.isInteger(room.wordRoundNumber) || room.wordRoundNumber < 0 || room.wordRoundNumber > 1 ||
-      !room.playerUids.includes(room.wordSetterUid) ||
-      (room.wordPhase === "guessing" && (!isValidActiveGameState(game, room.wordRound) || !room.wordRound.word)) ||
-      (room.wordPhase === "setter" && room.wordRound != null) ||
-      (room.status === "playing" && room.wordPhase === "setter" && room.turnUid !== room.wordSetterUid) ||
-      (room.status === "playing" && room.wordPhase === "guessing" && room.turnUid === room.wordSetterUid) ||
-      (room.wordPhase === "result" && room.status !== "finished"))) return false;
-  if (game === "couple-trivia" && (!Array.isArray(room.questions) || room.questions.length !== triviaQuestions.length ||
-      !Number.isInteger(room.triviaQuestionIndex) || room.triviaQuestionIndex < 0 ||
-      room.triviaQuestionIndex >= room.questions.length ||
-      !["first", "guess", "result", "finished"].includes(room.triviaStage) ||
-      !room.playerUids.includes(room.triviaAnswererUid))) return false;
   if (game === "emoji-quiz" && room.quizPhase && (!["creator", "guesser", "result"].includes(room.quizPhase) ||
       !Number.isInteger(room.quizRoundNumber) || room.quizRoundNumber < 0 ||
       !room.playerUids.includes(room.quizCreatorUid) ||
@@ -1042,43 +937,24 @@ export function renderGames(el, user, profile) {
     }
     const opponentState = players[opponentUid]?.state;
     const progress = opponentState
-      ? activeGame === "emoji-quiz" || activeGame === "couple-trivia"
+      ? activeGame === "emoji-quiz"
         ? `Question ${Math.min(opponentState.question + 1, opponentState.questions.length)} of ${opponentState.questions.length}`
         : activeGame === "memory-match"
           ? isValidActiveGameState(activeGame, opponentState)
             ? `${opponentState.matched.length / 2} of ${opponentState.cards.length / 2} pairs`
             : "their round hasn't started yet"
-          : activeGame === "spin-wheel"
-            ? `${opponentState.completedChallenges}/3 challenges`
-            : "playing now"
+          : "playing now"
       : "their round hasn't started yet";
-    if (activeGame === "word-guess") {
-      message = room.wordPhase === "setter"
-        ? isTurn
-          ? "Your turn: choose a secret word. Your partner will guess it."
-          : `${opponentName} is choosing a secret word for you to guess.`
-        : isTurn
-          ? `${opponentName} chose a word — it's your turn to guess!`
-          : `Your partner is guessing the word you chose.`
-    } else if (activeGame === "couple-trivia") {
-      message = room.triviaStage === "first"
-        ? isTurn ? "Your turn to answer. Your partner will guess next." : `${opponentName} is answering; then it's your turn to guess.`
-        : room.triviaStage === "guess"
-          ? isTurn ? `${opponentName} answered — your turn to guess!` : "You answered. Waiting for your partner to guess…"
-          : isTurn ? "Your partner guessed. Review the answer and continue." : `${opponentName} is reviewing the answer.`
-    } else message = isTurn
+    message = isTurn
       ? players[opponentUid]?.completed
         ? "Your partner has finished their turn — now it's your turn!"
         : "Your turn! Your partner will play after you finish."
       : `${opponentName} is taking their turn (${progress}). Your turn starts next.`;
     const scoreRule = {
       "memory-match": "Fewest moves wins.",
-      "word-guess": "Guess correctly to earn points; efficient guesses earn more.",
-      "emoji-quiz": "Most correct answers wins.",
-      "spin-wheel": "Fastest to complete three challenges wins.",
-      "couple-trivia": "Each correct partner guess earns a point."
+      "emoji-quiz": "Most correct answers wins."
     }[activeGame];
-    const scoreValue = uid => activeGame === "memory-match" || activeGame === "spin-wheel"
+    const scoreValue = uid => activeGame === "memory-match"
       ? players[uid]?.completed ? formatGameScore(activeGame, players[uid].score) : "—"
       : formatGameScore(activeGame, players[uid]?.score);
     const playerScores = `<div class="game-room-player-row">${room.playerUids.map(uid => `<div class="game-room-player">${gamePlayerAvatar(uid, players[uid]?.name)}<span>${esc(getDisplayName(uid, players[uid]?.name || "Partner"))}</span><strong>${esc(scoreValue(uid))}</strong></div>`).join("")}</div>`;
@@ -1087,20 +963,7 @@ export function renderGames(el, user, profile) {
       content.innerHTML = `<div class="game-panel"><p class="games-instructions">Your partner's turn is in progress. You can leave this page; your turn will be ready when they finish.</p></div>`;
       return;
     }
-    const playerState = activeGame === "word-guess" && room.wordPhase === "guessing"
-      ? room.wordRound
-      : activeGame === "couple-trivia"
-        ? {
-            questions: room.questions,
-            question: room.triviaQuestionIndex,
-            stage: room.triviaStage,
-            answer: room.triviaAnswer,
-            guess: room.triviaGuess,
-            answerer: getDisplayName(room.triviaAnswererUid, players[room.triviaAnswererUid]?.name || "Your partner"),
-            score: players[user.uid]?.score || 0,
-            canAdvance: isTurn
-          }
-        : players[user.uid]?.state;
+    const playerState = players[user.uid]?.state;
     if (playerState) {
       activeState = activeGame === "memory-match" && playerState.locked && !memoryTimer
         ? { ...playerState, flipped: [], locked: false }
@@ -1111,7 +974,7 @@ export function renderGames(el, user, profile) {
       content.innerHTML = `<div class="game-panel"><p class="games-instructions">Preparing your saved turn…</p></div>`;
       initializeRoomTurn(room);
     }
-    if (activeGame !== "couple-trivia" && gameIsComplete(activeGame, activeState)) {
+    if (gameIsComplete(activeGame, activeState)) {
       statusEl.querySelector(".game-room-panel")?.insertAdjacentHTML("beforeend", `<button type="button" class="primary" data-room-finish>Finish my turn</button>`);
     }
   }
@@ -1148,9 +1011,6 @@ export function renderGames(el, user, profile) {
     const state = activeState;
     runTransaction(gameMatchRef(activeGame), current => {
       if (!current || current.matchId !== matchId || current.status !== "playing" || current.turnUid !== user.uid) return;
-      if (activeGame === "word-guess" && current.wordPhase === "guessing") {
-        return { ...current, wordRound: state, updatedAt: Date.now() };
-      }
       const player = current.players?.[user.uid];
       if (!player) return;
       return {
@@ -1315,9 +1175,6 @@ export function renderGames(el, user, profile) {
     }
     const gameInfo = {
       "memory-match": ["Memory Match", "Flip the cards and find all ten pairs.", "🧠"],
-      "word-guess": ["Word Guess", "Pick a secret word, then let your partner guess.", "🔤"],
-      "spin-wheel": ["Spin Wheel", "Spin for a sweet little challenge.", "🎡"],
-      "couple-trivia": ["Couple Trivia", "Answer, pass the device, and see if your partner knows.", "💞"],
       "true-false": ["True or False", "Guess together, then learn a surprising fact.", "💡"]
     }[activeGame];
     if (renderedShellGame !== activeGame) {
@@ -1351,8 +1208,7 @@ export function renderGames(el, user, profile) {
     const target = event.target.closest("button");
     if (!target || !el.contains(target)) return;
     const turnOnlyActions = [
-      "data-memory-card", "data-word-letter", "data-emoji-answer", "data-next-emoji",
-      "data-spin-wheel", "data-complete-challenge", "data-trivia-answer", "data-trivia-guess", "data-next-trivia"
+      "data-memory-card", "data-emoji-answer", "data-next-emoji"
     ];
     if (activeGame && turnOnlyActions.some(attribute => target.hasAttribute(attribute)) &&
         (gameRoomState?.status !== "playing" || gameRoomState.turnUid !== user.uid)) {
@@ -1433,16 +1289,6 @@ export function renderGames(el, user, profile) {
               playerUids: [user.uid],
               turnUid: "",
               winnerUid: "",
-              wordPhase: activeGame === "word-guess" ? "setter" : "",
-              wordRoundNumber: 0,
-              wordSetterUid: activeGame === "word-guess" ? user.uid : "",
-              wordRound: null,
-              questions: activeGame === "couple-trivia" ? makeTriviaQuestions() : [],
-              triviaQuestionIndex: 0,
-              triviaStage: "first",
-              triviaAnswererUid: user.uid,
-              triviaAnswer: -1,
-              triviaGuess: -1,
               trueFalseQuestions,
               trueFalseQuestionIndex: 0,
               trueFalseAnswers: null,
@@ -1463,7 +1309,7 @@ export function renderGames(el, user, profile) {
                 [user.uid]: { name: getDisplayName(user.uid, profile?.name), score: 0, completed: false, state: null }
               },
               status: "playing",
-              turnUid: current.game === "couple-trivia" ? current.triviaAnswererUid : current.playerUids[0],
+              turnUid: current.playerUids[0],
               updatedAt: Date.now()
             };
           }
@@ -1514,35 +1360,6 @@ export function renderGames(el, user, profile) {
         const transaction = await runTransaction(gameMatchRef(activeGame), current => {
           if (!current || current.matchId !== room.matchId || current.status !== "playing" ||
               current.turnUid !== user.uid) return;
-          if (activeGame === "word-guess") {
-            if (current.wordPhase !== "guessing" || !gameIsComplete(activeGame, current.wordRound)) return;
-            const setterUid = current.wordSetterUid;
-            const guesserScore = (current.players[user.uid].score || 0) +
-              (gameScore(activeGame, current.wordRound) ? 1 : 0);
-            const setterScore = (current.players[setterUid].score || 0) +
-              (gameScore(activeGame, current.wordRound) ? 0 : 1);
-            const players = {
-              ...current.players,
-              [user.uid]: { ...current.players[user.uid], score: guesserScore, completed: false, state: null },
-              [setterUid]: { ...current.players[setterUid], score: setterScore, completed: false, state: null }
-            };
-            if (current.wordRoundNumber === 1) {
-              players[user.uid].completed = true;
-              players[setterUid].completed = true;
-              const winnerUid = gameWinner(activeGame, current.playerUids, players);
-              return { ...current, players, status: "finished", winnerUid, turnUid: "", wordPhase: "result", updatedAt: Date.now() };
-            }
-            return {
-              ...current,
-              players,
-              wordRound: null,
-              wordRoundNumber: 1,
-              wordPhase: "setter",
-              wordSetterUid: user.uid,
-              turnUid: user.uid,
-              updatedAt: Date.now()
-            };
-          }
           if (!gameIsComplete(activeGame, current.players?.[user.uid]?.state)) return;
           const players = {
             ...current.players,
@@ -1642,20 +1459,6 @@ export function renderGames(el, user, profile) {
       return;
     }
 
-    if (target.hasAttribute("data-spin-wheel")) {
-      const available = challenges.filter(challenge => challenge !== activeState.challenge);
-      activeState.challenge = available[Math.floor(Math.random() * available.length)];
-      renderAndSavePlayerProgress();
-      return;
-    }
-
-    if (target.hasAttribute("data-complete-challenge")) {
-      activeState.completedChallenges++;
-      activeState.challenge = "";
-      renderAndSavePlayerProgress();
-      return;
-    }
-
     if (target.hasAttribute("data-true-false-answer") && activeGame === "true-false") {
       const answer = target.dataset.trueFalseAnswer === "true";
       try {
@@ -1721,164 +1524,8 @@ export function renderGames(el, user, profile) {
       return;
     }
 
-    if (target.hasAttribute("data-trivia-answer")) {
-      if (activeGame === "couple-trivia" && gameRoomState?.status === "playing") {
-        const opponentUid = gameRoomState.playerUids.find(uid => uid !== user.uid);
-        try {
-          const transaction = await runTransaction(gameMatchRef(activeGame), current => {
-            if (!current || current.status !== "playing" || current.triviaStage !== "first" ||
-                current.turnUid !== user.uid || current.triviaAnswererUid !== user.uid) return;
-            return {
-              ...current,
-              triviaAnswer: Number(target.dataset.triviaAnswer),
-              triviaStage: "guess",
-              triviaGuess: -1,
-              turnUid: opponentUid,
-              updatedAt: Date.now()
-            };
-          });
-          if (!transaction.committed) toast("It is not your turn to answer this question.");
-        } catch (error) {
-          console.error("Could not save trivia answer:", error);
-          toast("Your answer could not be saved.");
-        }
-        return;
-      }
-      activeState.answer = Number(target.dataset.triviaAnswer);
-      activeState.answerer = getDisplayName(user.uid, profile?.name);
-      activeState.stage = "guess";
-      renderAndSavePlayerProgress();
-      return;
-    }
-
-    if (target.hasAttribute("data-trivia-guess")) {
-      if (activeGame === "couple-trivia" && gameRoomState?.status === "playing") {
-        const guess = Number(target.dataset.triviaGuess);
-        const answererUid = gameRoomState.triviaAnswererUid;
-        try {
-          const transaction = await runTransaction(gameMatchRef(activeGame), current => {
-            if (!current || current.status !== "playing" || current.triviaStage !== "guess" ||
-                current.turnUid !== user.uid || current.triviaAnswererUid === user.uid) return;
-            const player = current.players[user.uid];
-            return {
-              ...current,
-              triviaGuess: guess,
-              triviaStage: "result",
-              turnUid: answererUid,
-              players: {
-                ...current.players,
-                [user.uid]: {
-                  ...player,
-                  score: player.score + (guess === current.triviaAnswer ? 1 : 0)
-                }
-              },
-              updatedAt: Date.now()
-            };
-          });
-          if (!transaction.committed) toast("It is not your turn to guess this answer.");
-        } catch (error) {
-          console.error("Could not save trivia guess:", error);
-          toast("Your guess could not be saved.");
-        }
-        return;
-      }
-      activeState.guess = Number(target.dataset.triviaGuess);
-      activeState.stage = "result";
-      if (activeState.guess === activeState.answer) activeState.score++;
-      renderAndSavePlayerProgress();
-      return;
-    }
-
-    if (target.hasAttribute("data-next-trivia")) {
-      if (activeGame === "couple-trivia" && gameRoomState?.status === "playing") {
-        try {
-          const transaction = await runTransaction(gameMatchRef(activeGame), current => {
-            if (!current || current.status !== "playing" || current.triviaStage !== "result" ||
-                current.turnUid !== user.uid || current.triviaAnswererUid !== user.uid) return;
-            if (current.triviaQuestionIndex >= current.questions.length - 1) {
-              const winnerUid = gameWinner(activeGame, current.playerUids, current.players);
-              return {
-                ...current,
-                status: "finished",
-                turnUid: "",
-                winnerUid,
-                triviaStage: "finished",
-                updatedAt: Date.now()
-              };
-            }
-            const nextAnswererUid = current.playerUids.find(uid => uid !== current.triviaAnswererUid);
-            return {
-              ...current,
-              triviaQuestionIndex: current.triviaQuestionIndex + 1,
-              triviaAnswererUid: nextAnswererUid,
-              triviaAnswer: -1,
-              triviaGuess: -1,
-              triviaStage: "first",
-              turnUid: nextAnswererUid,
-              updatedAt: Date.now()
-            };
-          });
-          if (!transaction.committed) toast("This question has already changed.");
-        } catch (error) {
-          console.error("Could not continue Couple Trivia:", error);
-          toast("The next question could not be loaded.");
-        }
-        return;
-      }
-      activeState.question++;
-      activeState.stage = "first";
-      activeState.answer = -1;
-      activeState.guess = -1;
-      activeState.answerer = "";
-      renderAndSavePlayerProgress();
-      return;
-    }
   };
 
-  el.onsubmit = async event => {
-    if (event.target.id !== "word-guess-setup") return;
-    event.preventDefault();
-    if (gameRoomState?.status !== "playing" || gameRoomState.turnUid !== user.uid) {
-      toast("Waiting for your partner to join before playing.");
-      return;
-    }
-    const input = $("#word-guess-word", el);
-    const word = input.value.trim().replace(/\s+/g, " ");
-    const error = $(".game-form-error", event.target);
-    const letterCount = (word.match(/[a-z]/gi) || []).length;
-    if (!/^[a-zA-Z ]{3,32}$/.test(word) || letterCount < 3) {
-      error.textContent = "Please choose a word with 3–32 letters.";
-      return;
-    }
-    activeState = { word, guessed: [], guessesLeft: 7 };
-    if (activeGame === "word-guess" && gameRoomState?.status === "playing") {
-      const opponentUid = gameRoomState.playerUids.find(uid => uid !== user.uid);
-      try {
-        const transaction = await runTransaction(gameMatchRef(activeGame), current => {
-          if (!current || current.status !== "playing" || current.wordPhase !== "setter" ||
-              current.turnUid !== user.uid || current.wordRoundNumber > 1) return;
-          return {
-            ...current,
-            wordRound: activeState,
-            wordPhase: "guessing",
-            wordSetterUid: user.uid,
-            turnUid: opponentUid,
-            players: {
-              ...current.players,
-              [user.uid]: { ...current.players[user.uid], state: null }
-            },
-            updatedAt: Date.now()
-          };
-        });
-        if (!transaction.committed) toast("It is not your turn to set a word.");
-      } catch (saveError) {
-        console.error("Could not save secret word:", saveError);
-        toast("Your secret word could not be saved.");
-      }
-      return;
-    }
-    renderAndSavePlayerProgress();
-  };
 
 }
 

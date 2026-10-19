@@ -18,7 +18,7 @@ export function postCardComponent(post, isLiked, likeCount, isAuthor, authorName
         ${voiceMarkup(post)}
 
         <div class="tw-actions-bar">
-          <button class="tw-action-btn tw-reply-btn" data-id="${post.id}">💬 ${commentsCount} comments</button>
+          <button class="tw-action-btn tw-reply-btn" data-id="${post.id}">💬 ${Number.isFinite(commentsCount) ? `${commentsCount} comments` : "Reply"}</button>
           <button class="tw-action-btn ${isLiked ? 'liked' : ''} tw-like-btn" data-id="${post.id}">
             ${isLiked ? '❤️' : '🤍'} ${likeCount}
           </button>

@@ -1,6 +1,6 @@
 import { db, firebaseReady } from "./firebase.js";
 import { toastError } from "./utils.js";
-import { collection, doc, addDoc, setDoc, getDoc, getDocs, deleteDoc, updateDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp, arrayUnion, arrayRemove, runTransaction, writeBatch, deleteField, Timestamp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+import { collection, doc, addDoc, setDoc, getDoc, getDocs, deleteDoc, updateDoc, query, where, orderBy, limit, startAfter, onSnapshot, serverTimestamp, arrayUnion, arrayRemove, runTransaction, writeBatch, deleteField, Timestamp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 
 const root = () => {
@@ -285,15 +285,25 @@ export async function addDiaryPost(data) {
   return addDoc(diaryCollection(), { ...data, createdAt: serverTimestamp(), likedBy: [] });
 }
 
-export function watchDiaryPosts(cb, maxItems, authorIds = []) {
+export function watchDiaryPosts(cb, maxItems = 50, authorIds = [], onError) {
   const authors = [...new Set(authorIds.filter(authorId => typeof authorId === "string" && authorId))];
   const constraints = [];
   if (authors.length) constraints.push(where("authorId", authors.length === 1 ? "==" : "in", authors.length === 1 ? authors[0] : authors));
   constraints.push(orderBy("createdAt", "desc"));
   if (maxItems) constraints.push(limit(maxItems));
   return onSnapshot(query(diaryCollection(), ...constraints), s => {
-    cb(s.docs.filter(d => !d.data().deleting).map(d => ({ id: d.id, ...d.data() })));
-  });
+    cb(s.docs.filter(d => !d.data().deleting).map(d => ({ id: d.id, ...d.data() })), s);
+  }, onError);
+}
+
+export async function loadOlderDiaryPosts(cursor, maxItems = 50) {
+  if (!cursor) return { items: [], cursor: null, hasMore: false };
+  const snapshot = await getDocs(query(diaryCollection(), orderBy("createdAt", "desc"), startAfter(cursor), limit(maxItems)));
+  return {
+    items: snapshot.docs.filter(item => !item.data().deleting).map(item => ({ id: item.id, ...item.data() })),
+    cursor: snapshot.docs.at(-1) || cursor,
+    hasMore: snapshot.size === maxItems
+  };
 }
 
 export async function toggleDiaryLike(postId, uid, liked) {
@@ -328,8 +338,8 @@ export async function toggleDiaryCommentLike(postId, commentId, uid, liked) {
   await updateDoc(ref, { likedBy: liked ? arrayRemove(uid) : arrayUnion(uid) });
 }
 
-export function watchDiaryComments(postId, cb) {
-  return onSnapshot(query(commentsCollection(postId), orderBy("createdAt", "asc")), s => cb(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+export function watchDiaryComments(postId, cb, onError) {
+  return onSnapshot(query(commentsCollection(postId), orderBy("createdAt", "asc")), s => cb(s.docs.map(d => ({ id: d.id, ...d.data() }))), onError);
 }
 
 const drawingCollection = () => collection(db, ...couplePath(), "drawingMessages");

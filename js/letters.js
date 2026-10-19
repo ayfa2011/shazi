@@ -5,6 +5,21 @@ import { APP_CONFIG } from "../config/app-config.js";
 import { sendToTelegram } from "../src/services/telegramService.js";
 
 let stopLetters = null, deliveryTimer = null, active = false, visibilityHandler = null, persistDraftOnDispose = null;
+let html2canvasPromise = null;
+
+function loadHtml2Canvas() {
+  if (window.html2canvas) return Promise.resolve(window.html2canvas);
+  if (html2canvasPromise) return html2canvasPromise;
+  html2canvasPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+    script.async = true;
+    script.onload = () => window.html2canvas ? resolve(window.html2canvas) : reject(new Error("Letter preview renderer did not initialize."));
+    script.onerror = () => { html2canvasPromise = null; reject(new Error("Letter preview renderer could not be loaded.")); };
+    document.head.append(script);
+  });
+  return html2canvasPromise;
+}
 
 export function renderLetters(el, user, profile) {
   stopLetters?.();
@@ -730,6 +745,7 @@ export function renderLetters(el, user, profile) {
   });
 
   $("#write-letter-btn", el).onclick = () => {
+    void loadHtml2Canvas().catch(() => {});
     composerOpened = true;
     if (!loadDraft()) {
       replyToId = null;
@@ -798,6 +814,7 @@ export function renderLetters(el, user, profile) {
   };
 
   replyBtn.onclick = () => {
+    void loadHtml2Canvas().catch(() => {});
     const replyRecipient = replyBtn.dataset.recipient;
     if (!replyRecipient) return;
     composerOpened = true;
@@ -858,11 +875,12 @@ export function renderLetters(el, user, profile) {
       }
 
       let letterImageData = null;
-      if (typeof html2canvas !== "undefined") {
+      if (html2canvasPromise) {
         try {
+          const captureLetter = await html2canvasPromise;
           const target = $("#letter-editor-paper", el);
           if (target) {
-            const canvas = await html2canvas(target, {
+            const canvas = await captureLetter(target, {
               backgroundColor: "#ffffff",
               useCORS: true,
               allowTaint: true,

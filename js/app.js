@@ -8,7 +8,7 @@ import { renderMemories, disposeMemories } from "./memories.js";
 import { renderGames, disposeGames } from "./games.js";
 import { renderLetters, disposeLetters } from "./letters.js";
 import { renderQuestions, disposeQuestions } from "./questions.js";
-import { watchItems, watchDiaryPosts, toggleDiaryLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, addDiaryPost, updatePost, deletePost, notifyPartnerSafely } from "./firestore.js";
+import { watchItems, watchDiaryPosts, loadOlderDiaryPosts, toggleDiaryLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, addDiaryPost, updatePost, deletePost, notifyPartnerSafely } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { renderBucket, disposeBucket } from "./bucket-list.js";
 import { renderActivities } from "./activities.js";
@@ -99,11 +99,14 @@ function renderGallery(el, user, profile) {
   renderPostFeed(el, user, profile);
 }
 
-let stopPostFeed = null, disposePostFeed = null, postCommentStops = new Map();
+let stopPostFeed = null, disposePostFeed = null, stopActivePostComments = null, activePostCommentsId = "";
 
 function renderPostFeed(el, user, profile) {
   disposePostFeed?.();
   let active = true, selectedProfile = "all", posts = [];
+  const postPageSize = 50;
+  let postPageCursor = null, postHasMore = false, postPageLoading = false;
+  let olderPosts = [];
   const commentsByPost = new Map();
   let detailPostId = "";
   let voiceRecorder = null;
@@ -564,6 +567,22 @@ function renderPostFeed(el, user, profile) {
   }
 
   function openPostDetail(postId) {
+    if (activePostCommentsId !== postId) {
+      stopActivePostComments?.();
+      if (activePostCommentsId) commentsByPost.delete(activePostCommentsId);
+      activePostCommentsId = postId;
+      commentsByPost.set(postId, []);
+      stopActivePostComments = watchDiaryComments(postId, comments => {
+        if (!active || detailPostId !== postId) return;
+        commentsByPost.set(postId, comments);
+        renderPostDetail();
+        const count = feed.querySelector(`.tw-reply-btn[data-id="${postId}"]`);
+        if (count) count.textContent = `💬 ${comments.length} comments`;
+      }, error => {
+        console.error("Post replies could not be loaded:", error);
+        if (active && detailPostId === postId) toast("Replies could not be loaded. Check your connection and try again.");
+      });
+    }
     detailPostId = postId;
     detailModal.classList.add("open");
     detailModal.setAttribute("aria-hidden", "false");
@@ -572,6 +591,9 @@ function renderPostFeed(el, user, profile) {
 
   function closePostDetail() {
     detailPostId = "";
+    stopActivePostComments?.();
+    stopActivePostComments = null;
+    activePostCommentsId = "";
     detailModal.classList.remove("open");
     detailModal.setAttribute("aria-hidden", "true");
   }
@@ -691,19 +713,45 @@ function renderPostFeed(el, user, profile) {
     }
   };
 
-  stopPostFeed = watchDiaryPosts((items) => {
+  stopPostFeed = watchDiaryPosts((items, snapshot) => {
     if (!active) return;
-    posts = items || [];
+    postPageCursor = snapshot?.docs?.at(-1) || postPageCursor;
+    postHasMore = (snapshot?.size || 0) === postPageSize;
+    const liveItems = items || [];
+    const liveIds = new Set(liveItems.map(post => post.id));
+    posts = [...liveItems, ...olderPosts.filter(post => !liveIds.has(post.id))];
     const visibleIds = new Set(posts.map(post => post.id));
-    for (const [postId, stop] of postCommentStops) {
-      if (visibleIds.has(postId)) continue;
-      stop();
-      postCommentStops.delete(postId);
-      commentsByPost.delete(postId);
-    }
     if (detailPostId && !visibleIds.has(detailPostId)) closePostDetail();
     render();
+  }, postPageSize, [], error => {
+    console.error("Post feed could not be loaded:", error);
+    if (active && feed.isConnected) feed.innerHTML = `<p style="padding:24px;text-align:center;color:#8b7180">Posts could not be loaded. Check your connection and try again.</p>`;
   });
+
+  async function loadOlderPosts(button) {
+    if (postPageLoading || !postPageCursor) return;
+    postPageLoading = true;
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Loading…";
+    }
+    try {
+      const page = await loadOlderDiaryPosts(postPageCursor, postPageSize);
+      if (!active) return;
+      postPageCursor = page.cursor;
+      postHasMore = page.hasMore;
+      const loadedIds = new Set(posts.map(post => post.id));
+      const newItems = page.items.filter(post => !loadedIds.has(post.id));
+      olderPosts.push(...newItems);
+      posts = [...posts, ...newItems];
+    } catch (error) {
+      console.error("Could not load older posts:", error);
+      toast("Could not load older posts.");
+    } finally {
+      postPageLoading = false;
+      if (active) render();
+    }
+  }
 
   function render() {
     const visiblePosts = selectedProfile === "all"
@@ -731,7 +779,8 @@ function renderPostFeed(el, user, profile) {
     }
     if (visiblePosts.length === 0) {
       const person = APP_CONFIG.profiles[selectedProfile];
-      feed.innerHTML = `<p style="padding:24px 16px; text-align:center; color:#8b7180;">${person ? `No posts yet.` : "No posts yet. Share your first thought!"}</p>`;
+      feed.innerHTML = `<p style="padding:24px 16px; text-align:center; color:#8b7180;">${person ? `No posts yet.` : "No posts yet. Share your first thought!"}</p>${postHasMore ? `<button class="tw-load-older" type="button" style="display:block;margin:18px auto;padding:11px 20px;border:1px solid #f0c9dc;border-radius:24px;background:#fff;color:#a33a69;font:inherit;cursor:pointer">Load older posts</button>` : ""}`;
+      feed.querySelector(".tw-load-older")?.addEventListener("click", event => void loadOlderPosts(event.currentTarget));
       return;
     }
 
@@ -747,8 +796,11 @@ function renderPostFeed(el, user, profile) {
         ? createdAt.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
         : "Just now";
 
-      return postCardComponent(post, isLiked, likeCount, isAuthor, authorName, authorProfile, handle, timeStr, voiceMarkup, (commentsByPost.get(post.id) || []).length, cropPositionStyle);
-    }).join("");
+      const knownCommentCount = commentsByPost.has(post.id) ? commentsByPost.get(post.id).length : null;
+      return postCardComponent(post, isLiked, likeCount, isAuthor, authorName, authorProfile, handle, timeStr, voiceMarkup, knownCommentCount, cropPositionStyle);
+    }).join("") + (postHasMore ? `<button class="tw-load-older" type="button" style="display:block;margin:18px auto;padding:11px 20px;border:1px solid #f0c9dc;border-radius:24px;background:#fff;color:#a33a69;font:inherit;cursor:pointer" ${postPageLoading ? "disabled" : ""}>${postPageLoading ? "Loading…" : "Load older posts"}</button>` : "");
+
+    feed.querySelector(".tw-load-older")?.addEventListener("click", event => void loadOlderPosts(event.currentTarget));
 
     feed.querySelectorAll("img[data-telegram-file-id]").forEach(image => {
       image.loading = "lazy";
@@ -844,16 +896,6 @@ function renderPostFeed(el, user, profile) {
           }
         };
       }
-      if (!postCommentStops.has(post.id)) {
-        const stop = watchDiaryComments(post.id, (comments) => {
-          if (!active) return;
-          commentsByPost.set(post.id, comments);
-          if (detailPostId === post.id) renderPostDetail();
-          const count = feed.querySelector(`.tw-reply-btn[data-id="${post.id}"]`);
-          if (count) count.textContent = `💬 ${comments.length} comments`;
-        });
-        postCommentStops.set(post.id, stop);
-      }
     });
     if (detailPostId) renderPostDetail();
   }
@@ -917,8 +959,9 @@ function renderPostFeed(el, user, profile) {
     selectedPhotoPreviewUrl = "";
     stopPostFeed?.();
     stopPostFeed = null;
-    postCommentStops.forEach((stop) => stop());
-    postCommentStops.clear();
+    stopActivePostComments?.();
+    stopActivePostComments = null;
+    activePostCommentsId = "";
   };
 }
 
