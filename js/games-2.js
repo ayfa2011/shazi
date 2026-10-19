@@ -7,30 +7,32 @@ import { $, esc, toast } from "./utils.js";
 
 const matchRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/matches/ludo`);
 const colorInfo = {
-  red: { name: "Red", local: "ಕೆಂಪು", css: "red", start: 6, emoji: "❤️" },
-  blue: { name: "Blue", local: "ನೀಲಿ", css: "blue", start: 45, emoji: "💙" },
-  green: { name: "Green", local: "ಹಸಿರು", css: "green", start: 19, emoji: "💚" },
-  yellow: { name: "Yellow", local: "ಹಳದಿ", css: "yellow", start: 32, emoji: "💛" }
+  red: { name: "Red", local: "ಕೆಂಪು", css: "red", start: 40, emoji: "❤️" },
+  blue: { name: "Blue", local: "ನೀಲಿ", css: "blue", start: 23, emoji: "💙" },
+  green: { name: "Green", local: "ಹಸಿರು", css: "green", start: 1, emoji: "💚" },
+  yellow: { name: "Yellow", local: "ಹಳದಿ", css: "yellow", start: 10, emoji: "💛" }
 };
 const colorOrder = ["red", "blue", "green", "yellow"];
-const track = [];
-for (let column = 1; column <= 13; column++) track.push([0, column]);
-for (let row = 1; row <= 13; row++) track.push([row, 14]);
-for (let column = 13; column >= 1; column--) track.push([14, column]);
-for (let row = 13; row >= 1; row--) track.push([row, 0]);
+// The supplied board is a 15×15 Ludo cross; the 52-cell route wraps around its four arms.
+const track = [
+  [6, 1], [6, 2], [6, 3], [6, 4], [6, 5], [5, 6], [4, 6], [3, 6], [2, 6], [1, 6], [0, 6], [0, 7], [0, 8],
+  [1, 8], [2, 8], [3, 8], [4, 8], [5, 8], [6, 9], [6, 10], [6, 11], [6, 12], [6, 13], [6, 14], [7, 14], [8, 14],
+  [8, 13], [8, 12], [8, 11], [8, 10], [8, 9], [9, 8], [10, 8], [11, 8], [12, 8], [13, 8], [14, 8], [14, 7], [14, 6],
+  [13, 6], [12, 6], [11, 6], [10, 6], [9, 6], [8, 5], [8, 4], [8, 3], [8, 2], [8, 1], [8, 0], [7, 0], [6, 0]
+];
 const trackIndex = new Map(track.map(([row, column], index) => [`${row},${column}`, index]));
-const safeTrackCells = new Set([0, 6, 13, 19, 26, 32, 39, 45]);
+const safeTrackCells = new Set([8, 11, 21, 24, 34, 37, 47, 50]);
 const yardSpots = {
-  red: [[2, 2], [2, 4], [4, 2], [4, 4]],
-  green: [[2, 10], [2, 12], [4, 10], [4, 12]],
-  blue: [[10, 2], [10, 4], [12, 2], [12, 4]],
-  yellow: [[10, 10], [10, 12], [12, 10], [12, 12]]
+  green: [[2, 2], [2, 4], [4, 2], [4, 4]],
+  yellow: [[2, 10], [2, 12], [4, 10], [4, 12]],
+  red: [[10, 2], [10, 4], [12, 2], [12, 4]],
+  blue: [[10, 10], [10, 12], [12, 10], [12, 12]]
 };
 const homeLanes = {
-  red: Array.from({ length: 6 }, (_, index) => [index + 1, 6]),
-  green: Array.from({ length: 6 }, (_, index) => [6, 13 - index]),
-  yellow: Array.from({ length: 6 }, (_, index) => [13 - index, 8]),
-  blue: Array.from({ length: 6 }, (_, index) => [8, index + 1])
+  red: Array.from({ length: 6 }, (_, index) => [13 - index, 7]),
+  green: Array.from({ length: 6 }, (_, index) => [7, index + 1]),
+  yellow: Array.from({ length: 6 }, (_, index) => [index + 1, 7]),
+  blue: Array.from({ length: 6 }, (_, index) => [7, 13 - index])
 };
 const diceFaces = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 let stopRoom = null;
@@ -90,14 +92,6 @@ function playerCard(room, uid, isTurn = false) {
   return `<div class="ludo-player-card ${color?.css || ""}${isTurn ? " active-turn" : ""}">${avatar(uid, player.name, player.color)}<div class="ludo-player-copy"><strong>${esc(playerName(room, uid))}</strong><span>${color ? `${color.emoji} ${color.name}` : "Choosing color"}</span><small>${player.captures || 0} captures</small></div><span class="ludo-home-count" aria-label="${homeCount} of 4 pieces home">🏠 ${homeCount}<small>/ 4</small></span></div>`;
 }
 
-function getCellBaseColor(row, column) {
-  if (row < 6 && column < 6) return "red";
-  if (row < 6 && column > 8) return "green";
-  if (row > 8 && column < 6) return "blue";
-  if (row > 8 && column > 8) return "yellow";
-  return "";
-}
-
 function getTokenCoordinate(player, progress, pieceIndex) {
   if (progress === -1) return yardSpots[player.color][pieceIndex];
   if (progress >= 52) return homeLanes[player.color][progress - 52];
@@ -121,18 +115,8 @@ function renderBoard(room, uid, selectedPieces = []) {
     const column = index % 15;
     const key = `${row},${column}`;
     const position = trackIndex.get(key);
-    const laneColor = Object.entries(homeLanes).find(([, cellsInLane]) => cellsInLane.some(([laneRow, laneColumn]) => laneRow === row && laneColumn === column))?.[0] || "";
-    const baseColor = getCellBaseColor(row, column);
-    const inCenter = row >= 6 && row <= 8 && column >= 6 && column <= 8;
-    const isSafe = Number.isInteger(position) && safeTrackCells.has(position);
-    const isStart = Number.isInteger(position) && Object.values(colorInfo).some(color => color.start === position);
     const tokens = tokensAt.get(key) || [];
-    const classes = ["ludo-cell", position != null ? "track-cell" : "", baseColor ? `base-${baseColor}` : "", laneColor ? `lane-${laneColor}` : "", inCenter ? "center-cell" : "", isSafe ? "safe-cell" : "", isStart ? "start-cell" : "", tokens.length ? "has-token" : "", tokens.some(token => token.progress === 57) ? "home-cell" : ""].filter(Boolean).join(" ");
-    const lanePlayer = laneColor ? room.playerUids.map(playerUid => room.players[playerUid]).find(player => player.color === laneColor) : null;
-    const homeLocked = lanePlayer && !lanePlayer.hasCaptured;
-    const centerIcon = inCenter && row === 7 && column === 7 ? `<span class="ludo-center-mark" aria-hidden="true">🏆</span>` : "";
-    const lockIcon = homeLocked && row === homeLanes[laneColor][0][0] && column === homeLanes[laneColor][0][1]
-      ? `<span class="ludo-path-lock" title="Capture a coin to unlock your home lane">🔒</span>` : "";
+    const classes = ["ludo-cell", tokens.length ? "has-token" : ""].filter(Boolean).join(" ");
     const tokenMarkup = tokens.map(token => {
       const canMove = token.uid === uid && selected.has(token.pieceIndex) && room.turnUid === uid && room.phase === "move";
       const color = colorInfo[token.player.color]?.css || "red";
@@ -144,13 +128,9 @@ function renderBoard(room, uid, selectedPieces = []) {
         ? `<button type="button" class="ludo-token ${color}${animation}" data-ludo-piece="${token.pieceIndex}" aria-label="Move ${esc(title)}">${mark}</button>`
         : `<span class="ludo-token ${color}${animation}" title="${esc(title)}">${mark}</span>`;
     }).join("");
-    return `<div class="${classes}" style="grid-row:${row + 1};grid-column:${column + 1}" ${position != null ? `data-track-index="${position}"` : ""}>${isSafe ? `<span class="ludo-safe-star" aria-hidden="true">★</span>` : ""}${centerIcon}${lockIcon}${tokens.length ? `<div class="ludo-cell-tokens">${tokenMarkup}</div>` : ""}</div>`;
+    return tokens.length ? `<div class="${classes}" style="grid-row:${row + 1};grid-column:${column + 1}" ${position != null ? `data-track-index="${position}"` : ""}><div class="ludo-cell-tokens">${tokenMarkup}</div></div>` : "";
   }).join("");
-  const yards = [
-    ["red", "2 / 6", "2 / 6"], ["green", "2 / 6", "11 / 15"],
-    ["blue", "11 / 15", "2 / 6"], ["yellow", "11 / 15", "11 / 15"]
-  ].map(([color, rows, columns]) => `<div class="ludo-home-yard color-${color}" style="grid-row:${rows};grid-column:${columns}" aria-hidden="true"><i></i><i></i><i></i><i></i></div>`).join("");
-  return `<div class="ludo-board-frame"><div class="ludo-board" role="grid" aria-label="Live Ludo board">${cells}${yards}</div></div>`;
+  return `<div class="ludo-board-frame"><div class="ludo-board" role="grid" aria-label="Live Ludo board">${cells}</div></div>`;
 }
 
 function makeRoom(uid, name, color) {
@@ -201,11 +181,8 @@ export function mountLudoGame(el, user, profile) {
       const summary = room?.status === "finished"
         ? room.winnerUid === user.uid ? "You brought all four coins home! 🎉" : `${esc(playerName(room, room.winnerUid))} won this round. Play again? ♡`
         : room?.status === "cancelled" ? "This Ludo match ended." : "Choose your color, roll the dice, and bring all four coins home.";
-      const previousHistory = room?.history?.length
-        ? `<details class="ludo-history ludo-previous-history"><summary>Previous match history <span>${room.history.length} moves</span></summary><ol>${room.history.slice(-16).reverse().map(item => `<li><span>${esc(item.text || "A move was made")}</span><time>${new Date(item.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></li>`).join("")}</ol></details>`
-        : "";
       statusEl.innerHTML = `<div class="game-panel game-room-panel ludo-status"><p class="tic-tac-toe-status">${summary}</p>${playerCards}<button type="button" class="primary" data-ludo-start>${room ? "Play again" : "Start a private match"}</button></div>`;
-      content.innerHTML = `<article class="game-panel ludo-panel"><div class="ludo-intro-icon" aria-hidden="true">🎲</div><p class="ludo-overline">OUR LITTLE GAMES · 2 PLAYERS</p><h2>${room?.status === "finished" ? "A sweet match together" : "Choose your color"}</h2><p class="games-instructions">Your four coins each carry your profile photo. Pick different colors before the match begins.</p>${room?.status === "finished" ? `${previousHistory}<h3 class="ludo-final-score">${esc(playerName(room, room.winnerUid))} wins · ${room.playerUids.map(uid => `${esc(playerName(room, uid))}: ${room.players[uid].captures || 0} captures`).join(" · ")}</h3>` : colorPicker}<p class="ludo-special-rule"><strong>Our home-path rule</strong><span>Capture an opponent coin to unlock your home lane. Each coin must complete a full lap before it can enter.</span></p></article>`;
+      content.innerHTML = `<article class="game-panel ludo-panel"><div class="ludo-intro-icon" aria-hidden="true">🎲</div><p class="ludo-overline">OUR LITTLE GAMES · 2 PLAYERS</p><h2>${room?.status === "finished" ? "A sweet match together" : "Choose your color"}</h2><p class="games-instructions">Your four coins each carry your profile photo. Pick different colors before the match begins.</p>${room?.status === "finished" ? `<h3 class="ludo-final-score">${esc(playerName(room, room.winnerUid))} wins · ${room.playerUids.map(uid => `${esc(playerName(room, uid))}: ${room.players[uid].captures || 0} captures`).join(" · ")}</h3>` : colorPicker}<p class="ludo-special-rule"><strong>Our home-path rule</strong><span>Capture an opponent coin to unlock your home lane. Each coin must complete a full lap before it can enter.</span></p></article>`;
       return;
     }
 
@@ -242,14 +219,13 @@ export function mountLudoGame(el, user, profile) {
       ? `<button type="button" class="ludo-roll-button" data-ludo-roll aria-label="Roll dice"><span class="ludo-die-face">${dice}</span><span>Roll dice</span></button>`
       : `<div class="ludo-dice-display ${diceValue ? "rolled" : ""}" aria-label="Dice showing ${diceValue || "waiting"}"><span class="ludo-die-face">${dice}</span></div>`;
     const lockNotice = !unlocked
-      ? `<p class="ludo-lock-note"><span>🔒</span> Home lane locked — capture a coin and complete one full lap to open it.</p>`
-      : `<p class="ludo-lock-note unlocked"><span>🏁</span> Home lane unlocked! Roll the exact number to finish.</p>`;
+      ? `<p class="ludo-lock-note"><span>🔒</span> Home lane locked — capture an opponent coin to unlock it.</p>`
+      : `<p class="ludo-lock-note unlocked"><span>🏁</span> Home lane unlocked! Complete each coin’s lap, then roll the exact number to finish.</p>`;
     const lastMoveMessage = lastMove
       ? `<p class="ludo-last-move ${lastMove.captured?.length ? "captured" : ""}" aria-live="polite">${esc(lastMove.message || "A coin moved.")}</p>`
       : "";
-    const historyMarkup = `<details class="ludo-history"><summary>Match history <span>${room.history?.length || 0} moves</span></summary><ol>${(room.history || []).slice(-12).reverse().map(item => `<li><span>${esc(item.text || "A move was made")}</span><time>${new Date(item.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></li>`).join("") || `<li class="empty">The first roll is waiting ♡</li>`}</ol></details>`;
     statusEl.innerHTML = `<div class="game-panel game-room-panel ludo-status"><p class="tic-tac-toe-status">${esc(message)}</p>${statusPlayers}<button type="button" class="secondary ludo-end-button" data-ludo-end>End match</button></div>`;
-    content.innerHTML = `<div class="ludo-game-layout"><div class="ludo-main-column">${renderBoard(room, user.uid, available)}<div class="ludo-controls"><div class="ludo-turn-tools">${diceAction}<span class="ludo-roll-count">${room.phase === "move" ? `${available.length} coin${available.length === 1 ? "" : "s"} can move` : isTurn ? "Roll to begin your turn" : "Waiting for your turn"}</span></div>${lockNotice}${lastMoveMessage}</div></div><aside class="ludo-side-panel"><p class="ludo-board-hint">${room.phase === "move" && isTurn ? "Tap one of your highlighted coins on the board." : "Each roll and coin move syncs live between your devices."}</p>${historyMarkup}</aside></div>`;
+    content.innerHTML = `<div class="ludo-game-layout"><div class="ludo-main-column">${renderBoard(room, user.uid, available)}<div class="ludo-controls"><div class="ludo-turn-tools">${diceAction}<span class="ludo-roll-count">${room.phase === "move" ? `${available.length} coin${available.length === 1 ? "" : "s"} can move` : isTurn ? "Roll to begin your turn" : "Waiting for your turn"}</span></div>${lockNotice}${lastMoveMessage}</div></div></div>`;
     if (animateRoll) requestAnimationFrame(() => {
       const face = content.querySelector(".ludo-die-face");
       face?.classList.add("rolling");
