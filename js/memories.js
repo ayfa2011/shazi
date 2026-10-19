@@ -1012,6 +1012,9 @@ export function renderMemories(el, user, profile) {
     const loadedServerCount = allMemories.filter(item => !item.isOptimistic).length;
     const visibleMemories = sortedMemories.slice(0, currentLimit);
     const canRequestMore = loadedServerCount > currentLimit;
+    // Initial placeholders must be removed once the first snapshot arrives.
+    // They are not pagination slots and otherwise remain below real memories.
+    container.querySelectorAll(".memory-skeleton").forEach(skeleton => skeleton.remove());
     const existingCards = new Map([...container.querySelectorAll(".memory-item")].map(card => [card.dataset.id, card]));
     container.querySelectorAll(".memories-empty").forEach(node => node.remove());
     const desiredCards = visibleMemories.map((item, index) => {

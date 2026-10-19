@@ -476,12 +476,10 @@ function scoreboardSummaryMarkup(items, user, profile) {
 /*  Games hub markup                                                  */
 /* ------------------------------------------------------------------ */
 
-function gameCard(id, emoji, title, description, label = "") {
-  return `<button class="games-hub-card" type="button" data-start-game="${id}">
+function gameCard(id, emoji, title) {
+  return `<button class="games-hub-card game-app-icon game-app-${id}" type="button" data-start-game="${id}" aria-label="${title}">
     <span class="games-card-emoji" aria-hidden="true">${emoji}</span>
-    <span class="games-card-copy"><strong>${title}</strong><span>${description}</span></span>
-    ${label ? `<span class="games-card-label">${label}</span>` : ""}
-    <span class="games-card-arrow" aria-hidden="true">›</span>
+    <span class="games-card-copy"><strong>${title}</strong></span>
   </button>`;
 }
 
@@ -529,13 +527,13 @@ function gamesHome() {
     ${scoreboardStyles}
     <div id="games-scoreboard"></div>
     <div class="games-hub-grid">
-      ${gameCard("sos", "🔠", "SOS", "Make SOS lines, earn points, and play live", "LIVE")}
-      ${gameCard("memory-match", "🧠", "Memory Match", "Take turns finding matching pairs", "2P")}
-      ${gameCard("find-words", "🔎", "Find the Words", "Race to find 16 new words together", "LIVE")}
-      ${gameCard("true-false", "💡", "True or False", "Discover surprising facts together", "2P")}
-      ${gameCard("emoji-decoder", "🧩", "Emoji Decoder", "Guess countries, movies, and phrases · 5 clues per match", "2P")}
-      ${gameCard("battleship", "🚢", "Battleship", "Hide your fleet, take turns, and sink every ship", "LIVE 2P")}
-      ${gameCard("ludo", "🎲", "Ludo", "Race four photo coins home with your own special rule", "LIVE 2P")}
+      ${gameCard("sos", "🔠", "SOS")}
+      ${gameCard("memory-match", "🧠", "Memory Match")}
+      ${gameCard("find-words", "🔎", "Find the Words")}
+      ${gameCard("true-false", "💡", "True or False")}
+      ${gameCard("emoji-decoder", "🧩", "Emoji Decoder")}
+      ${gameCard("battleship", "🚢", "Battleship")}
+      ${gameCard("ludo", "🎲", "Ludo")}
     </div>
   </section>`;
 }

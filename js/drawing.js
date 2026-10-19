@@ -42,7 +42,7 @@ export function renderDrawing(el, user, profile) {
     <div class="draw-board" id="draw-board">
       <div id="canvas-zoom-spacer" class="canvas-zoom-spacer">
         <div id="canvas-zoom-layer" class="canvas-zoom-layer">
-          <canvas class="draw-canvas" id="draw-canvas" width="720" height="1200" aria-label="Shared drawing canvas" role="img" tabindex="0"></canvas>
+          <canvas class="draw-canvas" id="draw-canvas" width="1200" height="900" aria-label="Shared drawing canvas" role="img" tabindex="0"></canvas>
           <div class="canvas-watermark">K &amp; S ♡</div>
         </div>
       </div>
@@ -238,15 +238,23 @@ export function renderDrawing(el, user, profile) {
   const ZOOM_MIN = 0.5, ZOOM_MAX = 4, ZOOM_STEP = 0.25;
   let zoom = 1;
 
-  function applyZoom(next) {
+  function applyZoom(next, focalX = drawBoard.clientWidth / 2, focalY = drawBoard.clientHeight / 2) {
+    const previousZoom = zoom;
     zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, next));
     const baseW = drawBoard.clientWidth || 1;
     const baseH = drawBoard.clientHeight || 1;
+    const oldScrollLeft = drawBoard.scrollLeft;
+    const oldScrollTop = drawBoard.scrollTop;
     zoomLayer.style.width = `${baseW}px`;
     zoomLayer.style.height = `${baseH}px`;
     zoomLayer.style.transform = `scale(${zoom})`;
     zoomSpacer.style.width = `${baseW * zoom}px`;
     zoomSpacer.style.height = `${baseH * zoom}px`;
+    if (previousZoom !== zoom) {
+      const ratio = zoom / previousZoom;
+      drawBoard.scrollLeft = Math.max(0, (oldScrollLeft + focalX) * ratio - focalX);
+      drawBoard.scrollTop = Math.max(0, (oldScrollTop + focalY) * ratio - focalY);
+    }
   }
 
   const ctx = canvas.getContext("2d");
@@ -289,22 +297,9 @@ export function renderDrawing(el, user, profile) {
   let cachedMessages = [];
 
   const liveBuffer = document.createElement("canvas");
+  liveBuffer.width = canvas.width;
+  liveBuffer.height = canvas.height;
   const liveBufferCtx = liveBuffer.getContext("2d");
-
-  const resizeCanvasObserver = new ResizeObserver(entries => {
-    const rect = entries[0]?.contentRect;
-    if (!active || !rect?.width || !rect?.height) return;
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, 3);
-    const width = Math.round(rect.width * pixelRatio);
-    const height = Math.round(rect.height * pixelRatio);
-    if (canvas.width === width && canvas.height === height) return;
-    canvas.width = width;
-    canvas.height = height;
-    liveBuffer.width = width;
-    liveBuffer.height = height;
-    redrawCanvas();
-  });
-  resizeCanvasObserver.observe(canvas);
 
   const boardResizeObserver = new ResizeObserver(() => { if (active) applyZoom(zoom); });
   boardResizeObserver.observe(drawBoard);
@@ -319,11 +314,15 @@ export function renderDrawing(el, user, profile) {
 
   // Pinch zoom (no UI, just fingers)
   let pinchInfo = null;
+  let previousPinchCenter = null;
   canvas.addEventListener("touchstart", e => {
     if (e.touches.length === 2) {
       if (drawing && activeStroke) { drawing = false; activeStroke = null; last = null; redrawCanvas(); }
       const [t1, t2] = e.touches;
+      const rect = drawBoard.getBoundingClientRect();
+      const center = { x: (t1.clientX + t2.clientX) / 2 - rect.left, y: (t1.clientY + t2.clientY) / 2 - rect.top };
       pinchInfo = { startDistance: Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY), startZoom: zoom };
+      previousPinchCenter = center;
       e.preventDefault();
     }
   }, { passive: false });
@@ -332,10 +331,17 @@ export function renderDrawing(el, user, profile) {
       e.preventDefault();
       const [t1, t2] = e.touches;
       const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-      if (pinchInfo.startDistance > 0) applyZoom(pinchInfo.startZoom * (dist / pinchInfo.startDistance));
+      const rect = drawBoard.getBoundingClientRect();
+      const center = { x: (t1.clientX + t2.clientX) / 2 - rect.left, y: (t1.clientY + t2.clientY) / 2 - rect.top };
+      if (pinchInfo.startDistance > 0) applyZoom(pinchInfo.startZoom * (dist / pinchInfo.startDistance), center.x, center.y);
+      if (previousPinchCenter) {
+        drawBoard.scrollLeft -= center.x - previousPinchCenter.x;
+        drawBoard.scrollTop -= center.y - previousPinchCenter.y;
+      }
+      previousPinchCenter = center;
     }
   }, { passive: false });
-  canvas.addEventListener("touchend", e => { if (e.touches.length < 2) pinchInfo = null; });
+  canvas.addEventListener("touchend", e => { if (e.touches.length < 2) { pinchInfo = null; previousPinchCenter = null; } });
 
   $("#drawing-close", el).onclick = () => window.App?.navigate("home");
   $("#drawing-history-open", el).onclick = () => { closePopovers(); historyOverlay.classList.remove("hidden"); $("#drawing-history-close", el).focus(); };
@@ -407,8 +413,8 @@ export function renderDrawing(el, user, profile) {
 
   function point(e) {
     const r = canvas.getBoundingClientRect();
-    const x = ((e.clientX - r.left) / r.width) * canvas.width;
-    const y = ((e.clientY - r.top) / r.height) * canvas.height;
+    const x = ((e.clientX - r.left) / r.width) * 1200;
+    const y = ((e.clientY - r.top) / r.height) * 900;
     return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
   }
 
@@ -578,6 +584,11 @@ export function renderDrawing(el, user, profile) {
   //  Drawing works immediately, sync happens in background.
   // ═════════════════════════════════════════════════════
   canvas.addEventListener("pointerdown", e => {
+    if (!remoteSyncReady) {
+      e.preventDefault();
+      updateSyncStatus("Loading shared canvas… drawing will be ready in a moment.");
+      return;
+    }
     if (e.pointerType === "touch" && e.isPrimary === false) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
     if (drawing) return;
@@ -681,6 +692,7 @@ export function renderDrawing(el, user, profile) {
 
   let initialSyncComplete = false;
   const initialEvents = [];
+  updateSyncStatus("Loading shared canvas…");
   unsubs.push(onChildAdded(strokeRef, snapshot => {
     if (!active) return;
     if (!initialSyncComplete) { initialEvents.push(snapshot); return; }
@@ -1089,7 +1101,6 @@ export function renderDrawing(el, user, profile) {
   activeDrawingCleanup = () => {
     active = false;
     outgoingQueue.persist();
-    resizeCanvasObserver.disconnect();
     boardResizeObserver.disconnect();
     unsubs.forEach(stop => stop());
     document.removeEventListener("keydown", handleHistoryKeydown);
