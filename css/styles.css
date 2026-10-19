@@ -2415,8 +2415,13 @@ body.partner-chat-open { overflow:hidden; }
 .ludo-cell { position:relative;min-width:0;min-height:0;display:grid;place-items:center; }
 .ludo-cell.has-token { z-index:4; }
 .ludo-cell-tokens { position:absolute;inset:3%;display:flex;flex-wrap:wrap;align-content:center;justify-content:center;gap:1px; }
-.ludo-token { width:47%;height:47%;min-width:0;min-height:0;display:grid;place-items:center;padding:0;border:2px solid var(--ludo-color);border-radius:50%;background:var(--ludo-color);box-shadow:0 1px 4px #38202a42; }
-.ludo-token .ludo-avatar { width:100%;height:100%;border:1px solid #fff;border-radius:50%; }
+.ludo-cell-tokens.single-token { align-items:center; }
+.ludo-cell-tokens.yard-token-cell { inset:-10%; }
+.ludo-token { width:47%;height:47%;min-width:0;min-height:0;display:grid;place-items:center;padding:0;box-sizing:border-box;border:3px solid var(--ludo-color);border-radius:50%;background:var(--ludo-color);box-shadow:0 1px 4px #38202a42;overflow:hidden; }
+.ludo-cell-tokens.single-token .ludo-token { width:80%;height:80%; }
+.ludo-token.yard-token { width:46%;height:46%;border-width:3px; }
+.ludo-cell-tokens.single-token .ludo-token.yard-token { width:92%;height:92%; }
+.ludo-token .ludo-avatar { width:100%;height:100%;border:0;border-radius:50%; }
 .ludo-token .ludo-avatar img { display:block;width:100%;height:100%;object-fit:cover; }
 .ludo-token[data-ludo-piece],button.ludo-token { cursor:pointer;animation:ludo-pulse 1.2s ease-in-out infinite;box-shadow:0 0 0 2px #fff,0 0 0 4px var(--ludo-color),0 3px 8px #38202a45; }
 .ludo-token-arrive { animation:ludo-arrive .3s ease-out; }
