@@ -23,13 +23,14 @@ const app = firebaseReady ? initializeApp(firebaseConfig) : null;
 //    browserLocalPersistence stores the Firebase Auth session in
 //    IndexedDB/localStorage instead of session-only memory.
 export const auth = app ? getAuth(app) : null;
-if (auth) {
-  // Fire-and-forget: Auth still works even if persistence setup races.
-  // Any failure is logged so login can surface it.
-  setPersistence(auth, browserLocalPersistence).catch(error => {
-    console.warn("Firebase Auth persistence could not be set to local:", error);
-  });
-}
+// Auth initialization/sign-in must wait for persistence selection. Otherwise a
+// quick submit can race the asynchronous persistence change on a cold launch.
+export const authPersistenceReady = auth
+  ? setPersistence(auth, browserLocalPersistence).catch(error => {
+      console.warn("Firebase Auth persistence could not be set to local:", error);
+      throw error;
+    })
+  : Promise.resolve();
 
 // 3) Firestore Offline Persistence — previously fetched photos metadata,
 //    post history, and couple logs stay readable offline via IndexedDB.

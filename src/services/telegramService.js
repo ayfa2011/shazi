@@ -233,6 +233,16 @@ export function getTelegramMediaUrl(fileId, mimeType = "application/octet-stream
   return mediaUrlCache.get(cacheKey);
 }
 
+/** Return a cached media URL immediately without starting a network request. */
+export async function getCachedTelegramMediaUrl(fileId, mimeType = "application/octet-stream") {
+  if (!fileId) return null;
+  const key = mediaCacheKey(fileId, mimeType);
+  const cached = await idbGet(key).catch(() => null);
+  if (!cached?.blob) return null;
+  if (!mediaUrlCache.has(key)) mediaUrlCache.set(key, Promise.resolve(URL.createObjectURL(cached.blob)));
+  return mediaUrlCache.get(key);
+}
+
 /**
  * Drop a cached blob URL so the browser can release the media bytes.
  * Safe to call for unknown ids; a rejected or in-flight request is discarded.

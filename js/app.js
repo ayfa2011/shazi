@@ -21,7 +21,7 @@ import { renderDrawing, disposeDrawing } from "./drawing.js";
 import { renderChallenges, disposeChallenges } from "./challenges.js";
 import { initMusic } from "./music.js";
 import { firebaseReady } from "./firebase.js";
-import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
+import { getTelegramMediaUrl, getCachedTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
 import { saveCoupleProfile, watchCoupleProfiles } from "./firestore.js";
 import { applyCoupleProfiles, findProfileForAuthor, getDisplayName, getProfileKey, hydrateCoupleProfileAvatars } from "./profile-data.js";
 
@@ -751,10 +751,17 @@ function renderPostFeed(el, user, profile) {
     }).join("");
 
     feed.querySelectorAll("img[data-telegram-file-id]").forEach(image => {
-      getTelegramMediaUrl(image.dataset.telegramFileId, image.dataset.telegramMime || "image/jpeg")
-        .then(url => { if (image.isConnected) image.src = url; })
-        .catch(error => { console.error("Post photo could not load from Telegram:", error); });
+      image.loading = "lazy";
+      image.decoding = "async";
+      const fileId = image.dataset.telegramFileId;
+      const mime = image.dataset.telegramMime || "image/jpeg";
+      // Paint cached post photos immediately; only uncached/nearby photos
+      // should start an authenticated media request.
+      void getCachedTelegramMediaUrl(fileId, mime).then(cachedUrl => {
+        if (cachedUrl && image.isConnected) image.src = cachedUrl;
+      }).catch(() => {});
     });
+    hydratePostImages(feed);
     hydrateVoicePlayers(feed);
 
     visiblePosts.forEach((post) => {
@@ -849,6 +856,25 @@ function renderPostFeed(el, user, profile) {
       }
     });
     if (detailPostId) renderPostDetail();
+  }
+
+  function hydratePostImages(root) {
+    const pending = [...root.querySelectorAll("img[data-telegram-file-id]:not([src])")];
+    const load = image => {
+      if (!image.isConnected || image.src || image.dataset.loadingMedia) return;
+      image.dataset.loadingMedia = "1";
+      getTelegramMediaUrl(image.dataset.telegramFileId, image.dataset.telegramMime || "image/jpeg")
+        .then(url => { if (image.isConnected) image.src = url; })
+        .catch(error => console.error("Post photo could not load from Telegram:", error))
+        .finally(() => { delete image.dataset.loadingMedia; });
+    };
+    if (!("IntersectionObserver" in window)) { pending.slice(0, 4).forEach(load); return; }
+    const observer = new IntersectionObserver(entries => entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      observer.unobserve(entry.target);
+      load(entry.target);
+    }), { rootMargin: "300px" });
+    pending.forEach(image => observer.observe(image));
   }
 
   detailModal.addEventListener("click", event => { if (event.target === detailModal) closePostDetail(); });

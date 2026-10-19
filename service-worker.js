@@ -9,7 +9,7 @@
  *    (Firestore IndexedDB, olw-media-cache) own offline behavior.
  */
 const CACHE_PREFIX = "our-little-world-";
-const CACHE_VERSION = "v9";
+const CACHE_VERSION = "v10";
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${new URL(self.registration.scope).pathname}-${CACHE_VERSION}`;
 const STATIC_CACHE = `${CACHE_PREFIX}static-${new URL(self.registration.scope).pathname}-${CACHE_VERSION}`;
 
@@ -50,17 +50,13 @@ function isStaticAsset(url) {
 async function cacheFirstThenNetwork(request, cacheName) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
-  const networkPromise = fetch(request).then(response => {
-    if (response && response.ok) cache.put(request, response.clone()).catch(() => {});
-    return response;
-  }).catch(() => null);
-  // Cache-First: instant offline-capable response; SWR refresh happens behind.
   if (cached) {
-    // Revalidate in background without delaying the response.
-    networkPromise.catch(() => {});
+    // Static assets are versioned by deployment; avoid re-fetching every JS,
+    // CSS and icon on every navigation. The next install precaches the shell.
     return cached;
   }
-  const network = await networkPromise;
+  const network = await fetch(request);
+  if (network?.ok) cache.put(request, network.clone()).catch(() => {});
   if (network) return network;
   throw new Error(`No cached response is available for ${request.url}`);
 }
@@ -69,6 +65,14 @@ self.addEventListener("install", event => {
   event.waitUntil(
     caches.open(SHELL_CACHE)
       .then(cache => cache.addAll(SHELL_FILES))
+      .then(() => caches.open(STATIC_CACHE))
+      .then(cache => cache.addAll([
+        "js/app.js", "js/firebase.js", "js/auth.js", "js/utils.js",
+        "js/firestore.js", "js/components.js", "js/dashboard.js",
+        "js/memories.js", "js/gallery.js", "js/letters.js", "js/questions.js",
+        "js/question-service.js", "js/profile-data.js", "src/services/telegramService.js",
+        "config/app-config.js", "config/telegram-config.js"
+      ].map(path => new URL(path, self.registration.scope).href)))
       .then(() => self.skipWaiting())
   );
 });
@@ -129,8 +133,7 @@ self.addEventListener("fetch", event => {
   }
 
   // Static files (HTML/CSS/JS/icons/fonts/local images):
-  // Cache-First + Stale-While-Revalidate — instant load from cache,
-  // refreshed silently in the background for next launch.
+  // Cache-First — static resources return immediately from local storage.
   if (isStaticAsset(url)) {
     event.respondWith(cacheFirstThenNetwork(request, STATIC_CACHE));
     return;

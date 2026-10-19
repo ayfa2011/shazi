@@ -18,6 +18,16 @@ button,input,textarea,select{font:inherit} button{cursor:pointer;border:0}
 .eyebrow{font-size:11px;letter-spacing:.18em;color:var(--deep);font-weight:700}
 h1,h2,h3{font-family:"Playfair Display",serif} h1{font-size:40px;margin:12px 0 4px} h2{margin:2px 0;font-size:26px} h3{font-size:22px}
 form{display:grid;gap:14px;text-align:left;margin-top:24px}label{display:grid;gap:7px;font-size:13px;font-weight:600}
+.login-profile-picker{min-width:0;margin:0;padding:0;border:0;text-align:center}
+.login-profile-picker legend{width:100%;margin-bottom:16px;color:var(--muted);font-size:14px;font-weight:700}
+.login-profile-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.login-profile-option{display:grid;justify-items:center;gap:10px;padding:12px 8px;border:2px solid transparent;border-radius:22px;background:#fff9fc;color:var(--deep);transition:border-color .18s,background .18s,transform .18s}
+.login-profile-option:hover{transform:translateY(-2px);background:#fff2f7}
+.login-profile-option:focus-visible{outline:3px solid #ef6d9f66;outline-offset:2px}
+.login-profile-option[aria-pressed="true"]{border-color:var(--pink);background:#fff0f6;box-shadow:0 8px 20px #ef6d9f20}
+.login-profile-option img{width:clamp(92px,28vw,138px);height:clamp(92px,28vw,138px);border:4px solid #fff;border-radius:50%;object-fit:cover;box-shadow:0 8px 20px #8f315d20}
+.login-profile-option span{font-family:"Nunito",sans-serif;font-size:clamp(21px,6vw,27px);font-weight:900;line-height:1.1}
+.login-password-label.hidden,.login-profile-option.hidden{display:none}
 input,textarea,select{border:1px solid var(--line);border-radius:14px;padding:13px;background:#fff;color:var(--text);outline:none}
 input:focus,textarea:focus{border-color:var(--pink);box-shadow:0 0 0 4px #ef6d9f18}
 .primary,.secondary,.icon-btn,.avatar{border-radius:14px;padding:12px 16px}.primary{background:var(--pink);color:white;box-shadow:0 8px 20px #ef6d9f33}.secondary{background:#ffe7f0;color:var(--deep)}.full{width:100%}

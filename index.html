@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#f06a9b">
   <title>Keby &amp; Shazy — Our Little World</title>
-  <link rel="manifest" href="manifest.webmanifest">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/app-icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/app-icon-192.png">
@@ -27,15 +26,22 @@
       <h1 id="login-title">Our Little World</h1>
       <p class="muted">Two hearts. One little space.</p>
       <form id="login-form">
-        <label>Who is signing in?
-          <select id="login-user" required autocomplete="username">
-            <option value="">Choose your name</option>
-            <option value="kebyy">Keby</option>
-            <option value="shazy">Shazy</option>
-          </select>
-        </label>
-        <label>Password<input id="login-password" type="password" required autocomplete="current-password"></label>
-        <button class="primary full" type="submit">Enter our world ♡</button>
+        <fieldset class="login-profile-picker">
+          <legend>Choose your profile</legend>
+          <div class="login-profile-options">
+            <button class="login-profile-option" type="button" data-profile="kebyy" aria-pressed="false">
+              <img src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&amp;fit=crop&amp;w=256&amp;h=256&amp;q=80" alt="">
+              <span>Keby</span>
+            </button>
+            <button class="login-profile-option" type="button" data-profile="shazy" aria-pressed="false">
+              <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&amp;fit=crop&amp;w=256&amp;h=256&amp;q=80" alt="">
+              <span>Shazy</span>
+            </button>
+          </div>
+        </fieldset>
+        <input id="login-user" type="hidden" value="">
+        <label id="login-password-label" class="login-password-label hidden">Password<input id="login-password" type="password" autocomplete="current-password" disabled></label>
+        <button id="login-submit" class="primary full hidden" type="submit" disabled>Enter our world ♡</button>
       </form>
       <p id="auth-error" class="error" role="alert" aria-live="polite"></p>
     </div>
@@ -114,18 +120,5 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script type="module" src="js/app.js"></script>
-  <script>
-    // 2) Service Worker registration (classic script = widest mobile support).
-    // js/app.js also registers via module; this inline fallback covers the
-    // case where the module graph fails before its DOMContentLoaded handler.
-    // `service-worker.js` is canonical; `sw.js` is kept as a legacy alias.
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", function () {
-        navigator.serviceWorker.register("service-worker.js", { scope: "./" }).catch(function (error) {
-          console.warn("Offline app support could not be installed:", error);
-        });
-      });
-    }
-  </script>
 </body>
 </html>
