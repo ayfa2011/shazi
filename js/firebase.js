@@ -2,7 +2,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebas
 import {
   getAuth,
   setPersistence,
-  browserLocalPersistence
+  browserSessionPersistence
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 import {
   getFirestore,
@@ -18,16 +18,14 @@ export const firebaseReady = ["apiKey", "authDomain", "projectId", "appId", "dat
 );
 const app = firebaseReady ? initializeApp(firebaseConfig) : null;
 
-// 1) Persistent Authentication — stay signed in permanently (survives
-//    tab close, browser restart, and mobile browser restarts).
-//    browserLocalPersistence stores the Firebase Auth session in
-//    IndexedDB/localStorage instead of session-only memory.
+// Keep authentication only for this browser tab session so reopening the app
+// always presents the profile picker and requires an explicit login.
 export const auth = app ? getAuth(app) : null;
 // Auth initialization/sign-in must wait for persistence selection. Otherwise a
 // quick submit can race the asynchronous persistence change on a cold launch.
 export const authPersistenceReady = auth
-  ? setPersistence(auth, browserLocalPersistence).catch(error => {
-      console.warn("Firebase Auth persistence could not be set to local:", error);
+  ? setPersistence(auth, browserSessionPersistence).catch(error => {
+      console.warn("Firebase Auth session persistence could not be set:", error);
       throw error;
     })
   : Promise.resolve();

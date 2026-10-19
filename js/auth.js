@@ -1,26 +1,79 @@
 import { auth, firebaseReady, authPersistenceReady } from "./firebase.js";
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 import { APP_CONFIG } from "../config/app-config.js";
+import { getCachedTelegramMediaUrl } from "../src/services/telegramService.js";
 import { $, toastError } from "./utils.js";
 
 export function initAuth(onLogin,onLogout){
   const loginForm = $("#login-form");
   const profileInput = $("#login-user");
+  const emailInput = $("#login-email");
   const passwordInput = $("#login-password");
   const passwordLabel = $("#login-password-label");
   const submitButton = $("#login-submit");
   const profileButtons = [...document.querySelectorAll(".login-profile-option")];
+  sessionStorage.removeItem("olw-explicit-login");
+  try {
+    const saved = JSON.parse(localStorage.getItem("olw-login-profiles") || "{}");
+    for (const [key, fields] of Object.entries(saved)) {
+      if (APP_CONFIG.profiles[key] && fields && typeof fields === "object") Object.assign(APP_CONFIG.profiles[key], fields);
+    }
+  } catch { /* Ignore an incomplete local profile cache. */ }
+  const renderLoginProfiles = () => {
+    const saved = {};
+    profileButtons.forEach(button => {
+      const key = button.dataset.profile;
+      const person = APP_CONFIG.profiles[key];
+      const image = button.querySelector("[data-login-profile-image]");
+      const name = button.querySelector("span:last-child");
+      if (person) saved[key] = {
+        name: person.name || "",
+        avatar: person.avatar?.startsWith("blob:") ? "" : (person.avatar || ""),
+        avatarTelegramFileId: person.avatarTelegramFileId || "",
+        avatarMimeType: person.avatarMimeType || "image/jpeg"
+      };
+      if (image && person?.avatar && !person.avatar.startsWith("blob:")) image.src = person.avatar;
+      else image?.removeAttribute("src");
+      if (name) name.textContent = person?.name || key;
+      if (image && person?.avatarTelegramFileId && !image.dataset.hydrating) {
+        image.dataset.hydrating = "1";
+        void getCachedTelegramMediaUrl(person.avatarTelegramFileId, person.avatarMimeType || "image/jpeg")
+          .then(url => { if (url && image.isConnected) image.src = url; })
+          .catch(() => {})
+          .finally(() => { delete image.dataset.hydrating; });
+      }
+    });
+    try { localStorage.setItem("olw-login-profiles", JSON.stringify(saved)); } catch { /* Best effort profile-photo cache. */ }
+  };
+  renderLoginProfiles();
+  window.addEventListener("couple-profiles-updated", renderLoginProfiles);
   profileButtons.forEach(button => button.addEventListener("click", () => {
     const profileKey = button.dataset.profile;
     if (!APP_CONFIG.profiles[profileKey]) return;
     profileInput.value = profileKey;
+    emailInput.value = APP_CONFIG.profiles[profileKey].email || "";
+    passwordInput.value = "";
     profileButtons.forEach(option => option.setAttribute("aria-pressed", String(option === button)));
+    passwordLabel.classList.add("hidden");
+    passwordInput.disabled = true;
+    passwordInput.required = false;
+    submitButton.classList.add("hidden");
+    submitButton.disabled = true;
+    $("#auth-error").textContent = "";
+    if (!firebaseReady) { $("#auth-error").textContent = "Firebase is not connected yet."; return; }
+    button.disabled = true;
     passwordLabel.classList.remove("hidden");
     passwordInput.disabled = false;
     passwordInput.required = true;
     submitButton.classList.remove("hidden");
     submitButton.disabled = false;
     passwordInput.focus();
+    button.disabled = false;
+    // If the browser password manager has saved credentials, an explicit
+    // profile tap may use its autofill. The app itself never stores passwords.
+    setTimeout(() => {
+      if (profileInput.value === profileKey && passwordInput.value) loginForm.requestSubmit();
+    }, 250);
   }));
   loginForm.addEventListener("submit",async e=>{
     e.preventDefault(); $("#auth-error").textContent="";
@@ -29,7 +82,7 @@ export function initAuth(onLogin,onLogout){
     if(!passwordInput.value){passwordInput.focus();$("#auth-error").textContent="Enter your password to continue.";return}
     if(!profile.email){$("#auth-error").textContent="No Firebase account is linked to this name yet.";return}
     if(!firebaseReady){$("#auth-error").textContent="Firebase is not connected yet. Add your Firebase web config first.";return}
-    try{submitButton.disabled=true;await authPersistenceReady;await signInWithEmailAndPassword(auth,profile.email,passwordInput.value)}
+    try{submitButton.disabled=true;await authPersistenceReady;await signInWithEmailAndPassword(auth,profile.email,passwordInput.value);sessionStorage.setItem("olw-explicit-login", "1")}
     catch(err){
       const messages={
         "auth/invalid-credential":"The Firebase email or password does not match. Check the password saved for this account in Firebase Authentication.",
@@ -41,12 +94,21 @@ export function initAuth(onLogin,onLogout){
       };
       toastError(messages[err.code]||`Login failed (${err.code||"unknown error"}). Check Firebase Authentication settings.`);
     } finally { submitButton.disabled = false; }
-  });
+      });
   if(firebaseReady) authPersistenceReady.then(()=>onAuthStateChanged(auth,user=>{
-    if(user) onLogin(user,getProfile(user.email)); else onLogout();
+    if (!user) {
+      onLogout();
+      return;
+    }
+    if (!sessionStorage.getItem("olw-explicit-login")) {
+      void signOut(auth);
+      onLogout();
+      return;
+    }
+    onLogin(user,getProfile(user.email));
   })).catch(error=>{console.error("Firebase Auth persistence initialization failed:",error);$("#auth-error").textContent="Sign-in storage is unavailable in this browser. Check browser storage settings and try again.";});
 }
-export function logout(){return signOut(auth)}
+export function logout(){sessionStorage.removeItem("olw-explicit-login");return signOut(auth)}
 export function getProfile(email){
   const p=Object.values(APP_CONFIG.profiles).find(x=>x.email.toLowerCase()===email?.toLowerCase());
   return p || {id:email,name:"Our Love",emoji:"♡"};

@@ -332,18 +332,22 @@ export function renderLetters(el, user, profile) {
       .letter-replies-section { margin-top:18px; }
       .letter-replies-title { font-size:12px; font-weight:800; color:#754258; margin:0 0 8px; letter-spacing:.02em; }
       .letter-reply-card {
-        margin-bottom:8px; padding:12px 14px 10px 46px;
-        position:relative;
-        border:1px solid #f0dce6;
-        border-left:4px solid #c9a0b8;
-        border-radius:12px;
-        background:linear-gradient(145deg,#fff8fc,#fffdf9);
-        box-shadow:0 3px 10px #74314908;
+        display:flex; align-items:center; gap:12px; width:100%; box-sizing:border-box;
+        margin-bottom:9px; padding:13px 15px; position:relative; text-align:left;
+        border:1px solid #f0d6e2; border-left:4px solid #c98eae; border-radius:16px;
+        background:linear-gradient(125deg,#fff8fb 0%,#fffdf9 65%,#fff4f8 100%);
+        box-shadow:0 5px 16px #7431490b; color:inherit; cursor:pointer;
+        transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;
+        font:inherit; touch-action:manipulation;
       }
-      .letter-reply-card::before { content:"↩"; position:absolute; left:14px; top:12px; color:#c680a4; font-size:18px; line-height:1; }
-      .letter-reply-card-head { font-size:11px; color:#8c7180; margin:0 0 4px; font-weight:700; }
-      .letter-reply-card-body { font-family:"Caveat","Segoe Print","Bradley Hand",cursive; font-size:19px; line-height:28px; color:#1e3150; white-space:pre-wrap; overflow-wrap:anywhere; }
-      .letter-reply-card-body p { margin:0; }
+      .letter-reply-card:hover { transform:translateY(-1px); border-color:#e5adc6; box-shadow:0 8px 20px #74314912; }
+      .letter-reply-card:focus-visible { outline:3px solid #e9a4c0; outline-offset:3px; }
+      .letter-reply-envelope { width:43px; height:38px; flex:none; display:grid; place-items:center; border:1px solid #f0c9d9; border-radius:11px; background:linear-gradient(145deg,#fff,#ffe7f0); font-size:21px; box-shadow:0 3px 8px #9a476310; }
+      .letter-reply-card-copy { min-width:0; flex:1; }
+      .letter-reply-card-head { font-size:12px; color:#714457; margin:0 0 4px; font-weight:800; }
+      .letter-reply-card-hint { display:flex; align-items:center; gap:5px; color:#b34b79; font-size:11px; font-weight:700; }
+      .letter-reply-card-date { display:block; margin-top:3px; color:#9b8790; font-size:10px; font-weight:500; }
+      .letter-reply-card-arrow { flex:none; color:#c680a4; font-size:20px; }
       .letter-replies-empty { font-size:12px; color:#9b8790; font-style:italic; }
 
       .read-letter-actions { display:flex; flex-wrap:wrap; justify-content:center; gap:8px 18px; margin-top:14px; }
@@ -1064,29 +1068,50 @@ export function renderLetters(el, user, profile) {
       <p class="letter-replies-title">Replies (${replies.length})</p>
       ${replies.map(reply => {
         const when = asDate(reply.createdAt) || asDate(reply.deliverDate);
-        const whenStr = when ? when.toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "";
+        const whenStr = when ? when.toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "A little note, just for you";
         const who = getDisplayName(reply.author, reply.authorName || "Us");
-        return `<article class="letter-reply-card">
-          <p class="letter-reply-card-head">${esc(who)} · ${esc(whenStr)}</p>
-          <div class="letter-reply-card-body" data-reply-body-id="${esc(reply.id)}"></div>
-        </article>`;
+        return `<button class="letter-reply-card" type="button" data-open-reply-id="${esc(reply.id)}" aria-label="Open letter reply from ${esc(who)}">
+          <span class="letter-reply-envelope" aria-hidden="true">💌</span>
+          <span class="letter-reply-card-copy">
+            <span class="letter-reply-card-head">${esc(who)}</span>
+            <span class="letter-reply-card-hint">Tap to open letter <span aria-hidden="true">♡</span></span>
+            <span class="letter-reply-card-date">${esc(whenStr)}</span>
+          </span>
+          <span class="letter-reply-card-arrow" aria-hidden="true">›</span>
+        </button>`;
       }).join("")}
     `;
 
-    replies.forEach(reply => {
-      const target = repliesContainer.querySelector(`[data-reply-body-id="${CSS.escape(reply.id)}"]`);
-      if (!target) return;
-      const renderReplyBody = bodyContent => {
-        if (!target.isConnected) return;
-        renderLetterBody(target, bodyContent || "");
-        const body = target.querySelector(".letter-rich-text");
-        if (body) body.style.fontSize = "calc(19px * var(--letter-font-scale, 1))";
+    repliesContainer.querySelectorAll("[data-open-reply-id]").forEach(button => {
+      button.onclick = async () => {
+        const reply = allLetters.find(item => item.id === button.dataset.openReplyId);
+        if (!reply) return;
+        const generation = ++openingLetterGeneration;
+        try {
+          const body = reply.status === "Scheduled"
+            ? reply.body || await getScheduledLetterBody(reply.id)
+            : reply.body || "";
+          if (generation !== openingLetterGeneration || !active || !el.isConnected) return;
+          openedLetter = reply;
+          const senderProfile = findProfileForAuthor(reply.author, reply.authorName || "");
+          const senderName = getDisplayName(reply.author, reply.authorName || "Us");
+          const sentAt = asDate(reply.createdAt) || asDate(reply.deliverDate);
+          const avatar = senderProfile?.avatar ? `<img src="${esc(senderProfile.avatar)}" alt="">` : esc(senderName[0] || "♡");
+          const dateTime = sentAt ? `${sentAt.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })} · ${sentAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "A little note, written just for you";
+          $("#read-letter-paper-header", el).innerHTML = `<span class="letter-paper-avatar">${avatar}</span><span class="letter-paper-meta-text">${esc(senderName)} · ${esc(dateTime)}</span>`;
+          renderLetterBody($("#read-letter-paper-text", el), body);
+          renderLetterReplies(reply);
+          replyBtn.hidden = true;
+          deleteLetterBtn.hidden = true;
+          previewSendBtn.hidden = true;
+          closeReadBtn.textContent = "Close letter";
+          openModal(readModal);
+          readModal.scrollTop = 0;
+        } catch (error) {
+          console.error("Could not open reply letter:", error);
+          toast(error.message || "Could not open this reply letter.");
+        }
       };
-      if (reply.status === "Scheduled" && !reply.body) {
-        getScheduledLetterBody(reply.id).then(renderReplyBody).catch(error => {
-          if (target.isConnected) target.textContent = error.message || "This reply could not be opened.";
-        });
-      } else renderReplyBody(reply.body || "");
     });
   }
 

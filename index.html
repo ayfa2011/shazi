@@ -30,16 +30,17 @@
           <legend>Choose your profile</legend>
           <div class="login-profile-options">
             <button class="login-profile-option" type="button" data-profile="kebyy" aria-pressed="false">
-              <img src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&amp;fit=crop&amp;w=256&amp;h=256&amp;q=80" alt="">
+              <span class="login-profile-photo"><img data-login-profile-image="kebyy" alt=""><span class="verified-badge" role="img" aria-label="Verified profile"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 10.2 3.1 3.1L15.3 6"/></svg></span></span>
               <span>Keby</span>
             </button>
             <button class="login-profile-option" type="button" data-profile="shazy" aria-pressed="false">
-              <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&amp;fit=crop&amp;w=256&amp;h=256&amp;q=80" alt="">
+              <span class="login-profile-photo"><img data-login-profile-image="shazy" alt=""><span class="verified-badge" role="img" aria-label="Verified profile"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 10.2 3.1 3.1L15.3 6"/></svg></span></span>
               <span>Shazy</span>
             </button>
           </div>
         </fieldset>
         <input id="login-user" type="hidden" value="">
+        <input id="login-email" type="text" autocomplete="username" tabindex="-1" aria-hidden="true" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none">
         <label id="login-password-label" class="login-password-label hidden">Password<input id="login-password" type="password" autocomplete="current-password" disabled></label>
         <button id="login-submit" class="primary full hidden" type="submit" disabled>Enter our world ♡</button>
       </form>

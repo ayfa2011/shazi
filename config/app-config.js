@@ -8,7 +8,7 @@ export const APP_CONFIG = {
       emoji: "♡",
       bio: "Collecting little moments with my favorite person ♡",
       bioConfigured: false,
-      avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=256&h=256&q=80"
+      avatar: ""
     },
     shazy: {
       id: "profile-two",
@@ -17,7 +17,7 @@ export const APP_CONFIG = {
       emoji: "♡",
       bio: "Finding joy in our everyday little adventures ✨",
       bioConfigured: false,
-      avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&h=256&q=80"
+      avatar: ""
     }
   }
 };

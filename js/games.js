@@ -157,6 +157,11 @@ function makeSosWaitingState(uid, name) {
   };
 }
 
+function secondsUntilTurn(state) {
+  if (!state?.turnDeadline) return SOS_TURN_SECONDS;
+  return Math.max(0, Math.ceil((state.turnDeadline - (Date.now() + sosServerTimeOffset)) / 1000));
+}
+
 function gameIsComplete(game, state) {
   if (!state) return false;
   if (game === "memory-match") return Array.isArray(state.matched) && Array.isArray(state.cards) &&
@@ -270,8 +275,11 @@ function formatGameScore(game, score) {
 }
 
 function gamePlayerProfile(uid, fallbackName = "") {
-  return Object.values(APP_CONFIG.profiles).find(person => person.authUid === uid || person.id === uid ||
-    fallbackName && person.name?.toLocaleLowerCase() === fallbackName.toLocaleLowerCase()) || {};
+  return Object.values(APP_CONFIG.profiles).find(person => person.authUid === uid || person.id === uid) ||
+    Object.values(APP_CONFIG.profiles).find(person => fallbackName && (
+      person.name?.toLocaleLowerCase() === fallbackName.toLocaleLowerCase() ||
+      person.previousNames?.some(name => name.toLocaleLowerCase() === fallbackName.toLocaleLowerCase())
+    )) || {};
 }
 
 function gamePlayerAvatar(uid, fallbackName = "") {
@@ -589,7 +597,7 @@ function renderSosGame(content, user, gameState, presence, pendingCell) {
           ? "Waiting for your partner to join from their device…"
         : "Your partner has started a match. Join to play!"
       : playing
-        ? state.turnUid === uid ? "Your turn — tap an empty square, then choose S or O." : "Your partner's turn…"
+        ? state.turnUid === uid ? "Tap an empty square, then choose S or O." : "Waiting for the other player…"
         : finished
           ? state.winnerUid ? state.winnerUid === uid ? "You won! 🎉" : "Your partner won this round!" : "It's a tie! 🤝"
           : "This match was cancelled.";
@@ -600,8 +608,10 @@ function renderSosGame(content, user, gameState, presence, pendingCell) {
     const playerData = state?.players?.[playerUid] || {};
     const playerName = getDisplayName(playerUid, playerData.name || (playerUid === uid ? "You" : "Partner"));
     const score = state?.scores?.[playerUid] || 0;
-    return `<div class="sos-player-card ${color}${state?.turnUid === playerUid && playing ? " turn-active" : ""}">
-      <span class="sos-avatar-wrap">${gamePlayerAvatar(playerUid, playerName)}<i class="sos-presence${isOnline ? " online" : ""}" aria-label="${isOnline ? "Online" : "Offline"}"></i></span>
+    const isTurn = state?.turnUid === playerUid && playing;
+    const playerSecondsLeft = isTurn ? secondsUntilTurn(state) : 0;
+    return `<div class="sos-player-card ${color}${isTurn ? " turn-active" : ""}">
+      <span class="sos-avatar-wrap${isTurn ? " sos-avatar-turn" : ""}"${isTurn ? ` style="--sos-turn-progress:${playerSecondsLeft / SOS_TURN_SECONDS}"` : ""}>${gamePlayerAvatar(playerUid, playerName)}${isTurn ? `<span class="sos-avatar-countdown" data-sos-countdown>${String(playerSecondsLeft).padStart(2, "0")}</span>` : ""}<i class="sos-presence${isOnline ? " online" : ""}" aria-label="${isOnline ? "Online" : "Offline"}"></i></span>
       <span class="sos-player-details"><span class="sos-player-name">${esc(playerName)}</span><span class="sos-player-label">${color === "blue" ? "Blue Player" : "Red Player"}</span></span>
       <strong class="sos-live-score">${score}</strong>
     </div>`;
@@ -638,7 +648,7 @@ function renderSosGame(content, user, gameState, presence, pendingCell) {
           : `<button type="button" class="secondary sos-action" disabled>Waiting for your partner</button>`
         : "";
 
-  const secondsLeft = playing ? Math.max(0, Math.ceil((state.turnDeadline - (Date.now() + sosServerTimeOffset)) / 1000)) : SOS_TURN_SECONDS;
+  const secondsLeft = playing ? secondsUntilTurn(state) : SOS_TURN_SECONDS;
   const lineMarkup = (state?.lines || []).map(line => {
     const first = line.cells[0];
     const last = line.cells[2];
@@ -656,7 +666,7 @@ function renderSosGame(content, user, gameState, presence, pendingCell) {
     <div class="sos-board-frame"><div class="sos-board" role="grid" aria-label="SOS game board, ${SOS_COLUMNS} columns by ${SOS_ROWS} rows" style="grid-template-columns: repeat(${SOS_COLUMNS}, minmax(0, 1fr)); grid-template-rows: repeat(${SOS_ROWS}, minmax(0, 1fr));">${cells}<svg class="sos-lines" viewBox="0 0 ${SOS_COLUMNS * 100} ${SOS_ROWS * 100}" preserveAspectRatio="none" aria-hidden="true">${lineMarkup}</svg></div></div>
     ${result ? `<div class="sos-result" aria-live="polite">${result}<span>${ownScore} : ${partnerScore}</span></div>` : ""}
     <footer class="sos-presence-strip"><span class="sos-online-label${presence?.[uid]?.online ? " online" : ""}"><i></i>${presence?.[uid]?.online ? "ONLINE" : "OFFLINE"}<small>You</small></span><span class="sos-tap-hint">Tap an empty cell to choose a letter</span>${partnerUid ? `<span class="sos-online-label${partnerOnline ? " online" : ""}"><i></i>${partnerOnline ? "ONLINE" : "OFFLINE"}<small>${esc(getDisplayName(partnerUid, state?.players?.[partnerUid]?.name || "Partner"))}</small></span>` : `<span class="sos-online-label"><i></i>OFFLINE<small>Partner</small></span>`}</footer>
-    <div class="sos-timer" aria-live="off"><span aria-hidden="true">♡</span><b>◷</b><span>Time Left</span><strong data-sos-countdown>${String(secondsLeft).padStart(2, "0")}</strong><span aria-hidden="true">♡</span></div>
+    ${playing ? "" : `<div class="sos-timer" aria-live="off"><span aria-hidden="true">♡</span><b>◷</b><span>Time Left</span><strong>${String(secondsLeft).padStart(2, "0")}</strong><span aria-hidden="true">♡</span></div>`}
     <div class="sos-actions">${startAction}${member && playing ? `<button type="button" class="secondary sos-action" data-sos-leave>Leave game</button>` : ""}</div>
   </section>`;
 }
@@ -847,9 +857,9 @@ export function renderGames(el, user, profile) {
     });
     sosClock = setInterval(() => {
       if (activeGame !== "sos" || !isValidSosState(sosGameState) || sosGameState.status !== "playing") return;
-      const remaining = Math.max(0, Math.ceil((sosGameState.turnDeadline - sosNow()) / 1000));
-      const countdown = $("[data-sos-countdown]", el);
-      if (countdown) countdown.textContent = String(remaining).padStart(2, "0");
+      const remaining = secondsUntilTurn(sosGameState);
+      el.querySelectorAll("[data-sos-countdown]").forEach(countdown => { countdown.textContent = String(remaining).padStart(2, "0"); });
+      el.querySelector(".sos-avatar-turn")?.style.setProperty("--sos-turn-progress", String(remaining / SOS_TURN_SECONDS));
       if (remaining === 0) void expireSosTurn(sosGameState.turnNumber, sosGameState.turnDeadline);
     }, 250);
   }

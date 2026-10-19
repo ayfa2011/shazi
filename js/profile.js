@@ -29,6 +29,7 @@ export function renderProfile(el, user, profile) {
       .profile-photo-preview:focus-visible { outline:3px solid #d94f8a; outline-offset:5px; }
       .profile-photo-preview::after { content:"✎"; position:absolute; right:5px; bottom:6px; width:38px; height:38px; display:grid; place-items:center; border:3px solid #fff; border-radius:50%; background:#e65391; color:#fff; font-size:19px; line-height:1; box-shadow:0 4px 12px #a43f6c35; pointer-events:none; }
       .profile-photo-preview img { width:100%; height:100%; object-fit:cover; border-radius:50%; transition:transform .35s ease; }
+      .profile-photo-preview .verified-badge { z-index:1; right:3px; bottom:5px; width:38px; height:38px; }
       .profile-photo-preview:hover img { transform:scale(1.04); }
       .profile-photo-picker { display:none !important; }
       .profile-photo-dialog { position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:22px; background:#29151f75; backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px); opacity:0; visibility:hidden; transition:opacity .22s ease,visibility .22s ease; }
@@ -61,6 +62,7 @@ export function renderProfile(el, user, profile) {
       <article class="profile-edit-card">
         <button type="button" class="profile-photo-preview" data-preview="${esc(ownProfileKey)}" aria-label="Change profile photo" aria-haspopup="dialog">
           ${avatar ? `<img src="${esc(avatar)}" alt="">` : esc((person.name || "♡")[0])}
+          <span class="verified-badge" role="img" aria-label="Verified profile"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 10.2 3.1 3.1L15.3 6"/></svg></span>
         </button>
         <div class="profile-form-fields">
           <form data-profile-form="${esc(ownProfileKey)}">
