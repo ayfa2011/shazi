@@ -373,6 +373,68 @@ export function renderLetters(el, user, profile) {
       .read-letter-actions .letter-delete-btn { color:#bd3158; }
       .read-letter-actions button:disabled { opacity:.55; cursor:wait; }
 
+      /* A soft keepsake page for reading, with calm typography and room to breathe. */
+      #read-letter-modal .letter-paper {
+        position:relative;
+        width:min(100%,720px);
+        min-height:clamp(320px,52vh,560px);
+        padding-top:8px;
+        border:1px solid #f0d5df;
+        border-radius:20px;
+        background:
+          radial-gradient(ellipse at 100% 0%,#ffe8f0a8,transparent 38%),
+          linear-gradient(180deg,#fffefa,#fffaf8);
+        box-shadow:0 20px 48px #85365318,0 3px 10px #8536530b;
+      }
+      #read-letter-modal .letter-paper::before {
+        content:"";
+        position:absolute;
+        top:0;right:0;left:0;
+        height:6px;
+        border-radius:20px 20px 0 0;
+        background:linear-gradient(90deg,#f5a9c3,#e879a2 48%,#f4c6d4);
+      }
+      #read-letter-modal .letter-paper::after { right:24px; bottom:20px; color:#dc82a5; font-size:25px; }
+      #read-letter-modal .letter-paper-header {
+        justify-content:flex-end;
+        min-height:68px;
+        padding:14px 24px 12px 78px;
+        border-bottom:1px solid #f5e5e9;
+      }
+      #read-letter-modal .letter-paper-avatar { width:42px; height:42px; border:2px solid #fff; box-shadow:0 0 0 2px #efb2c8,0 5px 13px #8e3e5a20; }
+      #read-letter-modal .letter-paper-meta-text { display:grid; gap:3px; color:#9b7181; font:500 12px/1.35 "DM Sans",sans-serif; }
+      #read-letter-modal .letter-paper-meta-text strong { color:#8d3458; font-size:14px; font-weight:800; }
+      #read-letter-modal .letter-paper-meta-text span { color:#a58d96; font-size:11px; }
+      #read-letter-modal .letter-paper-body { flex:1; min-height:150px; padding:22px 36px 16px 78px; }
+      #read-letter-modal .letter-stage-text,
+      #read-letter-modal .letter-rich-text {
+        color:#503440;
+        font:400 clamp(19px,2.5vw,22px)/1.75 Georgia,"Times New Roman",serif;
+        letter-spacing:.01em;
+      }
+      #read-letter-modal .letter-paper-tail { height:54px; }
+      .letter-replies-section { margin-top:24px; }
+      .letter-replies-title { display:flex; align-items:center; gap:8px; color:#783954; font:700 14px/1.3 "DM Sans",sans-serif; }
+      .letter-replies-title::after { content:""; width:38px; height:1px; background:#e9bdcc; }
+      .letter-reply-card { padding:15px 17px; border-color:#f0d2df; border-left-color:#d986a8; border-radius:19px; background:linear-gradient(125deg,#fff 0%,#fff8fb 100%); }
+      .letter-reply-card-head { font-size:14px; }
+      .letter-reply-card-hint { font-size:12px; }
+      .letter-reply-card-date { font-size:11px; }
+      .read-letter-actions { gap:9px; margin:18px auto 0; }
+      .read-letter-actions button { min-height:42px; padding:10px 16px; border:1px solid #f0d5e0; border-radius:999px; background:#fffafd; color:#86556c; font:700 12px/1.2 "DM Sans",sans-serif; text-decoration:none; box-shadow:0 4px 12px #7431490a; }
+      .read-letter-actions .letter-reply-btn { border-color:#d95489; background:linear-gradient(135deg,#e96c9d,#cf4d80); color:#fff; box-shadow:0 7px 17px #d7478030; }
+      .read-letter-actions .letter-delete-btn { color:#a84560; }
+      .read-letter-actions .letter-read-close { border-color:#e7c5d2; background:#fff4f8; color:#75445b; }
+      .read-letter-actions button:hover { transform:translateY(-1px); box-shadow:0 7px 16px #74314916; }
+      @media(max-width:600px) {
+        #read-letter-modal .letter-paper { min-height:clamp(300px,44vh,440px); border-radius:17px; }
+        #read-letter-modal .letter-paper-header { min-height:62px; padding:12px 14px 10px 62px; }
+        #read-letter-modal .letter-paper-body { padding:20px 20px 14px 62px; }
+        #read-letter-modal .letter-paper-tail { height:48px; }
+        .read-letter-actions { gap:8px; }
+        .read-letter-actions button { padding:10px 13px; }
+      }
+
       /* ── Animations ─────────────────────────────────── */
       @keyframes letter-overlay-in { to { opacity:1; } }
       @keyframes letter-modal-in { from { opacity:0; transform:translateY(16px) scale(.97); } to { opacity:1; transform:translateY(0) scale(1); } }
@@ -1017,7 +1079,7 @@ export function renderLetters(el, user, profile) {
           const sentAt = asDate(letter.createdAt) || asDate(letter.deliverDate);
           const avatar = senderProfile?.avatar ? `<img src="${esc(senderProfile.avatar)}" alt="">` : esc(senderName[0] || "♡");
           const dateTime = sentAt ? `${sentAt.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })} · ${sentAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "A little note, written just for you";
-          $("#read-letter-paper-header", el).innerHTML = `<span class="letter-paper-avatar">${avatar}</span><span class="letter-paper-meta-text">${esc(dateTime)}</span>`;
+          $("#read-letter-paper-header", el).innerHTML = `<span class="letter-paper-avatar">${avatar}</span><span class="letter-paper-meta-text"><strong>A letter from ${esc(senderName)}</strong><span>${esc(dateTime)}</span></span>`;
           renderLetterBody($("#read-letter-paper-text", el), body);
           renderLetterReplies(letter);
           const senderKey = senderProfile ? recipientKey(senderProfile.name) : "";
@@ -1116,7 +1178,7 @@ export function renderLetters(el, user, profile) {
           const sentAt = asDate(reply.createdAt) || asDate(reply.deliverDate);
           const avatar = senderProfile?.avatar ? `<img src="${esc(senderProfile.avatar)}" alt="">` : esc(senderName[0] || "♡");
           const dateTime = sentAt ? `${sentAt.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })} · ${sentAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "A little note, written just for you";
-          $("#read-letter-paper-header", el).innerHTML = `<span class="letter-paper-avatar">${avatar}</span><span class="letter-paper-meta-text">${esc(senderName)} · ${esc(dateTime)}</span>`;
+          $("#read-letter-paper-header", el).innerHTML = `<span class="letter-paper-avatar">${avatar}</span><span class="letter-paper-meta-text"><strong>A letter from ${esc(senderName)}</strong><span>${esc(dateTime)}</span></span>`;
           renderLetterBody($("#read-letter-paper-text", el), body);
           renderLetterReplies(reply);
           replyBtn.hidden = true;

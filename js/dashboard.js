@@ -4,6 +4,7 @@ import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 import { formatSpecialDayDate, specialDayCountdown } from "./special-day-utils.js";
 import { ensureDailyQuestion, watchQuestionParticipants } from "./question-service.js";
+import { getCachedTelegramMediaUrl, getTelegramMediaUrl } from "../src/services/telegramService.js";
 
 let stopPosts = null, stopRelationship = null, stopDrawings = null, stopQuestionParticipants = null, stopSpecialDays = null, counterTimer = null, dayRolloverTimer = null, homeRenderToken = 0, postCommentStops = new Map();
 
@@ -326,8 +327,52 @@ export function renderHome(el, user, profile) {
     }
     const imageUrl = latest.photoUrl || (latest.driveFileId
       ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(latest.driveFileId)}&sz=w800`
-      : latest.thumbnailUrl);
-    preview.innerHTML = `<img src="${esc(imageUrl)}" alt="Latest shared drawing">`;
+      : latest.thumbnailUrl || "");
+    if (imageUrl) {
+      delete preview.dataset.drawingFileId;
+      preview.innerHTML = `<img src="${esc(imageUrl)}" alt="Latest shared drawing" loading="eager" decoding="async">`;
+      return;
+    }
+    if (!latest.telegramFileId) {
+      delete preview.dataset.drawingFileId;
+      preview.innerHTML = `<small>Drawing preview unavailable</small>`;
+      return;
+    }
+    const fileId = latest.telegramFileId;
+    preview.dataset.drawingFileId = fileId;
+    preview.innerHTML = `<small>Loading latest drawing…</small>`;
+    const mimeType = latest.mimeType || "image/jpeg";
+    void (async () => {
+      try {
+        const cachedUrl = await getCachedTelegramMediaUrl(fileId, mimeType);
+        const isLatestDrawing = () => isCurrent() && $("#home-drawing-preview", el) === preview && preview.dataset.drawingFileId === fileId;
+        if (!isLatestDrawing()) return;
+        const img = document.createElement("img");
+        img.alt = "Latest shared drawing";
+        img.loading = "eager";
+        img.decoding = "async";
+        let fallbackAttempted = false;
+        img.onerror = () => {
+          if (!cachedUrl || fallbackAttempted || !isLatestDrawing()) {
+            if (isLatestDrawing()) preview.innerHTML = `<small>Drawing preview unavailable</small>`;
+            return;
+          }
+          fallbackAttempted = true;
+          void getTelegramMediaUrl(fileId, mimeType).then(url => {
+            if (isLatestDrawing()) img.src = url;
+          }).catch(error => {
+            console.error("Latest shared drawing could not be loaded:", error);
+            if (isLatestDrawing()) preview.innerHTML = `<small>Drawing preview unavailable</small>`;
+          });
+        };
+        if (!isLatestDrawing()) return;
+        preview.replaceChildren(img);
+        img.src = cachedUrl || await getTelegramMediaUrl(fileId, mimeType);
+      } catch (error) {
+        console.error("Latest shared drawing could not be loaded:", error);
+        if (isCurrent() && $("#home-drawing-preview", el) === preview && preview.dataset.drawingFileId === fileId) preview.innerHTML = `<small>Drawing preview unavailable</small>`;
+      }
+    })();
   }, 1);
 
   function renderQuestionWidget() {
