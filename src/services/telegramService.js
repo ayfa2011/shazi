@@ -20,6 +20,7 @@ const MEDIA_STORE = "media";
 const THUMB_STORE = "thumbs";
 const MEDIA_MAX_ENTRIES = 250;
 const THUMB_MAX_ENTRIES = 400;
+const TELEGRAM_MEDIA_TIMEOUT_MS = 30000;
 
 function openMediaDb() {
   return new Promise((resolve, reject) => {
@@ -65,13 +66,13 @@ export function getCachedThumb(fileId) {
 }
 
 /** Persist a tiny blurred thumbnail for instant blur-up rendering. */
-export function setCachedThumb(fileId, dataUrl) {
+export function setCachedThumb(fileId, dataUrl, kind = "preview") {
   if (!fileId || !dataUrl) return Promise.resolve();
   return openMediaDb().then(db => new Promise((resolve) => {
     try {
       const tx = db.transaction(THUMB_STORE, "readwrite");
       const store = tx.objectStore(THUMB_STORE);
-      store.put({ dataUrl, savedAt: Date.now() }, "thumb::" + fileId);
+      store.put({ dataUrl, kind, savedAt: Date.now() }, "thumb::" + fileId);
       tx.oncomplete = () => { db.close(); resolve(); };
       tx.onerror = () => { try { db.close(); } catch {} resolve(); };
     } catch { try { db.close(); } catch {} resolve(); }
@@ -150,9 +151,8 @@ export async function getTelegramMediaBlob(fileId, mimeType = "application/octet
   // 1) CACHE-FIRST: IndexedDB hit renders instantly with zero network wait.
   const cached = await idbGet(cacheKey).catch(() => null);
   if (cached?.blob) {
-    // Stale-while-revalidate: refresh bytes silently when online so the
-    // next view is fresh, but never block this render on the network.
-    if (navigator.onLine) void refreshMediaInBackground(fileId, mimeType, cacheKey);
+    // Telegram file IDs are immutable. Keep the IndexedDB copy as the source
+    // of truth so opening a cached memory never downloads it again.
     return fixType(cached.blob);
   }
 
@@ -174,32 +174,33 @@ async function fetchMediaFromNetwork(fileId, mimeType) {
   url.searchParams.set("fileId", fileId);
   url.searchParams.set("mimeType", mimeType);
   let response;
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, TELEGRAM_MEDIA_TIMEOUT_MS);
   try {
-    response = await authorizedRequest(url.toString());
+    response = await authorizedRequest(url.toString(), { signal: controller.signal });
+    if (!response.ok) {
+      const cached = await idbGet(cacheKey).catch(() => null);
+      if (cached?.blob) return cached.blob;
+      throw new Error(`Could not load this Telegram media (HTTP ${response.status}).`);
+    }
+    const blob = await response.blob();
+    const requestedType = String(mimeType || "").trim().toLowerCase();
+    if (requestedType && requestedType !== "application/octet-stream" && blob.type.toLowerCase() !== requestedType) {
+      return blob.slice(0, blob.size, requestedType);
+    }
+    return blob;
   } catch (networkError) {
     const cached = await idbGet(cacheKey).catch(() => null);
     if (cached?.blob) return cached.blob;
+    if (timedOut) throw new Error("Telegram media request timed out. Please try again.");
     throw networkError;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  if (!response.ok) {
-    const cached = await idbGet(cacheKey).catch(() => null);
-    if (cached?.blob) return cached.blob;
-    throw new Error(`Could not load this Telegram media (HTTP ${response.status}).`);
-  }
-  const blob = await response.blob();
-  const requestedType = String(mimeType || "").trim().toLowerCase();
-  if (requestedType && requestedType !== "application/octet-stream" && blob.type.toLowerCase() !== requestedType) {
-    return blob.slice(0, blob.size, requestedType);
-  }
-  return blob;
-}
-
-/** Silent background refresh — never throws, never blocks rendering. */
-async function refreshMediaInBackground(fileId, mimeType, cacheKey) {
-  try {
-    const blob = await fetchMediaFromNetwork(fileId, mimeType);
-    await idbSet(cacheKey, { blob, mimeType: blob.type || String(mimeType || "").toLowerCase() });
-  } catch { /* stale cache remains valid */ }
 }
 
 export function telegramMediaReferences(result) {
@@ -223,10 +224,13 @@ export function getTelegramMediaUrl(fileId, mimeType = "application/octet-stream
   // its actual type. Cache each MIME variant separately to avoid reusing a bad Blob URL.
   const cacheKey = `${fileId}::${String(mimeType || "application/octet-stream").toLowerCase()}`;
   if (!mediaUrlCache.has(cacheKey)) {
-    const request = getTelegramMediaBlob(fileId, mimeType)
+    let request;
+    request = getTelegramMediaBlob(fileId, mimeType)
       .then(blob => URL.createObjectURL(blob))
       .catch(error => {
-        mediaUrlCache.delete(cacheKey);
+        // A timed-out request must be retryable, without deleting a newer
+        // request that may have replaced it while this one was settling.
+        if (mediaUrlCache.get(cacheKey) === request) mediaUrlCache.delete(cacheKey);
         throw error;
       });
     mediaUrlCache.set(cacheKey, request);

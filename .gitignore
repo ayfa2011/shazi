@@ -1,4 +1,6 @@
 .DS_Store
 __MACOSX/
 *.zip
+firebase-debug.log
+.firebase-debug.log
 .firebase/

@@ -1,5 +1,5 @@
 import { $, toast, esc } from "./utils.js";
-import { recordGameMatchResult, watchItems, notifyPartnerSafely } from "./firestore.js";
+import { recordGameMatchResult, watchRecentGameResults, notifyPartnerSafely } from "./firestore.js";
 import { firebaseReady, functions, rtdb } from "./firebase.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { APP_CONFIG } from "../config/app-config.js";
@@ -83,6 +83,7 @@ let ludoModuleLoading = false;
 let sosClock = null;
 let sosServerTimeOffset = 0;
 let stopSosServerTime = null;
+let activeSosPresenceUid = "";
 let customEmojiPuzzleBank = [];
 let battleshipBoard = null;
 let battleshipBoardMatchId = "";
@@ -189,6 +190,7 @@ function makeSosWaitingState(uid, name) {
     board: Array(SOS_CELL_COUNT).fill(""),
     owners: Array(SOS_CELL_COUNT).fill(""),
     scores: { [uid]: 0 },
+    timeoutCounts: {},
     lines: [],
     turnUid: "",
     turnDeadline: 0,
@@ -411,13 +413,13 @@ function ownProfileKey(profile, user) {
 function scoreboardSummaryMarkup(items, user, profile) {
   const myUid = user?.uid || "";
   const stats = computeGameStats(items);
-  const partnerUid = findPartnerUid(items, myUid);
+  const ownProfile = APP_CONFIG.profiles[ownProfileKey(profile, user)] || {};
+  const ownKey = ownProfileKey(profile, user);
+  const partnerProfile = APP_CONFIG.profiles[Object.keys(APP_CONFIG.profiles).find(key => key !== ownKey)] || {};
+  const partnerUid = findPartnerUid(items, myUid) || partnerProfile.authUid || partnerProfile.id || "";
   const mine = stats.get(myUid) || emptyStats();
   const theirs = partnerUid ? (stats.get(partnerUid) || emptyStats()) : emptyStats();
-  const partnerName = partnerUid ? getDisplayName(partnerUid, "Partner") : "Partner";
-  const ownProfile = APP_CONFIG.profiles[ownProfileKey(profile, user)] || {};
-  const partnerProfile = Object.values(APP_CONFIG.profiles).find(person => person.authUid === partnerUid) ||
-    APP_CONFIG.profiles[Object.keys(APP_CONFIG.profiles).find(key => key !== ownProfileKey(profile, user))] || {};
+  const partnerName = getDisplayName(partnerUid, partnerProfile.name || "Partner");
   const avatarMarkup = (person, name) => person.avatar
     ? `<img class="games-scoreboard-avatar" src="${esc(person.avatar)}" alt="${esc(name)}">`
     : `<span class="games-scoreboard-avatar fallback" aria-hidden="true">${esc((name || "♡").slice(0, 1))}</span>`;
@@ -656,7 +658,11 @@ function renderSosGame(content, user, gameState, presence, pendingCell) {
       : playing
         ? state.turnUid === uid ? "Tap an empty square, then choose S or O." : "Waiting for the other player…"
         : finished
-          ? state.winnerUid ? state.winnerUid === uid ? "You won! 🎉" : "Your partner won this round!" : "It's a tie! 🤝"
+          ? state.finishReason === "disconnect-forfeit"
+            ? state.winnerUid === uid ? "Your partner left the match. You win! 🎉" : "You left the match. Your partner wins."
+            : state.finishReason === "timeout-forfeit"
+              ? state.winnerUid === uid ? "Your partner missed three turns. You win! 🎉" : "You missed three turns. Your partner wins."
+            : state.winnerUid ? state.winnerUid === uid ? "You won! 🎉" : "Your partner won this round!" : "It's a tie! 🤝"
           : "This match was cancelled.";
 
   const lineCells = new Set((state?.lines || []).flatMap(line => line.cells));
@@ -780,6 +786,18 @@ function stopSosListeners() {
   stopSosConnection?.(); stopSosConnection = null;
   stopSosServerTime?.(); stopSosServerTime = null;
   document.body.classList.remove("sos-fullscreen");
+  clearSosPresence();
+}
+
+function clearSosPresence() {
+  const uid = activeSosPresenceUid;
+  if (!uid || !rtdb) return;
+  activeSosPresenceUid = "";
+  const playerRef = sosPresenceRef(uid);
+  onDisconnect(playerRef).cancel()
+    .catch(error => console.warn("Could not cancel SOS disconnect cleanup:", error))
+    .then(() => remove(playerRef))
+    .catch(error => console.error("SOS presence could not be cleared:", error));
 }
 
 export function renderGames(el, user, profile) {
@@ -841,15 +859,12 @@ export function renderGames(el, user, profile) {
     stopSosServerTime?.();
     stopSosServerTime = null;
     document.body.classList.remove("sos-fullscreen");
-    if (!rtdb) return;
-    const playerRef = sosPresenceRef(user.uid);
-    onDisconnect(playerRef).cancel()
-      .then(() => remove(playerRef))
-      .catch(error => console.error("SOS presence could not be cleared:", error));
+    clearSosPresence();
   }
 
   function startSosSession() {
     if (!rtdb) return;
+    activeSosPresenceUid = user.uid;
     stopSosGame = onValue(sosGameRef(), snapshot => {
       const previousState = sosGameState;
       sosGameState = snapshot.val();
@@ -925,12 +940,31 @@ export function renderGames(el, user, profile) {
     if (Date.now() < sosLastExpiryRequest) return;
     sosLastExpiryRequest = Date.now() + 1500;
     try {
+      const expiredPlayerUid = sosGameState?.turnUid;
+      const otherPlayerUid = sosGameState?.playerUids.find(playerUid => playerUid !== expiredPlayerUid);
+      let shouldForfeit = false;
+      if (expiredPlayerUid && otherPlayerUid) {
+        try {
+          const [expiredPresence, otherPresence] = await Promise.all([
+            get(sosPresenceRef(expiredPlayerUid)),
+            get(sosPresenceRef(otherPlayerUid))
+          ]);
+          shouldForfeit = expiredPresence.val()?.online !== true && otherPresence.val()?.online === true;
+        } catch { /* If presence cannot be checked, retain the normal turn-skip behavior. */ }
+      }
       await runTransaction(sosGameRef(), current => {
         if (!isValidSosState(current) || current.status !== "playing" || current.turnNumber !== turnNumber ||
             current.turnDeadline !== deadline || current.turnDeadline > sosNow()) return;
         const nextUid = current.playerUids.find(playerUid => playerUid !== current.turnUid);
+        const timeoutCounts = { ...(current.timeoutCounts || {}) };
+        timeoutCounts[current.turnUid] = (timeoutCounts[current.turnUid] || 0) + 1;
+        const repeatedTimeoutForfeit = timeoutCounts[current.turnUid] >= 3;
+        if ((shouldForfeit || repeatedTimeoutForfeit) && current.turnUid === expiredPlayerUid && nextUid === otherPlayerUid) {
+          return { ...current, status: "finished", winnerUid: nextUid, turnUid: "", turnDeadline: 0,
+            timeoutCounts, finishReason: shouldForfeit ? "disconnect-forfeit" : "timeout-forfeit", updatedAt: sosNow() };
+        }
         return { ...current, turnUid: nextUid, turnNumber: current.turnNumber + 1,
-          turnDeadline: sosNow() + SOS_TURN_SECONDS * 1000, updatedAt: sosNow() };
+          turnDeadline: sosNow() + SOS_TURN_SECONDS * 1000, timeoutCounts, updatedAt: sosNow() };
       });
     } catch (error) {
       sosLastExpiryRequest = 0;
@@ -954,6 +988,7 @@ export function renderGames(el, user, profile) {
           playerUids: [...current.playerUids, user.uid],
           players: { ...current.players, [user.uid]: { name: getDisplayName(user.uid, profile?.name) } },
           scores: { ...current.scores, [user.uid]: 0 },
+          timeoutCounts: { ...(current.timeoutCounts || {}), [user.uid]: 0 },
           status: "playing",
           turnUid: Math.random() < 0.5 ? current.playerUids[0] : user.uid,
           turnDeadline: sosNow() + SOS_TURN_SECONDS * 1000,
@@ -1011,6 +1046,7 @@ export function renderGames(el, user, profile) {
           lastMove: index,
           scores,
           lines,
+          timeoutCounts: { ...(current.timeoutCounts || {}), [user.uid]: 0 },
           status: finished ? "finished" : "playing",
           turnUid: finished ? "" : newLines.length ? user.uid : opponentUid,
           turnNumber: (current.turnNumber || 0) + 1,
@@ -1576,10 +1612,13 @@ export function renderGames(el, user, profile) {
       return;
     }
     try {
-      stopGames = watchItems("game", items => {
+      const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      stopGames = watchRecentGameResults(cutoff, items => {
         gameResults = items || [];
-        if (activeGame) renderCurrentGame();
-        else renderScoreboard();
+        // Match history only feeds the hub scoreboard. Keep the latest results
+        // while a game is open; rebuilding its DOM here can interrupt a turn,
+        // discard focused input, or reset in-progress visual state.
+        if (!activeGame) renderScoreboard();
       }, error => {
         console.error("Game scores could not be loaded:", error);
       });

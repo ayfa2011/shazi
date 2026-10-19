@@ -176,12 +176,29 @@ export async function deletePost(postId) {
 }
 
 // Optimized backend listener filter
-export function watchItems(type, cb, onError, limitVal = null) {
+export function watchItems(type, cb, onError, limitVal = null, options = {}) {
   let q = query(root(), where("type", "==", type), orderBy("createdAt", "desc"));
   if (limitVal) {
       q = query(q, limit(limitVal));
   }
-  return onSnapshot(q, s => cb(s.docs.map(d => ({ id: d.id, ...d.data() }))), onError);
+  const handleSnapshot = snapshot => cb(
+    snapshot.docs.map(d => ({ id: d.id, ...d.data() })),
+    snapshot.metadata
+  );
+  return options.includeMetadataChanges
+    ? onSnapshot(q, { includeMetadataChanges: true }, handleSnapshot, onError)
+    : onSnapshot(q, handleSnapshot, onError);
+}
+
+export function watchRecentGameResults(cutoffDate, cb, onError) {
+  const cutoff = Timestamp.fromDate(cutoffDate);
+  const q = query(
+    root(),
+    where("type", "==", "game"),
+    where("createdAt", ">=", cutoff),
+    orderBy("createdAt", "desc")
+  );
+  return onSnapshot(q, snapshot => cb(snapshot.docs.map(d => ({ id: d.id, ...d.data() }))), onError);
 }
 
 const couplePath = () => ["couples", APP_CONFIG.coupleId];

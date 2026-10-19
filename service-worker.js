@@ -9,9 +9,10 @@
  *    (Firestore IndexedDB, olw-media-cache) own offline behavior.
  */
 const CACHE_PREFIX = "our-little-world-";
-const CACHE_VERSION = "v14";
+const CACHE_VERSION = "v15";
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${new URL(self.registration.scope).pathname}-${CACHE_VERSION}`;
 const STATIC_CACHE = `${CACHE_PREFIX}static-${new URL(self.registration.scope).pathname}-${CACHE_VERSION}`;
+let forceNetworkUntil = 0;
 
 const SHELL_FILES = [
   "",
@@ -61,6 +62,43 @@ async function cacheFirstThenNetwork(request, cacheName) {
   throw new Error(`No cached response is available for ${request.url}`);
 }
 
+function isCodeAsset(url) {
+  return /\.(?:css|mjs|js)$/.test(url.pathname.toLowerCase());
+}
+
+async function responsesDiffer(cached, fresh) {
+  const oldTag = cached.headers.get("ETag");
+  const newTag = fresh.headers.get("ETag");
+  if (oldTag && newTag) return oldTag !== newTag;
+  const [oldBytes, newBytes] = await Promise.all([cached.arrayBuffer(), fresh.clone().arrayBuffer()]);
+  if (oldBytes.byteLength !== newBytes.byteLength) return true;
+  const oldView = new Uint8Array(oldBytes);
+  const newView = new Uint8Array(newBytes);
+  return oldView.some((byte, index) => byte !== newView[index]);
+}
+
+async function staleWhileRevalidate(request, cacheName, event) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(request);
+  const refresh = fetch(request, { cache: "no-cache" }).then(async fresh => {
+    if (!fresh.ok) return fresh;
+    const changed = cached && await responsesDiffer(cached.clone(), fresh.clone());
+    await cache.put(request, fresh.clone());
+    if (changed) {
+      const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      clients.forEach(client => client.postMessage({ type: "APP_ASSET_UPDATED", url: request.url }));
+    }
+    return fresh;
+  });
+  event.waitUntil(refresh.catch(() => {}));
+  if (cached) {
+    // Serve code immediately, then refresh the cache in the background.
+    // A client is notified when the bytes change so it can refresh safely.
+    return cached;
+  }
+  return refresh;
+}
+
 self.addEventListener("install", event => {
   event.waitUntil(
     caches.open(SHELL_CACHE)
@@ -89,6 +127,10 @@ self.addEventListener("activate", event => {
 
 self.addEventListener("message", event => {
   if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+  if (event.data?.type === "REFRESH_ASSETS") {
+    forceNetworkUntil = Date.now() + 15000;
+    event.ports[0]?.postMessage({ type: "READY" });
+  }
 });
 
 self.addEventListener("notificationclick", event => {
@@ -132,9 +174,24 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  // Static files (HTML/CSS/JS/icons/fonts/local images):
-  // Cache-First — static resources return immediately from local storage.
+  // Code is served instantly from cache and revalidated in the background.
+  // Other static assets remain cache-first.
   if (isStaticAsset(url)) {
+    if (Date.now() < forceNetworkUntil) {
+      event.respondWith(fetch(request, { cache: "reload" }).then(async response => {
+        if (response.ok) await (await caches.open(STATIC_CACHE)).put(request, response.clone());
+        return response;
+      }).catch(async () => {
+        const cached = await caches.match(request);
+        if (cached) return cached;
+        throw new Error(`No cached response is available for ${request.url}`);
+      }));
+      return;
+    }
+    if (isCodeAsset(url)) {
+      event.respondWith(staleWhileRevalidate(request, STATIC_CACHE, event));
+      return;
+    }
     event.respondWith(cacheFirstThenNetwork(request, STATIC_CACHE));
     return;
   }

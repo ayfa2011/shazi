@@ -1112,12 +1112,13 @@ initAuth(
     const profileKey = getProfileKey(currentProfile);
     if (profileKey && currentProfile.authUid !== user.uid) {
       currentProfile.authUid = user.uid;
-      try {
-        await saveCoupleProfile(profileKey, { authUid: user.uid });
-      } catch (error) {
+      // Do not hold the login screen open for this account-link write. Firestore
+      // can remain pending until the network returns; the app can load from its
+      // local state and the SDK will sync the queued write in the background.
+      void saveCoupleProfile(profileKey, { authUid: user.uid }).catch(error => {
         console.error("Could not link profile to Firebase account:", error);
         toast("Could not link this account to its shared profile.");
-      }
+      });
     }
     if (currentUser?.uid !== user.uid) return;
 
@@ -1215,9 +1216,30 @@ document.addEventListener("DOMContentLoaded", () => {
   const hardRefreshButton = $("#hard-refresh-btn");
   hardRefreshButton?.addEventListener("click", async () => {
     hardRefreshButton.disabled = true;
-    toast("Syncing latest data…");
-    navigate(currentRoute);
-    setTimeout(() => { hardRefreshButton.disabled = false; }, 2000);
+    hardRefreshButton.title = "Updating app files…";
+    hardRefreshButton.setAttribute("aria-label", "Updating app files");
+    toast("Updating app files and reloading…");
+    const controller = navigator.serviceWorker?.controller;
+    if (controller && "MessageChannel" in window) {
+      await new Promise(resolve => {
+        const channel = new MessageChannel();
+        const timeout = setTimeout(resolve, 1500);
+        channel.port1.onmessage = () => { clearTimeout(timeout); resolve(); };
+        controller.postMessage({ type: "REFRESH_ASSETS" }, [channel.port2]);
+      });
+    } else {
+      await navigator.serviceWorker?.getRegistration().then(registration => registration?.update()).catch(() => {});
+    }
+    // This action refreshes the application shell and code. Live Firestore
+    // listeners independently refresh app data when the page starts/reconnects.
+    window.location.reload();
+  });
+
+  let assetUpdateNoticeShown = false;
+  navigator.serviceWorker?.addEventListener("message", event => {
+    if (event.data?.type !== "APP_ASSET_UPDATED" || assetUpdateNoticeShown) return;
+    assetUpdateNoticeShown = true;
+    toast("A new app version is ready. Refresh the page to apply it ♡");
   });
 
   if ("serviceWorker" in navigator) {

@@ -136,8 +136,19 @@ export function lazyHydrateImages(root, resolve, options = {}) {
     "img[data-lazy-file-id]:not([src]), img[data-memory-file-id]:not([src]), img[data-telegram-file-id]:not([src]), img[data-drawing-file-id]:not([src])"
   ));
   if (!pending.length) return () => {};
+  const maxConcurrent = Math.max(1, Number(options.concurrency) || 4);
+  const queue = [];
+  let active = 0;
+  let stopped = false;
+  const pump = () => {
+    while (!stopped && active < maxConcurrent && queue.length) {
+      const img = queue.shift();
+      active += 1;
+      void load(img).finally(() => { active -= 1; pump(); });
+    }
+  };
   const load = async (img) => {
-    if (img.dataset.hydrating || img.src) return;
+    if (stopped || !img.isConnected || img.dataset.hydrating || img.src) return;
     img.dataset.hydrating = "1";
     try {
       const url = await resolve({
@@ -155,16 +166,18 @@ export function lazyHydrateImages(root, resolve, options = {}) {
     }
   };
   if (!("IntersectionObserver" in window)) {
-    pending.forEach(img => void load(img));
-    return () => {};
+    queue.push(...pending);
+    pump();
+    return () => { stopped = true; queue.length = 0; };
   }
   const observer = new IntersectionObserver(entries => {
     entries.forEach(entry => {
       if (!entry.isIntersecting) return;
       observer.unobserve(entry.target);
-      void load(entry.target);
+      queue.push(entry.target);
     });
+    pump();
   }, { rootMargin });
   pending.forEach(img => observer.observe(img));
-  return () => observer.disconnect();
+  return () => { stopped = true; queue.length = 0; observer.disconnect(); };
 }

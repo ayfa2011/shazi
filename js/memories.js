@@ -1,7 +1,7 @@
-import { $, esc, toast, generateThumbnail, tinyBlurPlaceholder, lazyHydrateImages } from "./utils.js";
+import { $, esc, toast, generateThumbnail, lazyHydrateImages } from "./utils.js";
 import { watchItems, addItem, removeItem, setItem, addMemoryMedia, removeMemoryMedia, notifyPartnerSafely } from "./firestore.js";
 import { getProfileKey } from "./profile-data.js";
-import { getTelegramMediaUrl, getCachedThumb, setCachedThumb, sendToTelegram, telegramMediaReferences, telegramUploadMimeType, deleteTelegramGalleryMessage } from "../src/services/telegramService.js";
+import { getTelegramMediaUrl, getTelegramMediaBlob, getCachedThumb, setCachedThumb, sendToTelegram, telegramMediaReferences, telegramUploadMimeType, deleteTelegramGalleryMessage } from "../src/services/telegramService.js";
 
 let stopMemories = null;
 let active = false;
@@ -775,8 +775,8 @@ export function renderMemories(el, user, profile) {
   }
 
   function hydrateMemoryThumbnails(container) {
-    // Zero-latency: cached thumbs paint instantly as blur-up backgrounds;
-    // full images hydrate lazily only when scrolled into view.
+    // Cached compact thumbnails paint immediately; full media stays deferred
+    // until a memory is opened or a thumbnail enters the viewport.
     const previousStop = memoryThumbHydrators.get(container);
     previousStop?.();
     if (previousStop) activeMemoryThumbHydrators.delete(previousStop);
@@ -790,9 +790,16 @@ export function renderMemories(el, user, profile) {
     });
     void paintCachedThumbs(container);
     const stop = lazyHydrateImages(container, async ({ fileId, mime }) => {
-      const source = await getTelegramMediaUrl(fileId, mime);
-      return source;
-    });
+      const cached = await getCachedThumb(fileId);
+      if (cached?.kind === "thumbnail" && cached.dataUrl) return cached.dataUrl;
+      const blob = await getTelegramMediaBlob(fileId, mime);
+      const thumbnail = await generateThumbnail(blob, 480);
+      if (thumbnail) {
+        void setCachedThumb(fileId, thumbnail, "thumbnail");
+        return thumbnail;
+      }
+      return getTelegramMediaUrl(fileId, mime);
+    }, { concurrency: 3 });
     const stopAndForget = () => { stop(); activeMemoryThumbHydrators.delete(stopAndForget); };
     memoryThumbHydrators.set(container, stopAndForget);
     activeMemoryThumbHydrators.add(stopAndForget);
@@ -805,8 +812,12 @@ export function renderMemories(el, user, profile) {
         const record = await getCachedThumb(image.dataset.memoryFileId || image.dataset.memoryThumbId);
         const dataUrl = record?.dataUrl;
         if (dataUrl && image.isConnected && (!image.matches("img") || !image.src)) {
-          image.style.background = `url('${dataUrl}') center/cover`;
-          if (image.matches("img")) {
+          if (image.matches("img") && record.kind === "thumbnail") {
+            image.src = dataUrl;
+          } else {
+            image.style.background = `url('${dataUrl}') center/cover`;
+          }
+          if (image.matches("img") && record.kind !== "thumbnail") {
             image.style.filter = "blur(8px)";
             image.style.transition = "filter .35s ease";
           }
@@ -844,15 +855,15 @@ export function renderMemories(el, user, profile) {
           // decoding/canvas compression fails, prepareMemoryPhoto returns original.
           const uploadFile = type === "photo" ? await prepareMemoryPhoto(file) : file;
 
-          // Keep tiny blur placeholders in local cache only. Data-URL thumbnails
-          // must not be saved inside the Firestore memory document.
+          // Keep compact image thumbnails in IndexedDB only. Data URLs must
+          // never be saved inside the Firestore memory document.
           const blurThumb = type === "photo"
-            ? await tinyBlurPlaceholder(uploadFile).catch(() => "")
+            ? await generateThumbnail(uploadFile, 480).catch(() => "")
             : await createVideoThumbnail(file).catch(() => "");
 
           const result = await sendToTelegram(uploadFile, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`);
           const refs = telegramMediaReferences(result);
-          if (blurThumb) void setCachedThumb(refs.telegramFileId, blurThumb);
+          if (blurThumb) void setCachedThumb(refs.telegramFileId, blurThumb, type === "photo" ? "thumbnail" : "preview");
 
           return {
             ...refs,
@@ -992,29 +1003,62 @@ export function renderMemories(el, user, profile) {
       since.textContent = oldest?.date && allMemories.length !== currentLimit ? `✿ since ${oldest.date}` : "";
     }
 
-    const moreHtml = allMemories.length === currentLimit
-      ? `<button type="button" id="load-more-memories" class="memory-soft-btn">Load More</button>`
-      : "";
-
-    container.innerHTML = sortedMemories.map((item, index) => memoryCardHtml(item, index)).join("") + moreHtml;
-
-    const loadMore = $("#load-more-memories", el);
-    if (loadMore) {
-      loadMore.onclick = () => {
-        currentLimit += 20;
-        updateWatch();
-      };
-    }
-
-    container.querySelectorAll(".memory-item").forEach((card) => {
+    const loadedServerCount = allMemories.filter(item => !item.isOptimistic).length;
+    const visibleMemories = sortedMemories.slice(0, currentLimit);
+    const canRequestMore = loadedServerCount > currentLimit;
+    const existingCards = new Map([...container.querySelectorAll(".memory-item")].map(card => [card.dataset.id, card]));
+    container.querySelectorAll(".memories-empty").forEach(node => node.remove());
+    const desiredCards = visibleMemories.map((item, index) => {
+      const signature = JSON.stringify([item.title, item.date, item.mediaType, item.telegramFileId, item.photoUrl, item.thumbnail, item.blurThumb]);
+      let card = existingCards.get(item.id);
+      if (!card || card.dataset.renderKey !== signature) {
+        const template = document.createElement("template");
+        template.innerHTML = memoryCardHtml(item, index).trim();
+        const replacement = template.content.firstElementChild;
+        replacement.dataset.renderKey = signature;
+        if (card) card.replaceWith(replacement);
+        card = replacement;
+      }
+      existingCards.delete(item.id);
+      card.classList.toggle("is-hero", index === 0);
+      card.style.setProperty("--i", String(index));
       card.onclick = () => {
-        const index = sortedMemories.findIndex((memory) => memory.id === card.dataset.id);
-        if (index >= 0) {
-          showMemoryAt(index);
+        const currentIndex = sortedMemories.findIndex(memory => memory.id === card.dataset.id);
+        if (currentIndex >= 0) {
+          showMemoryAt(currentIndex);
           $("#close-view-modal", el).focus();
         }
       };
+      return card;
     });
+    existingCards.forEach(card => card.remove());
+    desiredCards.forEach((card, index) => {
+      const currentCards = container.querySelectorAll(".memory-item");
+      if (currentCards[index] !== card) container.insertBefore(card, currentCards[index] || null);
+    });
+
+    let loadMore = $("#load-more-memories", el);
+    if (canRequestMore) {
+      if (!loadMore) {
+        loadMore = document.createElement("button");
+        loadMore.type = "button";
+        loadMore.id = "load-more-memories";
+        loadMore.className = "memory-soft-btn";
+        loadMore.textContent = "Load More";
+      }
+      container.append(loadMore);
+    } else {
+      loadMore?.remove();
+      loadMore = null;
+    }
+    if (loadMore) {
+      loadMore.disabled = false;
+      loadMore.textContent = "Load More";
+      loadMore.onclick = () => {
+        currentLimit += 20;
+        renderGrid();
+      };
+    }
     hydrateMemoryThumbnails(container);
   }
 
@@ -1052,6 +1096,18 @@ export function renderMemories(el, user, profile) {
       if (!active || !el.isConnected || generation !== memoryWatchGeneration) return;
       const container = $("#memories-grid-container", el);
       const count = $("#memories-count", el);
+      if (allMemories.length) {
+        // Keep loaded memories visible when pagination or background sync is offline.
+        let status = $("#memory-load-status", container);
+        if (!status) {
+          status = document.createElement("p");
+          status.id = "memory-load-status";
+          status.className = "memories-empty";
+          container.append(status);
+        }
+        status.textContent = `${message} Your saved memories are still available.`;
+        return;
+      }
       if (count) count.textContent = "Unable to load";
       if (container) container.innerHTML = `<p class="memories-empty"><span>♡</span>${esc(message)}<br><button type="button" id="retry-memories" class="memory-soft-btn">Try again</button></p>`;
       $("#retry-memories", el)?.addEventListener("click", () => {
@@ -1061,13 +1117,30 @@ export function renderMemories(el, user, profile) {
       }, { once: true });
     };
     try {
-      stopMemories = watchItems("memory", (items) => {
+      stopMemories = watchItems("memory", (items, metadata) => {
         if (!active || !el.isConnected || generation !== memoryWatchGeneration) return;
-        clearTimeout(memoryLoadTimer);
         const incomingItems = items || [];
+        const fromCache = metadata?.fromCache === true;
+        if (!fromCache) {
+          clearTimeout(memoryLoadTimer);
+        }
+        if (fromCache && incomingItems.length === 0 && allMemories.length === 0) {
+          const count = $("#memories-count", el);
+          const container = $("#memories-grid-container", el);
+          if (count) count.textContent = "Checking for saved memories…";
+          if (container) container.innerHTML = `<p class="memories-empty"><span>♡</span>Checking your saved moments…</p>`;
+          return;
+        }
         const incomingIds = new Set(incomingItems.map(i => i.id));
         const optimisticItems = allMemories.filter(i => i.isOptimistic && !incomingIds.has(i.id));
-        allMemories = [...incomingItems.map(item => ({ ...item, isOptimistic: false })), ...optimisticItems];
+        const serverItems = incomingItems.map(item => ({ ...item, isOptimistic: false }));
+        if (fromCache) {
+          const merged = new Map([...allMemories.filter(item => !item.isOptimistic), ...serverItems].map(item => [item.id, item]));
+          allMemories = [...merged.values(), ...optimisticItems];
+        } else {
+          allMemories = [...serverItems, ...optimisticItems];
+        }
+        $("#memory-load-status", el)?.remove();
 
         if (activeMemoryForView) {
           const refreshed = allMemories.find(item => item.id === activeMemoryForView.id);
@@ -1081,8 +1154,14 @@ export function renderMemories(el, user, profile) {
         console.error("Memories could not be loaded:", error);
         clearTimeout(memoryLoadTimer);
         showLoadError("Memories could not be loaded. Check your connection and try again.");
-      }, currentLimit);
-      memoryLoadTimer = setTimeout(() => showLoadError("Memories are taking longer than expected to load."), 12000);
+      }, null, { includeMetadataChanges: true });
+      memoryLoadTimer = setTimeout(() => {
+        const message = allMemories.length
+          ? "More memories are taking longer than expected to sync."
+          : "Could not confirm saved memories. Check your connection and try again.";
+        showLoadError(message);
+        if (allMemories.length) renderGrid();
+      }, 12000);
     } catch (error) {
       console.error("Could not start the memories listener:", error);
       showLoadError("Memories could not be loaded. Check your connection and try again.");
