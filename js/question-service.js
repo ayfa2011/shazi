@@ -176,7 +176,7 @@ export async function submitQuestionAnswer(dayKey, profileKey, answer) {
     transaction.set(participantRef(dayKey, profileKey), { profileKey, answeredAt: serverTimestamp() });
   });
   const name = APP_CONFIG.profiles[profileKey]?.name || "Your partner";
-  void notifyPartnerSafely(profileKey, "question", `${name} answered today's question.`, dayKey, "questions");
+  void notifyPartnerSafely(profileKey, "question", `${name} answered a daily question.`, dayKey, "questions");
 }
 
 export async function migrateLegacyQuestionAnswers(user, profileKey) {

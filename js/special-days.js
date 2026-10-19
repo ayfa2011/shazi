@@ -36,6 +36,7 @@ export function renderSpecialDays(el, user) {
   specialDaysRolloverTimer = null;
   let items = [];
   let editingId = "";
+  const awaitingSnapshot = new Map();
   const ownKey = Object.keys(APP_CONFIG.profiles).find(key => APP_CONFIG.profiles[key].email === user.email);
   const actorName = APP_CONFIG.profiles[ownKey]?.name || "Your partner";
 
@@ -123,6 +124,7 @@ export function renderSpecialDays(el, user) {
       if (!id || !window.confirm("Delete this special day for both of you?")) return;
       try {
         await removeItem(id);
+        awaitingSnapshot.delete(id);
         closeForm();
         toast("Special day deleted.");
       } catch (error) {
@@ -147,10 +149,16 @@ export function renderSpecialDays(el, user) {
       const payload = { title, category, date, recurring };
       if (editingId) {
         await setItem(editingId, payload);
+        awaitingSnapshot.set(editingId, { id: editingId, ...payload });
+        items = [...items.filter(item => item.id !== editingId), { id: editingId, ...payload }];
+        renderList();
         if (ownKey) void notifyPartnerSafely(ownKey, "specialDay", `${actorName} updated a special day.`, `${editingId}-updated-${Date.now()}`, "more");
         toast("Special day updated ♡");
       } else {
         const day = await addItem("specialDay", { ...payload, author: user.uid });
+        awaitingSnapshot.set(day.id, { id: day.id, ...payload });
+        items = [...items, { id: day.id, ...payload }];
+        renderList();
         if (ownKey) void notifyPartnerSafely(ownKey, "specialDay", `${actorName} added a special day.`, day.id, "more");
         toast("Special day saved for both of you ♡");
       }
@@ -162,7 +170,12 @@ export function renderSpecialDays(el, user) {
   };
 
   stopSpecialDays = watchItems("specialDay", nextItems => {
-    items = nextItems || [];
+    const liveItems = nextItems || [];
+    const liveIds = new Set(liveItems.map(item => item.id));
+    for (const id of awaitingSnapshot.keys()) {
+      if (liveIds.has(id)) awaitingSnapshot.delete(id);
+    }
+    items = [...liveItems, ...[...awaitingSnapshot.values()].filter(item => !liveIds.has(item.id))];
     renderList();
   }, error => {
     console.error("Special days could not be loaded:", error);

@@ -116,6 +116,10 @@ export function renderQuestions(el, user, profile) {
       .question-history-item h3 { margin:0 0 12px; color:#60283f; font:700 15px/1.4 system-ui,sans-serif; }
       .question-history-answers { display:grid; gap:8px; }
       .question-history-answer { display:flex; align-items:flex-start; gap:9px; min-width:0; margin:0; padding:9px 10px; border:1px solid #f7e4eb; border-radius:14px; background:linear-gradient(110deg,#fff3f8,#fffafd); color:#493540; font-size:14px; line-height:1.55; white-space:pre-wrap; overflow-wrap:anywhere; }
+      .question-history-answer-form { display:grid; gap:8px; margin:0 0 12px; }
+      .question-history-answer-form[hidden] { display:none; }
+      .question-history-answer-form textarea { width:100%; min-height:76px; padding:11px; border:1px solid #f0ccda; border-radius:12px; font:14px/1.5 system-ui,sans-serif; }
+      .question-history-answer-form button { justify-self:end; padding:8px 14px; border-radius:999px; }
       .question-history-avatar { flex:none; width:39px; height:39px; display:grid; place-items:center; overflow:hidden; border:3px solid #fff; border-radius:50%; background:linear-gradient(145deg,#ffdce9,#f5bbd0); color:#8b315d; font-size:14px; font-weight:800; box-shadow:0 3px 9px #7d35501c; }
       .question-history-avatar img { display:block; width:100%; height:100%; object-fit:cover; }
       .question-history-copy { min-width:0; flex:1; }
@@ -314,6 +318,7 @@ export function renderQuestions(el, user, profile) {
       <article class="question-history-item" data-history-day="${esc(item.id)}" data-day-number="${esc(new Date(`${item.dayKey}T12:00:00`).getDate())}">
         <header><time datetime="${esc(item.dayKey)}">${esc(new Date(`${item.dayKey}T12:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"}))}</time></header>
         <h3>${esc(item.question)}</h3>
+        <form class="question-history-answer-form" data-history-answer-form hidden><textarea name="answer" maxlength="1200" placeholder="You missed this one — write your answer…" required></textarea><button class="primary" type="submit">Answer this question ♡</button></form>
         <div class="question-history-answers"><p class="question-empty">Loading answers…</p></div>
       </article>
     `).join("");
@@ -332,6 +337,8 @@ export function renderQuestions(el, user, profile) {
       const paint = () => {
         if (!isCurrent() || !card.isConnected) return;
         const canReveal = Boolean(status[ownKey] && status[partnerKey]);
+        const historyForm = card.parentElement?.querySelector("[data-history-answer-form]");
+        if (historyForm) historyForm.hidden = Boolean(status[ownKey]);
         const entries = Object.keys(APP_CONFIG.profiles).map(key => [
           key,
           key === ownKey ? mine : canReveal ? partner : null
@@ -364,6 +371,28 @@ export function renderQuestions(el, user, profile) {
         else { partner = null; paint(); }
         paint();
       }, fail));
+      const historyForm = card.parentElement?.querySelector("[data-history-answer-form]");
+      if (historyForm) historyForm.onsubmit = async event => {
+        event.preventDefault();
+        const answer = historyForm.elements.answer.value.trim();
+        if (!answer) return toast("Write your answer before submitting.");
+        const submit = historyForm.querySelector("button[type=submit]");
+        submit.disabled = true;
+        submit.textContent = "Saving…";
+        try {
+          await submitQuestionAnswer(item.id, ownKey, answer);
+          historyForm.elements.answer.value = "";
+          toast("Your answer to this question is saved ♡");
+        } catch (error) {
+          console.error("Could not save your answer to a past question:", error);
+          toast(error.message || "Could not save your answer.");
+        } finally {
+          if (submit.isConnected) {
+            submit.disabled = false;
+            submit.textContent = "Answer this question ♡";
+          }
+        }
+      };
     });
   }
 

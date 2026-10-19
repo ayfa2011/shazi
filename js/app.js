@@ -304,8 +304,7 @@ function renderPostFeed(el, user, profile) {
         margin: 6px 0;
         line-height: 1.4;
       }
-      .tw-post-photo-frame { width:100%; aspect-ratio:4/3; margin-top:8px; overflow:hidden; border-radius:16px; background:#fff0f6; touch-action:none; cursor:grab; }
-      .tw-post-photo-frame:active { cursor:grabbing; }
+      .tw-post-photo-frame { width:100%; aspect-ratio:4/3; margin-top:8px; overflow:hidden; border-radius:16px; background:#fff0f6; touch-action:pan-y pinch-zoom; cursor:zoom-in; }
       .tw-post-photo {
         display:block; width:100%; height:100%;
         border-radius: 16px;

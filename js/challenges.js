@@ -340,9 +340,10 @@ export function renderChallenges(el, user, profile) {
             ${Object.entries(partnerProfiles).map(([key, person]) => {
               const count = key === ownKey ? ownCount : partnerCount;
               const isMine = key === ownKey;
-              const glassAsset = key.toLowerCase().includes("shaz") ? "Girl.png" : "Boy.png";
-              return `<section class="water-person-progress ${isMine ? "is-mine" : "is-partner"}" aria-label="${esc(person.name)}: ${count} of 8 glasses">
-                <div class="water-person-title"><strong>${esc(person.name)}${isMine ? " · You" : ""}</strong><span aria-hidden="true">${key.toLowerCase().includes("shaz") ? "💗" : "💙"}</span></div>
+              const isShazy = key.toLowerCase().includes("shaz") || person.name?.toLowerCase() === "shazy";
+              const glassAsset = isShazy ? "Girl.png" : "Boy.png";
+              return `<section class="water-person-progress ${isMine ? "is-mine" : ""} ${isShazy ? "water-profile-shazy" : "water-profile-keby"}" aria-label="${esc(person.name)}: ${count} of 8 glasses">
+                <div class="water-person-title"><strong>${esc(person.name)}${isMine ? " · You" : ""}</strong><span aria-hidden="true">${isShazy ? "💗" : "💙"}</span></div>
                 <div class="water-person-main">
                   <div class="water-glass-wrap" aria-hidden="true"><div class="water-glass-fill" style="--water-level:${count / 8 * 82}%"></div><img src="./Asset/${glassAsset}" alt=""></div>
                   <div class="water-person-details"><div class="water-count"><strong>${count}</strong><span>/ 8<br>glasses</span>${isMine ? `<div class="water-count-controls"><button type="button" class="water-count-minus" data-action="water-remove" data-id="${esc(assignment.id)}" aria-label="Remove one glass" ${!waterTrackersReady || !assignmentsReady || ownCount <= 0 ? "disabled" : ""}>−</button><button type="button" class="water-count-plus" data-action="water-add" data-id="${esc(assignment.id)}" aria-label="Add one glass" ${!waterTrackersReady || !assignmentsReady || ownCount >= 8 ? "disabled" : ""}>＋</button></div>` : ""}</div>

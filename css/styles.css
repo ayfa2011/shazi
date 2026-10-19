@@ -2362,6 +2362,9 @@ body.home-dashboard #main-content .home-drawing-panel .home-canvas-action { flex
 .partner-chat-form textarea { min-width:0; min-height:44px; max-height:120px; flex:1; resize:vertical; padding:11px 13px; border:1px solid #efd9e3; border-radius:18px; background:#fffafd; color:#493540; font:15px/1.4 "DM Sans",sans-serif; }
 .partner-chat-form button { width:44px; height:44px; flex:none; border-radius:50%; background:linear-gradient(135deg,#ed6c9d,#cf427b); color:#fff; font-size:20px; box-shadow:0 4px 12px #cf427b36; }
 .partner-chat-form button:disabled { opacity:.55; }
+.partner-chat-form .partner-chat-mic { width:44px; height:44px; border:1px solid #f0dce5; background:#fff2f7; color:#9b456b; box-shadow:none; font-size:18px; touch-action:none; user-select:none; -webkit-user-select:none; }
+.partner-chat-form .partner-chat-mic.recording { background:#c83c78; color:#fff; animation:voice-pulse 1s infinite alternate; }
+.partner-chat-audio { display:block; width:min(280px,70vw); height:38px; margin:5px 0 2px; }
 body.partner-chat-open { overflow:hidden; }
 @media(max-width:600px) {
   .partner-presence-chat { width:40px; height:40px; }

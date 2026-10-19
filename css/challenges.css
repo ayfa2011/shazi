@@ -335,11 +335,18 @@
 .snap-send-button:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 7px 16px #d7c90055; }
 .snap-send-button:disabled { opacity:.55; cursor:wait; }
 @media(max-width:620px) {
-  .snap-people-grid { grid-template-columns:1fr; gap:10px; }
-  .snap-person-card { padding:14px; border-radius:18px; }
-  .snap-person-head > strong { font-size:17px; }
-  .snap-person-state { margin-top:13px; }
-  .snap-send-button { min-height:42px; padding:0 15px; font-size:12px; }
+  .snap-people-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .snap-person-card { padding:10px 8px; border-radius:16px; }
+  .snap-person-head { gap:5px; }
+  .snap-person-head > strong { font-size:14px; }
+  .snap-status-pill { padding:5px 7px; font-size:10px; }
+  .snap-person-state { display:grid; grid-template-columns:34px minmax(0,1fr); align-items:center; gap:7px; margin-top:10px; }
+  .snap-avatar, .snap-sent-check { width:34px; height:34px; }
+  .snap-sent-check { font-size:24px; }
+  .snap-state-copy { gap:2px; }
+  .snap-state-copy strong { font-size:12px; line-height:1.2; }
+  .snap-state-copy small { font-size:10px; line-height:1.2; }
+  .snap-send-button { grid-column:1/-1; width:100%; min-height:34px; padding:0 6px; font-size:10px; }
 }
 
 /* ── 2. WATER ────────────────────────────────────── */
@@ -370,26 +377,26 @@
   background:linear-gradient(145deg,#fff,#f8fcff);
   box-shadow:0 6px 18px #3b80b00a;
 }
-.water-person-progress.is-partner { border-color:#f4d5e2; background:linear-gradient(145deg,#fff,#fff8fb); }
+.water-person-progress.water-profile-shazy { border-color:#f4d5e2; background:linear-gradient(145deg,#fff,#fff8fb); }
 .water-person-title { display:flex; align-items:center; justify-content:center; gap:9px; margin-bottom:10px; color:#173e70; font-size:19px; }
-.water-person-progress.is-partner .water-person-title { color:#703a58; }
+.water-profile-shazy .water-person-title { color:#703a58; }
 .water-person-title span { font-size:18px; }
 .water-person-main { display:flex; align-items:center; justify-content:center; gap:clamp(10px,2vw,22px); }
 .water-glass-wrap { position:relative; isolation:isolate; width:clamp(75px,10vw,112px); height:clamp(120px,17vw,168px); flex:none; }
 .water-glass-wrap img { position:absolute; z-index:2; inset:0; width:100%; height:100%; object-fit:fill; pointer-events:none; }
 .water-glass-fill { position:absolute; z-index:1; left:13%; right:13%; bottom:7%; height:var(--water-level); max-height:82%; border-radius:4px 4px 16px 16px; background:linear-gradient(180deg,#7fcbff,#2698ee); clip-path:polygon(0 0,100% 0,89% 100%,11% 100%); transition:height .45s cubic-bezier(.34,1.2,.64,1); opacity:.88; }
-.water-person-progress.is-partner .water-glass-fill { background:linear-gradient(180deg,#f7a9ca,#e75f98); }
+.water-profile-shazy .water-glass-fill { background:linear-gradient(180deg,#f7a9ca,#e75f98); }
 .water-person-details { position:relative; min-width:0; flex:1; padding-right:34px; }
 .water-count { display:flex; align-items:baseline; gap:7px; color:#8992a5; }
 .water-count strong { color:#278de3; font-size:clamp(34px,5vw,52px); line-height:1; }
-.water-person-progress.is-partner .water-count strong { color:#df5b8e; }
+.water-profile-shazy .water-count strong { color:#df5b8e; }
 .water-count span { font-size:14px; line-height:1.25; }
 .water-progress-track { height:12px; overflow:hidden; margin-top:12px; border-radius:999px; background:#dceefa; }
 .water-progress-track span { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#60b9fa,#268ee8); transition:width .4s ease; }
-.water-person-progress.is-partner .water-progress-track { background:#f8e1eb; }
-.water-person-progress.is-partner .water-progress-track span { background:linear-gradient(90deg,#f5a5c5,#df5b8e); }
+.water-profile-shazy .water-progress-track { background:#f8e1eb; }
+.water-profile-shazy .water-progress-track span { background:linear-gradient(90deg,#f5a5c5,#df5b8e); }
 .water-progress-caption { display:block; margin-top:8px; color:#7a8ba0; font-size:11px; }
-.water-person-progress.is-partner .water-progress-caption { color:#9a7185; }
+.water-profile-shazy .water-progress-caption { color:#9a7185; }
 .water-count-controls { position:absolute; top:50%; right:0; display:grid; gap:4px; transform:translateY(-50%); }
 .water-count-controls button { width:27px; height:25px; padding:0; border:1px solid #bfdef8; border-radius:8px; background:#fff; color:#2589dd; font:800 16px/1 "DM Sans",sans-serif; cursor:pointer; }
 .water-count-controls .water-count-plus { border-color:#2589dd; background:#2589dd; color:#fff; }

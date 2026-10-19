@@ -1,6 +1,7 @@
 import { rtdb, firebaseReady } from "./firebase.js";
 import { $, esc, toast, todayKey, scheduleDubaiDayRollover } from "./utils.js";
 import { APP_CONFIG } from "../config/app-config.js";
+import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
 import { onValue, push, ref, serverTimestamp, query, orderByChild, startAt, endAt, limitToLast } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
 const chatPath = `couples/${APP_CONFIG.coupleId}/partnerChat/messages`;
@@ -56,18 +57,26 @@ export function initPartnerChat(user, profile, partnerProfile) {
       </header>
       <div class="partner-chat-messages" aria-live="polite" aria-label="Messages"></div>
       <div class="partner-chat-emoji-row" aria-label="Quick emojis">${["❤️","🥰","😘","😂","💗","😊","😍","🫶"].map(emoji => `<button type="button" aria-label="Add ${emoji}">${emoji}</button>`).join("")}</div>
-      <form class="partner-chat-form"><textarea name="message" rows="1" maxlength="1000" placeholder="Write a message…" aria-label="Write a message" required></textarea><button type="submit" aria-label="Send message">➤</button></form>
+      <form class="partner-chat-form"><textarea name="message" rows="1" maxlength="1000" placeholder="Write a message…" aria-label="Write a message"></textarea><button class="partner-chat-mic" type="button" aria-label="Hold to record a voice message" title="Hold to record">🎙</button><button type="submit" aria-label="Send message">➤</button></form>
     </section>`;
 
   const panel = root.querySelector(".partner-chat-panel");
   const messages = root.querySelector(".partner-chat-messages");
   const form = root.querySelector(".partner-chat-form");
   const input = form.elements.message;
+  const micButton = form.querySelector(".partner-chat-mic");
   let isOpen = false;
   let initialSnapshot = true;
   const seen = new Set();
   const closeButton = root.querySelector(".partner-chat-close");
   const alertSound = createChatAlertSound();
+  let recorder = null;
+  let recorderStream = null;
+  let voiceChunks = [];
+  let recordingStartedAt = 0;
+  let pointerReleased = false;
+  let voiceStartPromise = null;
+  let sendingVoice = false;
   const unlockSound = () => alertSound.unlock();
   document.addEventListener("pointerdown", unlockSound, { once: true, passive: true });
   document.addEventListener("keydown", unlockSound, { once: true });
@@ -88,9 +97,103 @@ export function initPartnerChat(user, profile, partnerProfile) {
     messages.innerHTML = items.length ? items.map(([id, item]) => {
       const mine = item.uid === user.uid;
       const time = item.createdAt ? new Date(item.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
-      return `<article class="partner-chat-message ${mine ? "mine" : "theirs"}" data-message-id="${esc(id)}"><p>${esc(item.text || "")}</p><small>${mine ? "You" : esc(item.name || partnerProfile.name)}${time ? ` · ${esc(time)}` : ""}</small></article>`;
+      const voice = item.telegramAudioFileId
+        ? `<audio class="partner-chat-audio" controls preload="none" data-telegram-audio-id="${esc(item.telegramAudioFileId)}" data-telegram-audio-mime="${esc(item.telegramAudioMimeType || "audio/webm")}" aria-label="Voice message from ${esc(mine ? "you" : item.name || partnerProfile.name)}"></audio>`
+        : "";
+      return `<article class="partner-chat-message ${mine ? "mine" : "theirs"}" data-message-id="${esc(id)}">${item.text ? `<p>${esc(item.text)}</p>` : ""}${voice}<small>${mine ? "You" : esc(item.name || partnerProfile.name)}${time ? ` · ${esc(time)}` : ""}</small></article>`;
     }).join("") : `<p class="partner-chat-empty">Say hello to ${esc(partnerProfile.name)} ♡</p>`;
+    messages.querySelectorAll("audio[data-telegram-audio-id]").forEach(audio => {
+      if (audio.dataset.loading || audio.src) return;
+      audio.dataset.loading = "1";
+      getTelegramMediaUrl(audio.dataset.telegramAudioId, audio.dataset.telegramAudioMime)
+        .then(url => { if (audio.isConnected) audio.src = url; })
+        .catch(error => { console.error("Chat voice message could not load:", error); if (audio.isConnected) audio.title = "Voice message could not load."; })
+        .finally(() => { delete audio.dataset.loading; });
+    });
     requestAnimationFrame(() => { messages.scrollTop = messages.scrollHeight; });
+  }
+
+  async function startVoiceRecording() {
+    if (recorder || voiceStartPromise || sendingVoice) return;
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      toast("Voice recording is not supported in this browser.");
+      return;
+    }
+    pointerReleased = false;
+    micButton.classList.add("recording");
+    micButton.setAttribute("aria-label", "Release to send voice message");
+    micButton.textContent = "●";
+    voiceStartPromise = (async () => {
+      try {
+        recorderStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mimeType = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find(type => MediaRecorder.isTypeSupported?.(type)) || "";
+        recorder = new MediaRecorder(recorderStream, mimeType ? { mimeType } : undefined);
+        voiceChunks = [];
+        recordingStartedAt = Date.now();
+        recorder.ondataavailable = event => { if (event.data.size) voiceChunks.push(event.data); };
+        recorder.onerror = event => {
+          console.error("Chat voice recording failed:", event.error);
+          toast("Voice message could not be recorded.");
+          recorder?.stop();
+        };
+        recorder.onstop = async () => {
+          const durationMs = Math.max(0, Date.now() - recordingStartedAt);
+          const blob = new Blob(voiceChunks, { type: recorder?.mimeType || "audio/webm" });
+          recorderStream?.getTracks().forEach(track => track.stop());
+          recorderStream = null;
+          recorder = null;
+          voiceChunks = [];
+          micButton.classList.remove("recording");
+          micButton.textContent = "🎙";
+          micButton.setAttribute("aria-label", "Hold to record a voice message");
+          if (durationMs < 500 || !blob.size) return;
+          sendingVoice = true;
+          micButton.disabled = true;
+          try {
+            const extension = blob.type.includes("mp4") ? "m4a" : "webm";
+            const file = new File([blob], `chat-voice-${Date.now()}.${extension}`, { type: blob.type || "audio/webm" });
+            const uploaded = await sendToTelegram(file, `Chat voice message · ${profile.name} · ${new Date().toLocaleString()}`);
+            const media = telegramMediaReferences(uploaded);
+            const mimeType = telegramUploadMimeType(file);
+            await push(ref(rtdb, chatPath), {
+              uid: user.uid,
+              profileKey: Object.keys(APP_CONFIG.profiles).find(key => APP_CONFIG.profiles[key].email === user.email) || "",
+              name: profile.name || "",
+              text: "",
+              telegramAudioFileId: media.telegramFileId,
+              telegramAudioMimeType: mimeType,
+              voiceDurationMs: durationMs,
+              createdAt: serverTimestamp()
+            });
+          } catch (error) {
+            console.error("Could not send chat voice message:", error);
+            toast(error.message || "Your voice message could not be sent.");
+          } finally {
+            sendingVoice = false;
+            micButton.disabled = false;
+          }
+        };
+        recorder.start();
+        if (pointerReleased) recorder.stop();
+      } catch (error) {
+        console.error("Could not start chat voice recording:", error);
+        recorderStream?.getTracks().forEach(track => track.stop());
+        recorderStream = null;
+        recorder = null;
+        micButton.classList.remove("recording");
+        micButton.textContent = "🎙";
+        micButton.setAttribute("aria-label", "Hold to record a voice message");
+        toast("Allow microphone access to record a voice message.");
+      } finally {
+        voiceStartPromise = null;
+      }
+    })();
+    await voiceStartPromise;
+  }
+
+  function stopVoiceRecording() {
+    pointerReleased = true;
+    if (recorder?.state === "recording") recorder.stop();
   }
 
   const onPresenceClick = event => { if (event.target.closest("[data-open-partner-chat]")) openChat(); };
@@ -117,6 +220,18 @@ export function initPartnerChat(user, profile, partnerProfile) {
       submit.disabled = false;
     }
   });
+  micButton.addEventListener("pointerdown", event => {
+    if (event.button !== undefined && event.button !== 0) return;
+    event.preventDefault();
+    micButton.setPointerCapture?.(event.pointerId);
+    void startVoiceRecording();
+  });
+  micButton.addEventListener("pointerup", stopVoiceRecording);
+  micButton.addEventListener("pointercancel", stopVoiceRecording);
+  micButton.addEventListener("click", event => {
+    if (event.detail === 0) recorder ? stopVoiceRecording() : void startVoiceRecording();
+  });
+  micButton.addEventListener("contextmenu", event => event.preventDefault());
 
   let stopMessages = null;
   let activeDay = "";
@@ -168,6 +283,8 @@ export function initPartnerChat(user, profile, partnerProfile) {
   window.addEventListener("keydown", onKeydown);
 
   return () => {
+    if (recorder?.state === "recording") recorder.stop();
+    recorderStream?.getTracks().forEach(track => track.stop());
     stopMessages?.();
     stopDayRollover();
     document.removeEventListener("pointerdown", unlockSound);
