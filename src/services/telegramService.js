@@ -209,6 +209,7 @@ export function telegramMediaReferences(result) {
   return {
     telegramFileId: media.file_id,
     telegramFileUniqueId: media.file_unique_id || "",
+    telegramMimeType: media.mime_type || "",
     telegramMessageId: message.message_id || null,
     telegramChatId: message.chat?.id || null,
   };
@@ -241,6 +242,27 @@ export async function getCachedTelegramMediaUrl(fileId, mimeType = "application/
   if (!cached?.blob) return null;
   if (!mediaUrlCache.has(key)) mediaUrlCache.set(key, Promise.resolve(URL.createObjectURL(cached.blob)));
   return mediaUrlCache.get(key);
+}
+
+/** Return a compact JPEG data URL for the signed-in profile-photo cache. */
+export async function getCachedTelegramMediaPreview(fileId, mimeType = "image/jpeg") {
+  if (!fileId) return null;
+  const cached = await idbGet(mediaCacheKey(fileId, mimeType)).catch(() => null);
+  if (!cached?.blob) return null;
+  try {
+    const bitmap = await createImageBitmap(cached.blob);
+    const canvas = document.createElement("canvas");
+    const scale = Math.min(1, 256 / Math.max(bitmap.width, bitmap.height));
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext("2d");
+    if (!context) { bitmap.close?.(); return null; }
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    return canvas.toDataURL("image/jpeg", 0.78);
+  } catch {
+    return null;
+  }
 }
 
 /**

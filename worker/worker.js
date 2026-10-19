@@ -63,10 +63,33 @@ export default {
         const fileRes = await fetch(`${api}/getFile?file_id=${encodeURIComponent(telegramFileId)}`);
         const fileData = await fileRes.json().catch(() => ({}));
         if (!fileData.ok || !fileData.result?.file_path) throw new HttpError(502, fileData.description || 'Telegram getFile failed');
-        const mediaRes = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${fileData.result.file_path}`);
+        // Safari/iOS video playback commonly requests byte ranges. Forward the
+        // range to Telegram and preserve its partial-content headers so seeking
+        // and playback do not require downloading the entire file first.
+        const range = request.headers.get('Range');
+        const mediaRes = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${fileData.result.file_path}`, {
+          headers: range ? { Range: range } : undefined,
+        });
         if (!mediaRes.ok || !mediaRes.body) throw new HttpError(502, 'Telegram media download failed');
+        const extension = String(fileData.result.file_path).split('.').pop().toLowerCase();
+        const inferredMime = {
+          jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', heic: 'image/heic', heif: 'image/heif', avif: 'image/avif',
+          mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', '3gp': 'video/3gpp'
+        }[extension];
+        const actualMime = inferredMime || (mimeType !== 'application/octet-stream' ? mimeType : mediaRes.headers.get('Content-Type') || 'application/octet-stream');
+        const mediaHeaders = {
+          ...cors,
+          'Content-Type': actualMime,
+          'Cache-Control': 'private, no-store',
+          'Accept-Ranges': mediaRes.headers.get('Accept-Ranges') || 'bytes',
+        };
+        const contentLength = mediaRes.headers.get('Content-Length');
+        if (contentLength) mediaHeaders['Content-Length'] = contentLength;
+        const contentRange = mediaRes.headers.get('Content-Range');
+        if (contentRange) mediaHeaders['Content-Range'] = contentRange;
         return new Response(mediaRes.body, {
-          headers: { ...cors, 'Content-Type': mimeType, 'Cache-Control': 'private, no-store' },
+          status: mediaRes.status,
+          headers: mediaHeaders,
         });
       }
 

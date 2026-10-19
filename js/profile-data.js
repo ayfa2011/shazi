@@ -13,6 +13,7 @@ export function applyCoupleProfiles(data = {}) {
   for (const [key, saved] of Object.entries(data)) {
     const profile = APP_CONFIG.profiles[key];
     if (!profile || !saved || typeof saved !== "object") continue;
+    const previousAvatarFileId = profile.avatarTelegramFileId || "";
 
     for (const field of ["name", "bio", "avatar", "driveFileId", "authUid", "avatarTelegramFileId", "avatarMimeType"]) {
       if (typeof saved[field] !== "string") continue;
@@ -20,6 +21,10 @@ export function applyCoupleProfiles(data = {}) {
       if (field === "avatar" && !saved.avatar && profile.avatar) continue;
       if (profile[field] !== saved[field]) changed = true;
       profile[field] = saved[field];
+    }
+    if (previousAvatarFileId !== (profile.avatarTelegramFileId || "")) {
+      profile.avatarPreviewDataUrl = "";
+      profile.avatarPreviewFileId = "";
     }
     if (saved.avatarTelegramFileId && !saved.avatar && profile._loadedAvatarTelegramFileId !== saved.avatarTelegramFileId) {
       if (profile.avatar) changed = true;

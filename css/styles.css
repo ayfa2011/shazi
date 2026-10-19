@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Nunito:wght@800;900;1000&family=Playfair+Display:wght@500;600&display=swap');
-
 :root{
   --pink:#ef6d9f; --pink2:#f8a7c5; --deep:#8f315d; --burgundy:#6e1846; --burgundy-2:#7d1f4d; --card-pink:#fff9fb;
   --bg:#fff7fb;
@@ -25,10 +23,14 @@ form{display:grid;gap:14px;text-align:left;margin-top:24px}label{display:grid;ga
 .login-profile-option:hover{transform:translateY(-2px);background:#fff2f7}
 .login-profile-option:focus-visible{outline:3px solid #ef6d9f66;outline-offset:2px}
 .login-profile-option[aria-pressed="true"]{border-color:var(--pink);background:#fff0f6;box-shadow:0 8px 20px #ef6d9f20}
-.login-profile-photo{position:relative;display:block;width:clamp(92px,28vw,138px);height:clamp(92px,28vw,138px)}
-.login-profile-photo>img{display:block;width:100%;height:100%;border:4px solid #fff;border-radius:50%;object-fit:cover;box-shadow:0 8px 20px #8f315d20}
-.verified-badge{position:absolute;right:0;bottom:2px;width:32px;height:32px;display:grid;place-items:center;border:3px solid #fff;border-radius:50%;background:#3897f0;color:#fff;box-shadow:0 3px 9px #174a7b40}
-.verified-badge svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round}
+.login-profile-photo{position:relative;display:grid;place-items:center;overflow:visible;width:clamp(92px,28vw,138px);height:clamp(92px,28vw,138px);border:4px solid #fff;border-radius:50%;background:linear-gradient(145deg,#ffe2ed,#f4bed3);box-shadow:0 8px 20px #8f315d20}
+.login-profile-photo>[data-login-profile-fallback]{display:grid;place-items:center;width:100%;height:100%;border-radius:50%;color:#9a4269;font:900 clamp(34px,10vw,54px)/1 "Nunito",sans-serif}
+.login-profile-photo>img{position:absolute;inset:0;display:block;width:100%;height:100%;border:0;border-radius:50%;object-fit:cover;opacity:0;transition:opacity .15s ease}
+.login-profile-photo>img.is-loaded{opacity:1}
+.login-profile-photo .verified-badge{right:-2px;bottom:-1px;width:32px;height:32px}
+.verified-badge{--verified-burst:polygon(50% 0%,59% 7%,70% 2%,77% 12%,89% 12%,92% 25%,100% 33%,95% 45%,100% 55%,92% 65%,94% 78%,82% 83%,77% 95%,64% 93%,54% 100%,44% 93%,31% 98%,24% 87%,11% 87%,10% 74%,0% 66%,6% 54%,0% 44%,8% 34%,6% 21%,19% 17%,25% 5%,38% 9%);position:absolute;right:-3px;bottom:-2px;z-index:2;width:34px;height:34px;display:grid;place-items:center;overflow:visible;border:0;border-radius:0;background:#fff;color:#fff;clip-path:var(--verified-burst);filter:drop-shadow(0 3px 4px #164b8738)}
+.verified-badge::before{content:"";position:absolute;inset:3px;z-index:0;background:linear-gradient(145deg,#3295ff,#1261df);clip-path:var(--verified-burst)}
+.verified-badge svg{position:relative;z-index:1;width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
 .login-profile-option span{font-family:"Nunito",sans-serif;font-size:clamp(21px,6vw,27px);font-weight:900;line-height:1.1}
 .login-password-label.hidden,.login-profile-option.hidden{display:none}
 input,textarea,select{border:1px solid var(--line);border-radius:14px;padding:13px;background:#fff;color:var(--text);outline:none}

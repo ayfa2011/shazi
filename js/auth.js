@@ -1,7 +1,7 @@
 import { auth, firebaseReady, authPersistenceReady } from "./firebase.js";
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 import { APP_CONFIG } from "../config/app-config.js";
-import { getCachedTelegramMediaUrl } from "../src/services/telegramService.js";
+import { getCachedTelegramMediaPreview } from "../src/services/telegramService.js";
 import { $, toastError } from "./utils.js";
 
 export function initAuth(onLogin,onLogout){
@@ -25,22 +25,44 @@ export function initAuth(onLogin,onLogout){
       const key = button.dataset.profile;
       const person = APP_CONFIG.profiles[key];
       const image = button.querySelector("[data-login-profile-image]");
+      const fallback = button.querySelector("[data-login-profile-fallback]");
       const name = button.querySelector("span:last-child");
       if (person) saved[key] = {
         name: person.name || "",
         avatar: person.avatar?.startsWith("blob:") ? "" : (person.avatar || ""),
+        avatarPreviewDataUrl: person.avatarPreviewFileId === person.avatarTelegramFileId ? (person.avatarPreviewDataUrl || "") : "",
+        avatarPreviewFileId: person.avatarPreviewFileId === person.avatarTelegramFileId ? (person.avatarPreviewFileId || "") : "",
         avatarTelegramFileId: person.avatarTelegramFileId || "",
         avatarMimeType: person.avatarMimeType || "image/jpeg"
       };
-      if (image && person?.avatar && !person.avatar.startsWith("blob:")) image.src = person.avatar;
-      else image?.removeAttribute("src");
+      const displayPhoto = (person?.avatarPreviewFileId === person?.avatarTelegramFileId ? person.avatarPreviewDataUrl : "") || (person?.avatar && !person.avatar.startsWith("blob:") ? person.avatar : "");
+      if (fallback) fallback.textContent = (person?.name || key).slice(0, 1).toUpperCase();
+      if (image) {
+        image.fetchPriority = "high";
+        image.classList.toggle("is-loaded", Boolean(displayPhoto));
+        image.onerror = () => { image.classList.remove("is-loaded"); image.removeAttribute("src"); };
+        image.onload = () => image.classList.add("is-loaded");
+        if (displayPhoto && image.src !== displayPhoto) image.src = displayPhoto;
+        else if (!displayPhoto) image.removeAttribute("src");
+      }
       if (name) name.textContent = person?.name || key;
-      if (image && person?.avatarTelegramFileId && !image.dataset.hydrating) {
-        image.dataset.hydrating = "1";
-        void getCachedTelegramMediaUrl(person.avatarTelegramFileId, person.avatarMimeType || "image/jpeg")
-          .then(url => { if (url && image.isConnected) image.src = url; })
+      if (image && person?.avatarTelegramFileId && !person.avatarPreviewDataUrl && !image.dataset.hydrating) {
+        const fileId = person.avatarTelegramFileId;
+        image.dataset.hydrating = fileId;
+        void getCachedTelegramMediaPreview(fileId, person.avatarMimeType || "image/jpeg")
+          .then(preview => {
+            if (!preview || !image.isConnected || APP_CONFIG.profiles[key]?.avatarTelegramFileId !== fileId) return;
+            person.avatarPreviewDataUrl = preview;
+            person.avatarPreviewFileId = fileId;
+            image.src = preview;
+            try {
+              const current = JSON.parse(localStorage.getItem("olw-login-profiles") || "{}");
+              current[key] = { ...(current[key] || {}), name: person.name || "", avatarPreviewDataUrl: preview, avatarPreviewFileId: fileId, avatarTelegramFileId: fileId, avatarMimeType: person.avatarMimeType || "image/jpeg" };
+              localStorage.setItem("olw-login-profiles", JSON.stringify(current));
+            } catch { /* Private browsing or full storage: the in-memory preview still works. */ }
+          })
           .catch(() => {})
-          .finally(() => { delete image.dataset.hydrating; });
+          .finally(() => { if (image.dataset.hydrating === fileId) delete image.dataset.hydrating; });
       }
     });
     try { localStorage.setItem("olw-login-profiles", JSON.stringify(saved)); } catch { /* Best effort profile-photo cache. */ }

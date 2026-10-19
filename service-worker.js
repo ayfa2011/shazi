@@ -9,7 +9,7 @@
  *    (Firestore IndexedDB, olw-media-cache) own offline behavior.
  */
 const CACHE_PREFIX = "our-little-world-";
-const CACHE_VERSION = "v11";
+const CACHE_VERSION = "v14";
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${new URL(self.registration.scope).pathname}-${CACHE_VERSION}`;
 const STATIC_CACHE = `${CACHE_PREFIX}static-${new URL(self.registration.scope).pathname}-${CACHE_VERSION}`;
 

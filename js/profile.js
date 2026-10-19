@@ -24,12 +24,11 @@ export function renderProfile(el, user, profile) {
       .profile-back { width:34px; height:34px; border-radius:50%; background:transparent; color:#8f315d; font-size:20px; }
       .profile-cover { height:132px; background:linear-gradient(125deg,#f6c3d7,#fff0f6 56%,#e99dbb); }
       .profile-edit-card { position:relative; padding:0 20px 18px; }
-      .profile-photo-preview { position:relative; width:172px; height:172px; padding:0; display:grid; place-items:center; overflow:hidden; border:5px solid #fff; border-radius:50%; background:linear-gradient(145deg,#ffe9f1,#ffd4e4); color:#8f315d; font:700 54px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin-top:-86px; box-shadow:0 0 0 3px #f8c9db,0 12px 30px #a43f6c2b; cursor:pointer; transition:transform .25s ease,box-shadow .25s ease; -webkit-tap-highlight-color:transparent; }
+      .profile-photo-preview { position:relative; width:172px; height:172px; padding:0; display:grid; place-items:center; overflow:visible; border:5px solid #fff; border-radius:50%; background:linear-gradient(145deg,#ffe9f1,#ffd4e4); color:#8f315d; font:700 54px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin-top:-86px; box-shadow:0 0 0 3px #f8c9db,0 12px 30px #a43f6c2b; cursor:pointer; transition:transform .25s ease,box-shadow .25s ease; -webkit-tap-highlight-color:transparent; }
       .profile-photo-preview:hover { transform:translateY(-2px); box-shadow:0 0 0 4px #f4b8d0,0 16px 36px #a43f6c35; }
       .profile-photo-preview:focus-visible { outline:3px solid #d94f8a; outline-offset:5px; }
-      .profile-photo-preview::after { content:"✎"; position:absolute; right:5px; bottom:6px; width:38px; height:38px; display:grid; place-items:center; border:3px solid #fff; border-radius:50%; background:#e65391; color:#fff; font-size:19px; line-height:1; box-shadow:0 4px 12px #a43f6c35; pointer-events:none; }
       .profile-photo-preview img { width:100%; height:100%; object-fit:cover; border-radius:50%; transition:transform .35s ease; }
-      .profile-photo-preview .verified-badge { z-index:1; right:3px; bottom:5px; width:38px; height:38px; }
+      .profile-photo-preview .verified-badge { right:-4px; bottom:1px; width:46px; height:46px; }
       .profile-photo-preview:hover img { transform:scale(1.04); }
       .profile-photo-picker { display:none !important; }
       .profile-photo-dialog { position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:22px; background:#29151f75; backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px); opacity:0; visibility:hidden; transition:opacity .22s ease,visibility .22s ease; }
@@ -54,7 +53,7 @@ export function renderProfile(el, user, profile) {
       .profile-photo-picker input { padding:7px; font-size:11px; }
       .profile-handle { margin:5px 0 14px; color:#8c737d; font-size:13px; }
       .profile-save { justify-self:end; padding:9px 16px; border-radius:999px; }
-      @media(max-width:420px) { .profile-cover { height:116px; } .profile-edit-card { padding-right:16px; padding-left:16px; } .profile-photo-preview { width:152px; height:152px; margin-top:-76px; font-size:48px; } .profile-photo-preview::after { width:34px; height:34px; right:3px; bottom:4px; } }
+      @media(max-width:420px) { .profile-cover { height:116px; } .profile-edit-card { padding-right:16px; padding-left:16px; } .profile-photo-preview { width:152px; height:152px; margin-top:-76px; font-size:48px; } .profile-photo-preview .verified-badge { width:42px;height:42px;right:-4px;bottom:1px; } }
     </style>
     <section class="profile-settings">
       <header class="profile-topbar"><button type="button" class="profile-back" aria-label="Back">←</button><h2>Profile</h2></header>

@@ -431,32 +431,34 @@ function scoreboardSummaryMarkup(items, user, profile) {
     : "No matches yet — start playing!";
   return `<section class="games-scoreboard-card" aria-label="Game scoreboard summary">
     <div class="games-scoreboard-head">
-      <div>
-        <p class="eyebrow">OUR SCOREBOARD</p>
-        <h2>Wins &amp; Losses</h2>
-      </div>
+      <h2>Scoreboard</h2>
       <span class="games-scoreboard-total">${esc(headerSub)}</span>
     </div>
     <div class="games-scoreboard-grid">
       <div class="games-scoreboard-player me">
-        ${avatarMarkup(ownProfile, "You")}
-        <span class="games-scoreboard-name">You</span>
-        <strong class="games-scoreboard-wins">${mine.wins}</strong>
-        <span class="games-scoreboard-label">${mine.wins === 1 ? "win" : "wins"}</span>
-        <div class="games-scoreboard-meta">
-          <span><b>${mine.losses}</b> losses</span>
-          <span><b>${mine.games}</b> games</span>
+        <div class="games-scoreboard-main">
+          <strong class="games-scoreboard-wins">${mine.wins}</strong>
+          <span class="games-scoreboard-label">WINS</span>
+        </div>
+        <div class="games-scoreboard-info">
+          <div class="games-scoreboard-identity">${avatarMarkup(ownProfile, "You")}<span class="games-scoreboard-name">You</span></div>
+          <div class="games-scoreboard-meta">
+            <span><b>${mine.losses}</b><small>Losses</small></span>
+            <span><b>${mine.games}</b><small>Total games</small></span>
+          </div>
         </div>
       </div>
-      <span class="games-scoreboard-vs" aria-hidden="true">VS</span>
       <div class="games-scoreboard-player partner">
-        ${avatarMarkup(partnerProfile, partnerName)}
-        <span class="games-scoreboard-name">${esc(partnerName)}</span>
-        <strong class="games-scoreboard-wins">${theirs.wins}</strong>
-        <span class="games-scoreboard-label">${theirs.wins === 1 ? "win" : "wins"}</span>
-        <div class="games-scoreboard-meta">
-          <span><b>${theirs.losses}</b> losses</span>
-          <span><b>${theirs.games}</b> games</span>
+        <div class="games-scoreboard-main">
+          <strong class="games-scoreboard-wins">${theirs.wins}</strong>
+          <span class="games-scoreboard-label">WINS</span>
+        </div>
+        <div class="games-scoreboard-info">
+          <div class="games-scoreboard-identity">${avatarMarkup(partnerProfile, partnerName)}<span class="games-scoreboard-name">${esc(partnerName)}</span></div>
+          <div class="games-scoreboard-meta">
+            <span><b>${theirs.losses}</b><small>Losses</small></span>
+            <span><b>${theirs.games}</b><small>Total games</small></span>
+          </div>
         </div>
       </div>
     </div>
@@ -482,49 +484,47 @@ function gameCard(id, emoji, title, description, label = "") {
 }
 
 const scoreboardStyles = `<style>
-  .games-scoreboard-card{margin:0 0 20px;padding:18px 16px 16px;border-radius:20px;
+  .games-scoreboard-card{margin:0 0 12px;padding:12px;border-radius:18px;
     background:linear-gradient(135deg,#fff5f9 0%,#fdeaf3 55%,#f6e2ff 100%);
     border:1px solid #f3d5e2;box-shadow:0 14px 30px -20px rgba(182,79,123,.55)}
-  .games-scoreboard-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:14px}
-  .games-scoreboard-head .eyebrow{margin:0 0 3px}
-  .games-scoreboard-head h2{margin:0;font-size:17px;color:#75435a;letter-spacing:.01em}
+  .games-scoreboard-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px}
+  .games-scoreboard-head h2{margin:0;font-size:15px;color:#75435a;letter-spacing:.01em}
   .games-scoreboard-total{font-size:11px;color:#8c7480;text-align:right;max-width:45%;line-height:1.3}
-  .games-scoreboard-grid{display:grid;grid-template-columns:1fr auto 1fr;align-items:stretch;gap:10px}
-  .games-scoreboard-player{display:flex;flex-direction:column;align-items:center;gap:1px;padding:12px 12px;border-radius:14px;
+  .games-scoreboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch;gap:8px}
+  .games-scoreboard-player{min-width:0;display:grid;grid-template-columns:52px minmax(0,1fr);align-items:center;gap:7px;padding:8px;border-radius:14px;
     background:rgba(255,255,255,.8);border:1px solid #f3d5e2}
-  .games-scoreboard-player.partner{text-align:center;align-items:center}
-  .games-scoreboard-avatar{display:block;width:54px;height:54px;margin:0 0 6px;border:3px solid #fff;border-radius:50%;object-fit:cover;box-shadow:0 4px 12px rgba(182,79,123,.22)}
-  .games-scoreboard-avatar.fallback{display:grid;place-items:center;background:linear-gradient(135deg,#f8bbd0,#d5c0f4);color:#75435a;font-size:21px;font-weight:800}
+  .games-scoreboard-main{display:grid;justify-items:center;align-content:center;min-width:0}
+  .games-scoreboard-avatar{display:block;flex:none;width:30px;height:30px;border:2px solid #fff;border-radius:50%;object-fit:cover;box-shadow:0 3px 8px rgba(182,79,123,.18)}
+  .games-scoreboard-avatar.fallback{display:grid;place-items:center;background:linear-gradient(135deg,#f8bbd0,#d5c0f4);color:#75435a;font-size:14px;font-weight:800}
+  .games-scoreboard-info{min-width:0;display:grid;gap:7px}
+  .games-scoreboard-identity{min-width:0;display:flex;align-items:center;gap:6px}
   .games-scoreboard-name{font-size:11px;font-weight:700;color:#75435a;text-transform:uppercase;letter-spacing:.08em;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-  .games-scoreboard-wins{font-size:34px;line-height:1.05;font-weight:800;color:#b64f7b;margin-top:2px}
+  .games-scoreboard-wins{font-size:38px;line-height:.95;font-weight:900;color:#b64f7b}
   .games-scoreboard-player.partner .games-scoreboard-wins{color:#7c5cc4}
-  .games-scoreboard-label{font-size:11px;color:#8c7480;letter-spacing:.04em}
-  .games-scoreboard-meta{display:flex;gap:10px;margin-top:8px;font-size:11px;color:#8c7480;flex-wrap:wrap}
-  .games-scoreboard-meta b{color:#75435a;font-weight:700}
-  .games-scoreboard-player.partner .games-scoreboard-meta{justify-content:center}
-  .games-scoreboard-vs{align-self:center;font-size:10px;font-weight:800;color:#b64f7b;background:#fff;
-    border:1px solid #f3d5e2;border-radius:999px;padding:6px 8px;letter-spacing:.1em}
-  .games-scoreboard-bar{display:flex;height:8px;margin-top:14px;border-radius:999px;overflow:hidden;background:#f6e2ff}
+  .games-scoreboard-label{font-size:9px;font-weight:800;color:#8c7480;letter-spacing:.04em}
+  .games-scoreboard-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;font-size:10px;color:#8c7480}
+  .games-scoreboard-meta span{display:grid;line-height:1.15}
+  .games-scoreboard-meta b{color:#75435a;font-weight:800;font-size:12px}
+  .games-scoreboard-meta small{font-size:9px}
+  .games-scoreboard-bar{display:flex;height:6px;margin-top:9px;border-radius:999px;overflow:hidden;background:#f6e2ff}
   .games-scoreboard-bar span{display:block;height:100%;transition:width .45s ease}
   .games-scoreboard-bar .me{background:linear-gradient(90deg,#f7b6cf,#b64f7b)}
   .games-scoreboard-bar .partner{background:linear-gradient(90deg,#c9b6f7,#7c5cc4)}
   .games-scoreboard-empty{font-size:12px;color:#8c7480;text-align:center;margin:12px 0 0}
   @media (max-width:420px){
-    .games-scoreboard-wins{font-size:28px}
+    .games-scoreboard-card{padding:10px}
     .games-scoreboard-grid{gap:6px}
-    .games-scoreboard-player{padding:10px}
+    .games-scoreboard-player{grid-template-columns:42px minmax(0,1fr);gap:5px;padding:7px 5px}
+    .games-scoreboard-wins{font-size:32px}
+    .games-scoreboard-name{font-size:9px;letter-spacing:.04em}
+    .games-scoreboard-avatar{width:26px;height:26px}
   }
 </style>`;
 
 function gamesHome() {
   return `<section class="games-page">
     ${scoreboardStyles}
-    <header class="games-intro">
-      <p class="eyebrow">A LITTLE FRIENDLY COMPETITION</p>
-      <h1>Our Games <span aria-hidden="true">🎮</span></h1>
-      <p class="muted">Play together across devices and share your own emoji clues.</p>
-    </header>
     <div id="games-scoreboard"></div>
     <div class="games-hub-grid">
       ${gameCard("sos", "🔠", "SOS", "Make SOS lines, earn points, and play live", "LIVE")}

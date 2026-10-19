@@ -8,37 +8,78 @@ let active = false;
 let removeMemoryEscapeListener = null;
 let memoryLoadTimer = null;
 let memoryWatchGeneration = 0;
+let lightboxLoadGeneration = 0;
 const MEMORY_PHOTO_MAX_BYTES = 1.5 * 1024 * 1024;
+const memoryThumbHydrators = new WeakMap();
+const activeMemoryThumbHydrators = new Set();
+
+function memoryMediaMime(item, isVideo = false) {
+  const declared = item?.mimeType || item?.photoMimeType || item?.telegramMimeType || "";
+  if (declared && declared !== "application/octet-stream") return declared;
+  const extension = String(item?.name || "").split(".").pop().toLowerCase();
+  const byExtension = {
+    mov: "video/quicktime", mp4: "video/mp4", m4v: "video/mp4", webm: "video/webm", "3gp": "video/3gpp",
+    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: "image/heic", heif: "image/heif", gif: "image/gif", avif: "image/avif"
+  }[extension];
+  return byExtension || (isVideo ? "video/mp4" : "image/jpeg");
+}
+
+function isUsableMediaUrl(url) {
+  return typeof url === "string" && /^(https?:|data:image\/)/i.test(url);
+}
 
 async function prepareMemoryPhoto(file) {
-  if (!file.type.startsWith("image/")) return file;
-  if (file.size <= MEMORY_PHOTO_MAX_BYTES) return file;
+  const extension = String(file.name || "").split(".").pop().toLowerCase();
+  const extensionFormat = ["heic", "heif", "tif", "tiff", "bmp"].includes(extension);
+  if (!file.type.startsWith("image/") && !extensionFormat) return file;
+  const needsJpeg = /image\/(heic|heif|tiff|bmp)/i.test(file.type) || extensionFormat;
+  if (file.size <= MEMORY_PHOTO_MAX_BYTES && !needsJpeg) return file;
   if (/image\/(gif|svg\+xml)/i.test(file.type)) {
-    throw new Error("This animated or vector image is over 2 MB. Please choose a smaller file to keep it unchanged.");
+    throw new Error("This animated or vector image is over 1.5 MB. Please choose a smaller file to keep it unchanged.");
   }
 
   let bitmap;
   try {
     bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
   } catch {
-    console.warn("Memory photo compression unavailable; uploading original file.");
-    return file;
+    if (!needsJpeg) {
+      console.warn("Memory photo compression unavailable; uploading original file.");
+      return file;
+    }
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const image = await new Promise((resolve, reject) => {
+        const probe = new Image();
+        probe.onload = () => resolve(probe);
+        probe.onerror = () => reject(new Error("This iPhone photo format could not be read. Please export it as JPEG and try again."));
+        probe.src = objectUrl;
+      });
+      bitmap = { width: image.naturalWidth, height: image.naturalHeight, close() {}, draw: (context, width, height) => context.drawImage(image, 0, 0, width, height) };
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
   }
 
   try {
     const canvas = document.createElement("canvas");
-    const qualities = [0.94, 0.91, 0.88, 0.85, 0.82];
-    for (let scale = 1; scale >= 0.55; scale -= 0.1) {
+    const maxDimensionScale = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height));
+    const scales = [1, 0.86, 0.72, 0.58];
+    const qualities = [0.88, 0.78, 0.68];
+    for (const reduction of scales) {
+      const scale = maxDimensionScale * reduction;
       canvas.width = Math.max(1, Math.round(bitmap.width * scale));
       canvas.height = Math.max(1, Math.round(bitmap.height * scale));
       const context = canvas.getContext("2d", { alpha: true });
       if (!context) throw new Error("Could not prepare this photo. Please try another image.");
-      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      if (bitmap.draw) bitmap.draw(context, canvas.width, canvas.height);
+      else context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
       for (const quality of qualities) {
-        const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/webp", quality));
-        if (blob?.type === "image/webp" && blob.size <= MEMORY_PHOTO_MAX_BYTES) {
+        const outputType = needsJpeg ? "image/jpeg" : "image/webp";
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, outputType, quality));
+        if (blob?.type === outputType && blob.size <= MEMORY_PHOTO_MAX_BYTES) {
           const baseName = (file.name || "memory-photo").replace(/\.[^.]+$/, "");
-          return new File([blob], `${baseName}.webp`, { type: blob.type, lastModified: file.lastModified || Date.now() });
+          const suffix = needsJpeg ? "jpg" : "webp";
+          return new File([blob], `${baseName}.${suffix}`, { type: blob.type, lastModified: file.lastModified || Date.now() });
         }
       }
     }
@@ -46,6 +87,7 @@ async function prepareMemoryPhoto(file) {
     bitmap.close?.();
   }
   // If compression cannot produce a valid target, retain the original file.
+  if (needsJpeg) throw new Error("This iPhone photo could not be converted to a compatible format. Please export it as JPEG and try again.");
   return file;
 }
 
@@ -108,6 +150,7 @@ export function renderMemories(el, user, profile) {
       .memory-thumb-box { position: absolute; inset: 0; display: grid; width: 100%; height: 100%; place-items: center; overflow: hidden; background: linear-gradient(135deg, #fff1f6 0%, #f9dde8 50%, #f7e8da 100%); color: #d9789b; font-size: 32px; }
       .memory-thumb-box img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; transition: opacity .4s ease, transform .45s ease; opacity: 0; }
       .memory-thumb-box img[src] { opacity: 1; }
+      .memory-thumb-box.has-broken-media::before { content:"♡"; position:absolute; z-index:1; color:#d9789b; font-size:30px; }
       .memory-item:hover .memory-thumb-box img { transform: scale(1.04); }
       .memory-thumb-box::after { content: ""; position: absolute; inset: 35% 0 0; background: linear-gradient(to top, rgba(0,0,0,.72), rgba(0,0,0,0)); pointer-events: none; }
       .memory-badge { position: absolute; top: 9px; left: 9px; z-index: 2; padding: 4px 10px; border-radius: 999px; background: #ffffffd9; color: #b04b72; font-size: 10px; font-weight: 700; letter-spacing: .05em; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 4px 12px #0000001a; }
@@ -175,6 +218,9 @@ export function renderMemories(el, user, profile) {
       .memory-gallery-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
       .memory-gallery-item { position:relative; display:block; width:100%; aspect-ratio:1; padding:0; overflow:hidden; border:1px solid #f2dce5; border-radius:13px; background:#f9e8ef; cursor:pointer; }
       .memory-gallery-item img { display:block; width:100%; height:100%; object-fit:cover; }
+      .memory-gallery-item.has-broken-media::before { content:"♡"; position:absolute; inset:0; z-index:1; display:grid; place-items:center; color:#b75b7d; font-size:25px; }
+      .memory-gallery-video-poster,.memory-card-video-poster { position:absolute; inset:0; display:grid; place-items:center; background:linear-gradient(145deg,#fbe6ee,#e9dce4); color:#b75b7d; font-size:26px; }
+      .memory-gallery-video-poster.has-cached-poster,.memory-card-video-poster.has-cached-poster { background-position:center;background-size:cover;color:transparent; }
       .memory-gallery-item .memory-video-indicator { top:auto; right:auto; left:50%; bottom:50%; transform:translate(-50%,50%); }
       .memory-view-edit { display: inline-flex; margin: 16px auto 2px; padding: 6px 14px; border: 1px solid #f3dce5; border-radius: 999px; background: transparent; color: #a48794; font-size: 10.5px; font-weight: 700; cursor: pointer; transition: background .2s ease, color .2s ease; }
       .memory-view-edit:hover, .memory-view-edit:focus-visible { background: #fff0f5; color: #8f4263; }
@@ -375,6 +421,7 @@ export function renderMemories(el, user, profile) {
   }, { passive: true });
 
   function closeImageLightbox() {
+    lightboxLoadGeneration++;
     imageLightbox.setAttribute("aria-hidden", "true");
     lightboxImage.removeAttribute("src");
     lightboxImage.style.display = "none";
@@ -388,6 +435,7 @@ export function renderMemories(el, user, profile) {
   }
 
   function openImageLightbox(image) {
+    lightboxLoadGeneration++;
     lightboxVideo.pause();
     lightboxVideo.removeAttribute("src");
     lightboxVideo.style.display = "none";
@@ -411,6 +459,7 @@ export function renderMemories(el, user, profile) {
 
   async function openGalleryMediaLightbox(item) {
     if (!item) return;
+    const loadGeneration = ++lightboxLoadGeneration;
     const memory = activeMemoryForView || {};
     const allMedia = [
       ...(memory.photoUrl || memory.telegramFileId ? [{ type: memory.mediaType || "photo", url: memory.photoUrl, telegramFileId: memory.telegramFileId, mimeType: memory.photoMimeType, name: memory.title }] : []),
@@ -427,13 +476,15 @@ export function renderMemories(el, user, profile) {
     if (item.type === "video") {
       lightboxVideo.style.display = "block";
       lightboxVideo.setAttribute("aria-label", item.name || "Memory video");
-      const url = item.url || (item.telegramFileId ? await getTelegramMediaUrl(item.telegramFileId, item.mimeType || "video/mp4") : "");
+      const url = isUsableMediaUrl(item.url) && !item.telegramFileId ? item.url : item.telegramFileId ? await getTelegramMediaUrl(item.telegramFileId, memoryMediaMime(item, true)) : "";
+      if (loadGeneration !== lightboxLoadGeneration || imageLightbox.getAttribute("aria-hidden") === "true") return;
       if (!url) { closeImageLightbox(); toast("This video is missing its media link."); return; }
       lightboxVideo.src = url;
       lightboxVideo.load();
     } else {
       lightboxVideo.style.display = "none";
-      const url = item.url || (item.telegramFileId ? await getTelegramMediaUrl(item.telegramFileId, item.mimeType || "image/jpeg") : "");
+      const url = isUsableMediaUrl(item.url) && !item.telegramFileId ? item.url : item.telegramFileId ? await getTelegramMediaUrl(item.telegramFileId, memoryMediaMime(item)) : "";
+      if (loadGeneration !== lightboxLoadGeneration || imageLightbox.getAttribute("aria-hidden") === "true") return;
       if (!url) { closeImageLightbox(); toast("This photo is missing its media link."); return; }
       lightboxImage.style.display = "block";
       lightboxImage.src = url;
@@ -556,8 +607,11 @@ export function renderMemories(el, user, profile) {
         isVideo = file.type.startsWith("video/");
         const timestamp = new Date().toLocaleString();
         const uploadFile = isVideo ? file : await prepareMemoryPhoto(file);
+        const videoPoster = isVideo ? await createVideoThumbnail(file).catch(() => "") : "";
         const result = await sendToTelegram(uploadFile, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`);
-        mediaMetadata = { ...telegramMediaReferences(result), photoMimeType: telegramUploadMimeType(uploadFile) };
+        const references = telegramMediaReferences(result);
+        if (videoPoster) void setCachedThumb(references.telegramFileId, videoPoster);
+        mediaMetadata = { ...references, photoMimeType: references.telegramMimeType || telegramUploadMimeType(uploadFile) };
       }
 
       let formattedDate = "";
@@ -645,9 +699,9 @@ export function renderMemories(el, user, profile) {
       openImageLightbox(image);
     };
     const isVideo = selected?.type === "video" || (!selected && memory.mediaType === "video");
-    const mediaUrl = selected?.url || memory.photoUrl || "";
+    const mediaUrl = selected?.telegramFileId ? "" : isUsableMediaUrl(selected?.url) ? selected.url : !selected && !memory.telegramFileId && isUsableMediaUrl(memory.photoUrl) ? memory.photoUrl : "";
     const fileId = selected?.telegramFileId || (!selected ? memory.telegramFileId : "");
-    const mimeType = selected?.mimeType || memory.photoMimeType || (isVideo ? "video/mp4" : "image/jpeg");
+    const mimeType = memoryMediaMime(selected || memory, isVideo);
     imgWrap.querySelectorAll(".memory-view-main,.memory-view-placeholder").forEach(node => node.remove());
     if (isVideo && (mediaUrl || fileId)) {
       const video = document.createElement("video");
@@ -661,7 +715,10 @@ export function renderMemories(el, user, profile) {
       video.setAttribute("controlslist", "nodownload");
       if (mediaUrl) video.src = mediaUrl;
       else getTelegramMediaUrl(fileId, mimeType).then(url => { if (video.isConnected) { video.src = url; video.load(); } }).catch(error => console.error("Memory video could not load:", error));
-      video.addEventListener("error", () => console.error("Memory video playback failed", video.error, { mimeType, mediaUrl }), { once: true });
+      video.addEventListener("error", () => {
+        console.error("Memory video playback failed", video.error, { mimeType, mediaUrl });
+        if (video.error?.code === 4) toast("This video codec is not supported on this iPhone. Try an MP4 (H.264) copy.");
+      }, { once: true });
       imgWrap.prepend(video);
     } else if (mediaUrl || fileId) {
       const image = document.createElement("img");
@@ -694,10 +751,16 @@ export function renderMemories(el, user, profile) {
     $("#memory-gallery-count", el).textContent = `${photos} ${photos === 1 ? "photo" : "photos"} and ${videos} ${videos === 1 ? "video" : "videos"}`;
     mediaGrid.innerHTML = media.map((item, index) => {
       const isVideo = item.type === "video";
-      const thumbnail = item.thumbnailUrl || (!isVideo ? item.url : "");
+      const thumbnail = isUsableMediaUrl(item.thumbnailUrl) ? item.thumbnailUrl : (!isVideo && isUsableMediaUrl(item.url) ? item.url : "");
       if (!thumbnail && !item.telegramFileId && !item.url) return "";
-      const mediaAttrs = thumbnail ? `src="${esc(thumbnail)}"` : item.telegramFileId ? `data-memory-file-id="${esc(item.telegramFileId)}" data-memory-mime="${esc(item.mimeType || (isVideo ? "video/mp4" : "image/jpeg"))}" data-memory-kind="${esc(item.type || "photo")}"` : `data-memory-src="${esc(item.url)}" data-memory-mime="${esc(item.mimeType || "video/mp4")}" data-memory-kind="${esc(item.type || "photo")}"`;
-      return `<button class="memory-gallery-item" type="button" data-media-index="${index}" aria-label="Open full-size ${isVideo ? "video" : "photo"}${item.name ? `: ${esc(item.name)}` : ""}"><img ${mediaAttrs} alt="" loading="lazy" decoding="async">${isVideo ? `<span class="memory-video-indicator" aria-hidden="true">▶</span>` : ""}</button>`;
+      const thumbnailMarkup = thumbnail
+        ? `<img src="${esc(thumbnail)}" alt="" loading="lazy" decoding="async">`
+        : isVideo
+          ? `<span class="memory-gallery-video-poster"${item.telegramFileId ? ` data-memory-thumb-id="${esc(item.telegramFileId)}"` : ""} aria-hidden="true">▶</span>`
+          : item.telegramFileId
+            ? `<img data-memory-file-id="${esc(item.telegramFileId)}" data-memory-mime="${esc(memoryMediaMime(item))}" data-memory-kind="photo" alt="" loading="lazy" decoding="async">`
+            : `<span class="memory-gallery-video-poster" aria-hidden="true">♡</span>`;
+      return `<button class="memory-gallery-item" type="button" data-media-index="${index}" aria-label="Open full-size ${isVideo ? "video" : "photo"}${item.name ? `: ${esc(item.name)}` : ""}">${thumbnailMarkup}${isVideo ? `<span class="memory-video-indicator" aria-hidden="true">▶</span>` : ""}</button>`;
     }).join("");
     mediaGrid.querySelectorAll("[data-media-index]").forEach(button => {
       button.onclick = () => {
@@ -714,24 +777,40 @@ export function renderMemories(el, user, profile) {
   function hydrateMemoryThumbnails(container) {
     // Zero-latency: cached thumbs paint instantly as blur-up backgrounds;
     // full images hydrate lazily only when scrolled into view.
+    const previousStop = memoryThumbHydrators.get(container);
+    previousStop?.();
+    if (previousStop) activeMemoryThumbHydrators.delete(previousStop);
+    container.querySelectorAll("img").forEach(image => {
+      if (image.dataset.memoryFallbackBound) return;
+      image.dataset.memoryFallbackBound = "1";
+      image.addEventListener("error", () => {
+        image.style.display = "none";
+        image.parentElement?.classList.add("has-broken-media");
+      }, { once: true });
+    });
     void paintCachedThumbs(container);
-    lazyHydrateImages(container, async ({ fileId, mime }) => {
+    const stop = lazyHydrateImages(container, async ({ fileId, mime }) => {
       const source = await getTelegramMediaUrl(fileId, mime);
       return source;
     });
+    const stopAndForget = () => { stop(); activeMemoryThumbHydrators.delete(stopAndForget); };
+    memoryThumbHydrators.set(container, stopAndForget);
+    activeMemoryThumbHydrators.add(stopAndForget);
   }
 
   async function paintCachedThumbs(container) {
-    const pending = Array.from(container.querySelectorAll("img[data-memory-file-id]:not([src])"));
+    const pending = Array.from(container.querySelectorAll("img[data-memory-file-id]:not([src]), [data-memory-thumb-id]"));
     await Promise.all(pending.map(async (image) => {
       try {
-        const record = await getCachedThumb(image.dataset.memoryFileId);
+        const record = await getCachedThumb(image.dataset.memoryFileId || image.dataset.memoryThumbId);
         const dataUrl = record?.dataUrl;
-        if (dataUrl && image.isConnected && !image.src) {
-          image.setAttribute("data-thumb", dataUrl);
-          image.style.background = "url('" + dataUrl + "') center/cover";
-          image.style.filter = "blur(8px)";
-          image.style.transition = "filter .35s ease";
+        if (dataUrl && image.isConnected && (!image.matches("img") || !image.src)) {
+          image.style.background = `url('${dataUrl}') center/cover`;
+          if (image.matches("img")) {
+            image.style.filter = "blur(8px)";
+            image.style.transition = "filter .35s ease";
+          }
+          image.classList.add("has-cached-poster");
         }
       } catch { /* thumbnails are best-effort */ }
     }));
@@ -767,7 +846,9 @@ export function renderMemories(el, user, profile) {
 
           // Keep tiny blur placeholders in local cache only. Data-URL thumbnails
           // must not be saved inside the Firestore memory document.
-          const blurThumb = type === "photo" ? await tinyBlurPlaceholder(uploadFile).catch(() => "") : "";
+          const blurThumb = type === "photo"
+            ? await tinyBlurPlaceholder(uploadFile).catch(() => "")
+            : await createVideoThumbnail(file).catch(() => "");
 
           const result = await sendToTelegram(uploadFile, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`);
           const refs = telegramMediaReferences(result);
@@ -778,7 +859,7 @@ export function renderMemories(el, user, profile) {
             // Full-size media is loaded from Telegram using telegramFileId.
             // Do not store Base64 thumbnails in Firestore (1 MiB document limit).
             type,
-            mimeType: telegramUploadMimeType(uploadFile),
+            mimeType: refs.telegramMimeType || telegramUploadMimeType(uploadFile),
             name: file.name || (type === "video" ? "Video" : "Photo"),
             createdAtMs
           };
@@ -823,7 +904,17 @@ export function renderMemories(el, user, profile) {
     return new Promise((resolve, reject) => {
       const video = document.createElement("video");
       const objectUrl = URL.createObjectURL(file);
-      const cleanup = () => { video.removeAttribute("src"); video.load(); URL.revokeObjectURL(objectUrl); };
+      let thumbnailTimer;
+      let settled = false;
+      const cleanup = () => {
+        if (settled) return false;
+        settled = true;
+        clearTimeout(thumbnailTimer);
+        video.removeAttribute("src");
+        video.load();
+        URL.revokeObjectURL(objectUrl);
+        return true;
+      };
       video.preload = "metadata";
       video.muted = true;
       video.playsInline = true;
@@ -840,9 +931,8 @@ export function renderMemories(el, user, profile) {
           if (!context) throw new Error("Could not create a video thumbnail.");
           context.drawImage(video, 0, 0, width, height);
           const dataUrl = thumbnail.toDataURL("image/jpeg", 0.68);
-          cleanup();
-          resolve(dataUrl);
-        } catch (error) { cleanup(); reject(error); }
+          if (cleanup()) resolve(dataUrl);
+        } catch (error) { if (cleanup()) reject(error); }
       };
       video.onloadeddata = () => {
         if (Number.isFinite(video.duration) && video.duration > 0.4) {
@@ -850,7 +940,8 @@ export function renderMemories(el, user, profile) {
         } else captureFrame();
       };
       video.onseeked = captureFrame;
-      video.onerror = () => { cleanup(); reject(new Error("Could not read this video. Choose another file.")); };
+      video.onerror = () => { if (cleanup()) reject(new Error("Could not read this video. Choose another file.")); };
+      thumbnailTimer = setTimeout(() => { cleanup(); reject(new Error("Video preview timed out.")); }, 6000);
       video.src = objectUrl;
     });
   }
@@ -859,10 +950,12 @@ export function renderMemories(el, user, profile) {
     const isVideo = item.mediaType === "video";
     const thumbnail = item.thumbnail || "";
     const blurAttr = item.blurThumb ? ` data-thumb="${esc(item.blurThumb)}"` : "";
-    const photo = item.photoUrl
+    const photo = isVideo
+      ? `<span class="memory-card-video-poster"${item.telegramFileId ? ` data-memory-thumb-id="${esc(item.telegramFileId)}"` : ""} aria-hidden="true">▶</span>`
+      : !item.telegramFileId && isUsableMediaUrl(item.photoUrl)
       ? `<img src="${esc(item.photoUrl)}" alt="" loading="lazy" decoding="async"${blurAttr} style="background:${thumbnail ? `url('${esc(thumbnail)}') center/cover` : '#f9dde8'}">`
       : item.telegramFileId
-        ? `<img data-memory-file-id="${esc(item.telegramFileId)}" data-memory-mime="${esc(item.photoMimeType || "application/octet-stream")}" data-memory-kind="${esc(item.mediaType || "image")}" alt="" loading="lazy" decoding="async"${blurAttr} style="background:${thumbnail ? `url('${esc(thumbnail)}') center/cover` : '#f9dde8'}">`
+        ? `<img data-memory-file-id="${esc(item.telegramFileId)}" data-memory-mime="${esc(memoryMediaMime(item))}" data-memory-kind="photo" alt="" loading="lazy" decoding="async"${blurAttr} style="background:${thumbnail ? `url('${esc(thumbnail)}') center/cover` : '#f9dde8'}">`
       : `💖`;
     return `
       <button class="memory-item${index === 0 ? " is-hero" : ""}" type="button" data-id="${esc(item.id)}" style="--i:${index}" aria-label="Open memory: ${esc(item.title || "Our Memory")}${isVideo ? ", video" : ""}">
@@ -1000,6 +1093,8 @@ export function renderMemories(el, user, profile) {
 
 export function disposeMemories() {
   active = false;
+  activeMemoryThumbHydrators.forEach(stop => stop());
+  activeMemoryThumbHydrators.clear();
   clearTimeout(memoryLoadTimer);
   memoryWatchGeneration++;
   stopMemories?.();
