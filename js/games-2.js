@@ -127,7 +127,7 @@ function renderBoard(room, uid, selectedPieces = []) {
     const isSafe = Number.isInteger(position) && safeTrackCells.has(position);
     const isStart = Number.isInteger(position) && Object.values(colorInfo).some(color => color.start === position);
     const tokens = tokensAt.get(key) || [];
-    const classes = ["ludo-cell", position != null ? "track-cell" : "", baseColor ? `base-${baseColor}` : "", laneColor ? `lane-${laneColor}` : "", inCenter ? "center-cell" : "", isSafe ? "safe-cell" : "", isStart ? "start-cell" : "", tokens.some(token => token.progress === 57) ? "home-cell" : ""].filter(Boolean).join(" ");
+    const classes = ["ludo-cell", position != null ? "track-cell" : "", baseColor ? `base-${baseColor}` : "", laneColor ? `lane-${laneColor}` : "", inCenter ? "center-cell" : "", isSafe ? "safe-cell" : "", isStart ? "start-cell" : "", tokens.length ? "has-token" : "", tokens.some(token => token.progress === 57) ? "home-cell" : ""].filter(Boolean).join(" ");
     const lanePlayer = laneColor ? room.playerUids.map(playerUid => room.players[playerUid]).find(player => player.color === laneColor) : null;
     const homeLocked = lanePlayer && !(lanePlayer.hasCaptured && lanePlayer.completedLap);
     const centerIcon = inCenter && row === 7 && column === 7 ? `<span class="ludo-center-mark" aria-hidden="true">🏆</span>` : "";
@@ -146,7 +146,11 @@ function renderBoard(room, uid, selectedPieces = []) {
     }).join("");
     return `<div class="${classes}" style="grid-row:${row + 1};grid-column:${column + 1}" ${position != null ? `data-track-index="${position}"` : ""}>${isSafe ? `<span class="ludo-safe-star" aria-hidden="true">★</span>` : ""}${centerIcon}${lockIcon}${tokens.length ? `<div class="ludo-cell-tokens">${tokenMarkup}</div>` : ""}</div>`;
   }).join("");
-  return `<div class="ludo-board-frame"><div class="ludo-board" role="grid" aria-label="Live Ludo board">${cells}</div></div>`;
+  const yards = [
+    ["red", "2 / 6", "2 / 6"], ["green", "2 / 6", "11 / 15"],
+    ["blue", "11 / 15", "2 / 6"], ["yellow", "11 / 15", "11 / 15"]
+  ].map(([color, rows, columns]) => `<div class="ludo-home-yard color-${color}" style="grid-row:${rows};grid-column:${columns}" aria-hidden="true"><i></i><i></i><i></i><i></i></div>`).join("");
+  return `<div class="ludo-board-frame"><div class="ludo-board" role="grid" aria-label="Live Ludo board">${cells}${yards}</div></div>`;
 }
 
 function makeRoom(uid, name, color) {
@@ -173,6 +177,7 @@ export function mountLudoGame(el, user, profile) {
 
   let room = null;
   let lastAnimatedMoveId = "";
+  let lastAnimatedRollId = "";
   let selectedColor = "red";
   let disposed = false;
   const savedResults = new Set();
@@ -228,11 +233,14 @@ export function mountLudoGame(el, user, profile) {
     const message = room.phase === "move"
       ? isTurn ? `You rolled ${room.dice}. Tap a glowing coin to move.` : `${turnName} rolled ${room.dice} and is choosing a coin…`
       : isTurn ? "Your turn — roll the dice!" : `${turnName} is rolling…`;
-    const dice = room.dice ? diceFaces[room.dice - 1] : "🎲";
+    const diceValue = room.dice || room.lastRoll?.value;
+    const dice = diceValue ? diceFaces[diceValue - 1] : "🎲";
+    const animateRoll = Boolean(room.lastRoll?.id && room.lastRoll.id !== lastAnimatedRollId);
+    if (animateRoll) lastAnimatedRollId = room.lastRoll.id;
     const statusPlayers = `<div class="ludo-players-row">${room.playerUids.map(uid => playerCard(room, uid, room.turnUid === uid)).join("")}</div>`;
     const diceAction = isTurn && room.phase === "roll"
-      ? `<button type="button" class="ludo-roll-button" data-ludo-roll aria-label="Roll dice">${dice}<span>Roll dice</span></button>`
-      : `<div class="ludo-dice-display ${room.dice ? "rolled" : ""}" aria-label="Dice showing ${room.dice || "waiting"}">${dice}</div>`;
+      ? `<button type="button" class="ludo-roll-button" data-ludo-roll aria-label="Roll dice"><span class="ludo-die-face">${dice}</span><span>Roll dice</span></button>`
+      : `<div class="ludo-dice-display ${diceValue ? "rolled" : ""}" aria-label="Dice showing ${diceValue || "waiting"}"><span class="ludo-die-face">${dice}</span></div>`;
     const lockNotice = !unlocked
       ? `<p class="ludo-lock-note"><span>🔒</span> Home lane locked — capture a coin and complete one full lap to open it.</p>`
       : `<p class="ludo-lock-note unlocked"><span>🏁</span> Home lane unlocked! Roll the exact number to finish.</p>`;
@@ -240,8 +248,13 @@ export function mountLudoGame(el, user, profile) {
       ? `<p class="ludo-last-move ${lastMove.captured?.length ? "captured" : ""}" aria-live="polite">${esc(lastMove.message || "A coin moved.")}</p>`
       : "";
     const historyMarkup = `<details class="ludo-history"><summary>Match history <span>${room.history?.length || 0} moves</span></summary><ol>${(room.history || []).slice(-12).reverse().map(item => `<li><span>${esc(item.text || "A move was made")}</span><time>${new Date(item.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></li>`).join("") || `<li class="empty">The first roll is waiting ♡</li>`}</ol></details>`;
-    statusEl.innerHTML = `<div class="game-panel game-room-panel ludo-status"><p class="tic-tac-toe-status">${esc(message)}</p>${statusPlayers}<div class="ludo-turn-tools">${diceAction}<span class="ludo-roll-count">${room.phase === "move" ? `${available.length} coin${available.length === 1 ? "" : "s"} can move` : isTurn ? "Roll to begin your turn" : "Waiting for the next roll"}</span></div>${lockNotice}${lastMoveMessage}<button type="button" class="secondary ludo-end-button" data-ludo-end>End match</button></div>`;
-    content.innerHTML = `<div class="ludo-game-layout">${renderBoard(room, user.uid, available)}<aside class="ludo-side-panel"><p class="ludo-board-hint">${room.phase === "move" && isTurn ? "Tap one of your highlighted coins on the board." : "Each roll and coin move syncs live between your devices."}</p>${historyMarkup}</aside></div>`;
+    statusEl.innerHTML = `<div class="game-panel game-room-panel ludo-status"><p class="tic-tac-toe-status">${esc(message)}</p>${statusPlayers}<button type="button" class="secondary ludo-end-button" data-ludo-end>End match</button></div>`;
+    content.innerHTML = `<div class="ludo-game-layout"><div class="ludo-main-column">${renderBoard(room, user.uid, available)}<div class="ludo-controls"><div class="ludo-turn-tools">${diceAction}<span class="ludo-roll-count">${room.phase === "move" ? `${available.length} coin${available.length === 1 ? "" : "s"} can move` : isTurn ? "Roll to begin your turn" : "Waiting for your turn"}</span></div>${lockNotice}${lastMoveMessage}</div></div><aside class="ludo-side-panel"><p class="ludo-board-hint">${room.phase === "move" && isTurn ? "Tap one of your highlighted coins on the board." : "Each roll and coin move syncs live between your devices."}</p>${historyMarkup}</aside></div>`;
+    if (animateRoll) requestAnimationFrame(() => {
+      const face = content.querySelector(".ludo-die-face");
+      face?.classList.add("rolling");
+      setTimeout(() => face?.classList.remove("rolling"), 760);
+    });
     if (lastMove?.captured?.length && lastMove.id !== lastAnimatedMoveId) {
       lastAnimatedMoveId = lastMove.id;
       requestAnimationFrame(() => content.querySelector(".ludo-last-move")?.classList.add("show"));
@@ -367,6 +380,7 @@ export function mountLudoGame(el, user, profile) {
             players: { ...current.players, [user.uid]: { ...player, sixStreak: 0 } },
             turnUid: nextUid,
             dice: null,
+            lastRoll: { id: `${Date.now()}-${user.uid}`, uid: user.uid, value: dice },
             phase: "roll",
             lastMove: { uid: user.uid, message: `${player.name} rolled three sixes. Turn passes to the other player.` },
             history: appendHistory(current, { text: `${player.name} rolled three sixes — turn passed.` }),
@@ -381,6 +395,7 @@ export function mountLudoGame(el, user, profile) {
             players: { ...current.players, [user.uid]: { ...player, sixStreak: streak } },
             turnUid: dice === 6 ? user.uid : nextUid,
             dice: null,
+            lastRoll: { id: `${Date.now()}-${user.uid}`, uid: user.uid, value: dice },
             phase: "roll",
             lastMove: { uid: user.uid, message: `${player.name} rolled ${dice}; no coin can move${dice === 6 ? ", roll again" : "."}` },
             history: appendHistory(current, { text: `${player.name} rolled ${dice}; no legal move.` }),
@@ -391,6 +406,7 @@ export function mountLudoGame(el, user, profile) {
           ...current,
           players: { ...current.players, [user.uid]: { ...player, sixStreak: streak } },
           dice,
+          lastRoll: { id: `${Date.now()}-${user.uid}`, uid: user.uid, value: dice },
           phase: "move",
           updatedAt: Date.now()
         };
