@@ -1,11 +1,12 @@
 import { $, toast, esc } from "./utils.js";
 import { recordGameMatchResult, watchItems, notifyPartnerSafely } from "./firestore.js";
-import { firebaseReady, rtdb } from "./firebase.js";
+import { firebaseReady, functions, rtdb } from "./firebase.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { mountFindTheWordsGame } from "./find-the-words.js";
 import { TRUE_FALSE_BANK_VERSION, TRUE_FALSE_QUESTION_BANK, pickTrueFalseQuestions } from "./true-false-question-bank.js";
-import { get, onDisconnect, onValue, ref, remove, runTransaction, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
+import { get, onDisconnect, onValue, push, ref, remove, runTransaction, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
+import { httpsCallable } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-functions.js";
 
 const sosGameRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sos`);
 const sosPresenceRef = uid => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sosPresence/${uid}`);
@@ -25,6 +26,46 @@ const emojiQuestions = [
   { emojis: "🌹 💌 💋", options: ["A love note and a kiss", "A flower delivery", "A secret admirer"], answer: 0 },
   { emojis: "🍓 🍫 😋", options: ["A sweet treat to share", "Strawberry shopping", "Chocolate for breakfast"], answer: 0 }
 ];
+const countryPuzzles = [
+  { emojis: "🗼 🥐 🎨", answer: "France" },
+  { emojis: "🍣 🗻 🌸", answer: "Japan" },
+  { emojis: "🦘 🐨 🏄", answer: "Australia" },
+  { emojis: "🌮 🌵 🎺", answer: "Mexico" },
+  { emojis: "🧀 ⌚ 🏔️", answer: "Switzerland" },
+  { emojis: "🐼 🎋 🥢", answer: "China" },
+  { emojis: "🍁 🏒 🫎", answer: "Canada" },
+  { emojis: "🍝 🏛️ 🍕", answer: "Italy" },
+  { emojis: "💃 🎸 🏖️", answer: "Spain" },
+  { emojis: "🐘 🪷 🛺", answer: "India" },
+  { emojis: "🥝 🐑 🏉", answer: "New Zealand" },
+  { emojis: "🎭 ⚽ ☕", answer: "Brazil" },
+  { emojis: "🧇 🍫 🏰", answer: "Belgium" },
+  { emojis: "🐪 🕌 🏜️", answer: "Saudi Arabia" }
+];
+const decoderPuzzles = [
+  { category: "MOVIE", emojis: "🧊 🚢 💔", answer: "Titanic" },
+  { category: "MOVIE", emojis: "🦁 👑 🌅", answer: "The Lion King" },
+  { category: "MOVIE", emojis: "❄️ 👸 ⛄", answer: "Frozen" },
+  { category: "MOVIE", emojis: "🕷️ 👨 🏙️", answer: "Spider-Man" },
+  { category: "PHRASE", emojis: "🐝 💛 🐝", answer: "You are my honey" },
+  { category: "PHRASE", emojis: "🌙 ✈️ ❤️", answer: "Love you to the moon and back" },
+  { category: "PHRASE", emojis: "☕ 🌧️ 🫂", answer: "Rainy-day cuddles and coffee" },
+  { category: "PHRASE", emojis: "🍿 🎬 🛋️", answer: "Movie night at home" }
+];
+const builtInEmojiPuzzles = [
+  ...countryPuzzles.map(question => ({ ...question, category: "COUNTRY" })),
+  ...decoderPuzzles
+];
+const customEmojiPuzzlesRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/emojiDecoder/puzzles`);
+const battleshipRoomRef = () => ref(rtdb, "battleshipMatches/our-little-world");
+const battleshipBoardRef = (matchId, uid) => ref(rtdb, `battleshipPrivate/${matchId}/${uid}`);
+const BATTLESHIP_FLEET = [
+  { id: "carrier", name: "Carrier", emoji: "🚢", length: 5 },
+  { id: "battleship", name: "Battleship", emoji: "🛳️", length: 4 },
+  { id: "cruiser", name: "Cruiser", emoji: "🚤", length: 3 },
+  { id: "submarine", name: "Submarine", emoji: "🤿", length: 3 },
+  { id: "destroyer", name: "Destroyer", emoji: "⛴️", length: 2 }
+];
 
 
 let stopGames = null;
@@ -33,11 +74,22 @@ let stopSosPresence = null;
 let stopSosAppPresence = null;
 let stopSosConnection = null;
 let stopGameMatch = null;
+let stopCustomEmojiPuzzles = null;
+let stopBattleshipBoard = null;
 let memoryTimer = null;
 let disposeFindTheWords = null;
+let disposeLudoGame = null;
+let ludoModuleLoading = false;
 let sosClock = null;
 let sosServerTimeOffset = 0;
 let stopSosServerTime = null;
+let customEmojiPuzzleBank = [];
+let battleshipBoard = null;
+let battleshipBoardMatchId = "";
+let battleshipDraftShips = [];
+let battleshipOrientation = "horizontal";
+let battleshipSelectedShipId = "carrier";
+const emojiPuzzleStorageKey = `olw-emoji-puzzles:${APP_CONFIG.coupleId}`;
 
 function shuffle(items) {
   const shuffled = [...items];
@@ -59,11 +111,22 @@ function makeEmojiQuestions() {
   });
 }
 
+function makeEmojiDecoderState(customPuzzles = []) {
+  const source = [...builtInEmojiPuzzles, ...customPuzzles];
+  return { questions: shuffle(source).slice(0, 5), question: 0, score: 0, revealed: false, wasCorrect: false };
+}
+
+function normalizePuzzleAnswer(answer) {
+  return String(answer || "").normalize("NFKD").toLocaleLowerCase().replace(/[\p{M}\p{P}\p{S}\s]/gu, "");
+}
+
 
 
 const gameTitles = {
   "memory-match": "Memory Match",
   "emoji-quiz": "Emoji Quiz",
+  "emoji-decoder": "Emoji Decoder",
+  battleship: "Battleship",
   sos: "SOS",
   "true-false": "True or False"
 };
@@ -145,12 +208,14 @@ function gameIsComplete(game, state) {
   if (game === "memory-match") return Array.isArray(state.matched) && Array.isArray(state.cards) &&
     state.cards.length > 0 && state.matched.length === state.cards.length;
   if (game === "emoji-quiz") return state.question >= state.questions.length;
+  if (game === "emoji-decoder") return state.question >= 5;
   return false;
 }
 
 function gameScore(game, state) {
   if (game === "memory-match") return state.moves;
   if (game === "emoji-quiz") return state.score;
+  if (game === "emoji-decoder") return state.score;
   return 0;
 }
 
@@ -199,6 +264,48 @@ function isValidTrueFalseRoom(room) {
   return false;
 }
 
+function isValidEmojiDecoderRoom(room) {
+  const questions = room.emojiDecoderQuestions;
+  const players = room.players || {};
+  if (!Array.isArray(questions) || questions.length !== 5 ||
+      !questions.every(question => question && typeof question.emojis === "string" && question.emojis.length <= 80 &&
+        typeof question.answer === "string" && question.answer.length <= 80 &&
+        typeof question.category === "string" && question.category.length <= 24) ||
+      !Number.isInteger(room.emojiDecoderQuestionIndex) || room.emojiDecoderQuestionIndex < 0 || room.emojiDecoderQuestionIndex > 5 ||
+      room.playerUids.some(uid => !Number.isInteger(players[uid]?.score) || players[uid].score < 0 || players[uid].score > 5) ||
+      typeof room.emojiDecoderLastAnswer !== "string" || room.emojiDecoderLastAnswer.length > 80 ||
+      typeof room.emojiDecoderLastCorrect !== "boolean" ||
+      (room.emojiDecoderLastGuesserUid && !room.playerUids.includes(room.emojiDecoderLastGuesserUid))) return false;
+  if (room.status === "waiting") return room.playerUids.length === 1 && !room.turnUid && room.emojiDecoderQuestionIndex === 0;
+  if (room.status === "playing") return room.playerUids.length === 2 && room.playerUids.includes(room.turnUid) && room.emojiDecoderQuestionIndex < 5;
+  if (room.status === "finished") return room.playerUids.length === 2 && !room.turnUid && room.emojiDecoderQuestionIndex === 5 &&
+    (!room.winnerUid || room.playerUids.includes(room.winnerUid));
+  return room.status === "cancelled";
+}
+
+function isValidBattleshipRoom(room) {
+  const players = room.players || {};
+  const shots = room.shots || {};
+  if (!shots || typeof shots !== "object" || Array.isArray(shots) ||
+      (room.processingShot != null && (!room.processingShot || !room.playerUids.includes(room.processingShot.uid) ||
+        !Number.isInteger(room.processingShot.index) || room.processingShot.index < 0 || room.processingShot.index >= 100 ||
+        typeof room.processingShot.operationId !== "string" || !Number.isFinite(room.processingShot.startedAt))) ||
+      room.playerUids.some(uid => !Number.isInteger(players[uid]?.score) || players[uid].score < 0 || players[uid].score > 17 ||
+        !Number.isInteger(players[uid]?.shipsRemaining) || players[uid].shipsRemaining < 0 || players[uid].shipsRemaining > 5 ||
+        typeof players[uid]?.ready !== "boolean") ||
+      Object.entries(shots).some(([uid, playerShots]) => !room.playerUids.includes(uid) || !playerShots || typeof playerShots !== "object" || Array.isArray(playerShots) ||
+        Object.entries(playerShots).some(([index, shot]) => !Number.isInteger(Number(index)) || Number(index) < 0 || Number(index) >= 100 ||
+          !shot || shot.index !== Number(index) || shot.by !== uid || typeof shot.hit !== "boolean" ||
+          typeof shot.sunkShip !== "string" || !Number.isFinite(shot.at)))) return false;
+  if (room.status === "waiting") return room.playerUids.length === 1 && !room.turnUid;
+  if (room.status === "placing") return room.playerUids.length === 2 && !room.turnUid;
+  if (room.status === "playing") return room.playerUids.length === 2 && room.playerUids.includes(room.turnUid) &&
+    room.playerUids.every(uid => players[uid]?.ready);
+  if (room.status === "finished") return room.playerUids.length === 2 && !room.turnUid &&
+    (!room.winnerUid || room.playerUids.includes(room.winnerUid));
+  return room.status === "cancelled";
+}
+
 function isValidActiveGameState(game, state) {
   if (!state || typeof state !== "object") return false;
   state = normalizeActiveState(game, { ...state });
@@ -211,6 +318,13 @@ function isValidActiveGameState(game, state) {
     state.questions.length === emojiQuestions.length &&
     Number.isInteger(state.question) && state.question >= 0 && state.question <= state.questions.length &&
     Number.isInteger(state.score) && state.score >= 0;
+  if (game === "emoji-decoder") return Array.isArray(state.questions) && state.questions.length === 5 &&
+    state.questions.every(question => question && typeof question.emojis === "string" && question.emojis.length <= 80 &&
+      typeof question.answer === "string" && question.answer.length <= 80 &&
+      typeof question.category === "string" && question.category.length <= 24) &&
+    Number.isInteger(state.question) && state.question >= 0 && state.question <= 5 &&
+    Number.isInteger(state.score) && state.score >= 0 && state.score <= 5 &&
+    typeof state.revealed === "boolean" && typeof state.wasCorrect === "boolean";
   return false;
 }
 
@@ -409,7 +523,7 @@ function gamesHome() {
     <header class="games-intro">
       <p class="eyebrow">A LITTLE FRIENDLY COMPETITION</p>
       <h1>Our Games <span aria-hidden="true">🎮</span></h1>
-      <p class="muted">Start a match on one device, then join it from your partner's device.</p>
+      <p class="muted">Play together across devices and share your own emoji clues.</p>
     </header>
     <div id="games-scoreboard"></div>
     <div class="games-hub-grid">
@@ -417,14 +531,17 @@ function gamesHome() {
       ${gameCard("memory-match", "🧠", "Memory Match", "Take turns finding matching pairs", "2P")}
       ${gameCard("find-words", "🔎", "Find the Words", "Race to find 16 new words together", "LIVE")}
       ${gameCard("true-false", "💡", "True or False", "Discover surprising facts together", "2P")}
+      ${gameCard("emoji-decoder", "🧩", "Emoji Decoder", "Guess countries, movies, and phrases · 5 clues per match", "2P")}
+      ${gameCard("battleship", "🚢", "Battleship", "Hide your fleet, take turns, and sink every ship", "LIVE 2P")}
+      ${gameCard("ludo", "🎲", "Ludo", "Race four photo coins home with your own special rule", "LIVE 2P")}
     </div>
   </section>`;
 }
 
-function activeShell(id, title, description, emoji) {
-  return `<section class="games-page games-play-page">
+function activeShell(id, title, description, emoji, mode = "TWO DEVICES") {
+  return `<section class="games-page games-play-page game-${id}">
     <button class="games-back-button" type="button" data-back-games>← All games</button>
-    <header class="games-play-heading"><span class="games-card-emoji" aria-hidden="true">${emoji}</span><div><p class="eyebrow">OUR GAMES · TWO DEVICES</p><h1>${title}</h1><p class="muted">${description}</p></div></header>
+    <header class="games-play-heading"><span class="games-card-emoji" aria-hidden="true">${emoji}</span><div><p class="eyebrow">OUR GAMES · ${mode}</p><h1>${title}</h1><p class="muted">${description}</p></div></header>
     <div id="games-room-status"></div>
     <div id="games-active-content" class="games-active-content" data-active-game="${id}"></div>
   </section>`;
@@ -439,6 +556,9 @@ function miniScoreboardMarkup(game, state, user, liveMatch) {
   } else if (game === "emoji-quiz") {
     label = "Points"; value = Number.isFinite(state.score) ? state.score : 0;
     detail = `${Math.min(state.question || 0, state.questions?.length || 0)}/${state.questions?.length || 0} questions`;
+  } else if (game === "emoji-decoder") {
+    label = "Points"; value = Number.isFinite(state.score) ? state.score : 0;
+    detail = `${Math.min(state.question || 0, 5)}/5 puzzles`;
   } else return "";
   return `<aside class="game-mini-scoreboard" aria-label="Current game score" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 10px;padding:9px 12px;border:1px solid #f3d5e2;border-radius:12px;background:#fff8fb;font-size:12px"><span style="font-weight:700;color:#75435a">${esc(label)}</span><strong style="font-size:15px;color:#b64f7b">${esc(String(value))}</strong><span style="margin-left:auto;color:#8c7480;text-align:right">${esc(detail)}</span></aside>`;
 }
@@ -457,6 +577,32 @@ function renderActiveGameBody(el, game, user, profile, state, liveMatch = false)
   if (!content) return;
   if (!isValidActiveGameState(game, state)) {
     content.innerHTML = `<div class="game-panel"><p class="error">This game's saved progress is invalid. Please start a new match.</p></div>`;
+    return;
+  }
+
+  if (game === "emoji-decoder") {
+    if (state.question >= 5) {
+      content.innerHTML = `<div class="game-panel emoji-decoder-panel"><p class="puzzle-meta"><span>ROUND COMPLETE</span><span>5 / 5</span></p><div class="puzzle-complete-heart" aria-hidden="true">♡</div><h2 class="quiz-heading">You scored ${state.score} of 5! 💖</h2><p class="games-instructions">Finish your turn to pass the emoji clues to your partner.</p></div>`;
+      return;
+    }
+    const question = state.questions[state.question];
+    content.innerHTML = `<article class="game-panel emoji-decoder-panel">
+      <div class="puzzle-meta"><span>${esc(question.category || "CUSTOM")}</span><span>${String(state.question + 1).padStart(2, "0")} / 05</span></div>
+      <div class="puzzle-clue" aria-label="Emoji clue">${esc(question.emojis)}</div>
+      ${state.revealed
+        ? `<div class="puzzle-result ${state.wasCorrect ? "correct" : "missed"}" aria-live="polite"><strong>${state.wasCorrect ? "You got it! +1 point 💖" : "A lovely try! ♡"}</strong><span>The answer is <b>${esc(question.answer)}</b></span><button type="button" class="primary puzzle-next" data-next-puzzle>${state.question === 4 ? "Finish your turn" : "Next puzzle"} <span aria-hidden="true">→</span></button></div>`
+        : `<div class="puzzle-guess-form"><label for="emoji-puzzle-guess">What do you think it is?</label><input id="emoji-puzzle-guess" data-puzzle-guess maxlength="80" autocomplete="off" placeholder="Type your guess"><button type="button" class="primary" data-puzzle-submit>Check answer <span aria-hidden="true">♡</span></button></div>`}
+      <details class="puzzle-add-details"><summary>Add your own puzzle <span aria-hidden="true">＋</span></summary>
+        <div class="puzzle-add-fields"><label>Emoji clue<input data-custom-puzzle-emojis maxlength="80" placeholder="e.g. 🧊 🚢 💔" autocomplete="off"></label><label>Answer<input data-custom-puzzle-answer maxlength="80" placeholder="Your answer" autocomplete="off"></label><label>Category<select data-custom-puzzle-category><option>COUNTRY</option><option>MOVIE</option><option>SONG</option><option>PHRASE</option><option>OTHER</option></select></label><button class="secondary" type="button" data-add-emoji-puzzle>Add to our puzzles</button></div>
+        <small class="puzzle-custom-count">${customEmojiPuzzleBank.length} custom ${customEmojiPuzzleBank.length === 1 ? "puzzle" : "puzzles"} shared</small>
+      </details>
+    </article>`;
+    content.querySelector("[data-puzzle-guess]")?.addEventListener("keydown", event => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        content.querySelector("[data-puzzle-submit]")?.click();
+      }
+    });
     return;
   }
 
@@ -596,6 +742,7 @@ function resetActiveGame(game) {
   memoryTimer = null;
   if (game === "memory-match") return makeMemoryState();
   if (game === "emoji-quiz") return { questions: makeEmojiQuestions(), question: 0, answered: false, selected: -1, score: 0 };
+  if (game === "emoji-decoder") return makeEmojiDecoderState(customEmojiPuzzleBank);
   return {};
 }
 
@@ -617,6 +764,8 @@ function isValidGameRoom(room, game) {
       !room.playerUids.includes(room.quizCreatorUid) ||
       (room.quizPhase === "guesser" && (!room.quizRound || typeof room.quizRound.emojis !== "string")))) return false;
   if (game === "true-false") return isValidTrueFalseRoom(room);
+  if (game === "emoji-decoder") return isValidEmojiDecoderRoom(room);
+  if (game === "battleship") return isValidBattleshipRoom(room);
   if (room.status === "waiting") return !room.turnUid;
   if (room.status === "playing") return room.playerUids.includes(room.turnUid);
   return !room.turnUid && (!room.winnerUid || room.playerUids.includes(room.winnerUid));
@@ -638,9 +787,13 @@ export function renderGames(el, user, profile) {
   stopGames = null;
   stopGameMatch?.();
   stopGameMatch = null;
+  stopCustomEmojiPuzzles?.();
+  stopCustomEmojiPuzzles = null;
   stopSosListeners();
   disposeFindTheWords?.();
   disposeFindTheWords = null;
+  disposeLudoGame?.();
+  disposeLudoGame = null;
   if (memoryTimer) clearTimeout(memoryTimer);
   memoryTimer = null;
 
@@ -658,6 +811,13 @@ export function renderGames(el, user, profile) {
   let savedMatchResults = new Set();
   let gameResults = null;
   let trueFalseBankCache = null;
+  try {
+    const savedPuzzles = JSON.parse(localStorage.getItem(emojiPuzzleStorageKey) || "[]");
+    customEmojiPuzzleBank = Array.isArray(savedPuzzles) ? savedPuzzles.filter(item =>
+      item && typeof item.emojis === "string" && item.emojis.trim() && item.emojis.length <= 80 &&
+      typeof item.answer === "string" && item.answer.trim() && item.answer.length <= 80
+    ).map(item => ({ category: String(item.category || "OTHER").slice(0, 24), emojis: item.emojis, answer: item.answer })) : [];
+  } catch { customEmojiPuzzleBank = []; }
 
   el.innerHTML = gamesHome();
 
@@ -890,6 +1050,14 @@ export function renderGames(el, user, profile) {
       renderTrueFalseRoom(room, statusEl, content);
       return;
     }
+    if (activeGame === "emoji-decoder") {
+      renderEmojiDecoderRoom(room, statusEl, content);
+      return;
+    }
+    if (activeGame === "battleship") {
+      renderBattleshipRoom(room, statusEl, content);
+      return;
+    }
     const players = room?.players || {};
     const playerUids = room?.playerUids || [];
     const opponentUid = playerUids.find(uid => uid !== user.uid);
@@ -937,7 +1105,9 @@ export function renderGames(el, user, profile) {
     }
     const opponentState = players[opponentUid]?.state;
     const progress = opponentState
-      ? activeGame === "emoji-quiz"
+      ? activeGame === "emoji-decoder"
+        ? `Puzzle ${Math.min(opponentState.question + 1, 5)} of 5`
+        : activeGame === "emoji-quiz"
         ? `Question ${Math.min(opponentState.question + 1, opponentState.questions.length)} of ${opponentState.questions.length}`
         : activeGame === "memory-match"
           ? isValidActiveGameState(activeGame, opponentState)
@@ -952,7 +1122,8 @@ export function renderGames(el, user, profile) {
       : `${opponentName} is taking their turn (${progress}). Your turn starts next.`;
     const scoreRule = {
       "memory-match": "Fewest moves wins.",
-      "emoji-quiz": "Most correct answers wins."
+      "emoji-quiz": "Most correct answers wins.",
+      "emoji-decoder": "One point per correct clue · most points wins."
     }[activeGame];
     const scoreValue = uid => activeGame === "memory-match"
       ? players[uid]?.completed ? formatGameScore(activeGame, players[uid].score) : "—"
@@ -1025,6 +1196,10 @@ export function renderGames(el, user, profile) {
   }
 
   function renderAndSavePlayerProgress() {
+    const player = gameRoomState?.players?.[user.uid];
+    if (player && activeState) {
+      gameRoomState = { ...gameRoomState, players: { ...gameRoomState.players, [user.uid]: { ...player, state: activeState } } };
+    }
     saveRoomPlayerState();
     renderCurrentGame();
   }
@@ -1138,11 +1313,201 @@ export function renderGames(el, user, profile) {
     content.innerHTML = `<article class="true-false-card"><div class="true-false-question-meta"><span>${esc(question.category)}</span><span>FACT ${String(questionNumber).padStart(2, "0")} / ${room.trueFalseQuestions.length}</span></div><h2 class="true-false-statement">${esc(question.statement)}</h2>${answerButtons}${reveal}</article>`;
   }
 
+  function renderEmojiDecoderRoom(room, statusEl, content) {
+    const scoreRow = room ? `<div class="emoji-decoder-score-row">${room.playerUids.map(uid => `<div class="emoji-decoder-score-card">${gamePlayerAvatar(uid, room.players[uid]?.name)}<span>${esc(getDisplayName(uid, room.players[uid]?.name || "Partner"))}</span><strong>${room.players[uid]?.score || 0}</strong><small>points</small></div>`).join("")}${room.playerUids.length < 2 ? `<div class="emoji-decoder-score-card waiting"><span class="emoji-decoder-waiting-heart">♡</span><span>Waiting for partner</span><strong>—</strong><small>points</small></div>` : ""}</div>` : "";
+    const customControls = `<details class="puzzle-add-details"><summary>Add your own puzzle <span aria-hidden="true">＋</span></summary>
+      <div class="puzzle-add-fields"><label>Emoji clue<input data-custom-puzzle-emojis maxlength="80" placeholder="e.g. 🧊 🚢 💔" autocomplete="off"></label><label>Answer<input data-custom-puzzle-answer maxlength="80" placeholder="Your answer" autocomplete="off"></label><label>Category<select data-custom-puzzle-category><option>COUNTRY</option><option>MOVIE</option><option>SONG</option><option>PHRASE</option><option>OTHER</option></select></label><button class="secondary" type="button" data-add-emoji-puzzle>Add to our puzzles</button></div>
+      <small class="puzzle-custom-count">${customEmojiPuzzleBank.length} custom ${customEmojiPuzzleBank.length === 1 ? "puzzle" : "puzzles"} shared</small>
+    </details>`;
+
+    if (!room || room.status === "finished" || room.status === "cancelled") {
+      const outcome = room?.status === "cancelled" ? "This match was cancelled." : room?.status === "finished"
+        ? room.winnerUid ? `${esc(getDisplayName(room.winnerUid, room.players[room.winnerUid]?.name || "Your partner"))} won the emoji round! 🎉` : "It’s a tie! You both did great. 💞"
+        : "Decode five emoji clues, earn points, and compare your scores.";
+      statusEl.innerHTML = `<div class="game-panel game-room-panel emoji-decoder-status"><p class="tic-tac-toe-status">${outcome}</p>${scoreRow}${room?.status === "finished" ? `<p class="emoji-decoder-final">${room.playerUids.map(uid => `${esc(getDisplayName(uid, room.players[uid]?.name || "Partner"))}: <b>${room.players[uid]?.score || 0}</b>`).join(" · ")}</p>` : ""}<button type="button" class="primary" data-room-start>${room ? "Play another match" : "Start a match"}</button></div>`;
+      content.innerHTML = `<article class="game-panel emoji-decoder-panel"><p class="puzzle-meta"><span>5 EMOJI CLUES</span><span>1 POINT EACH</span></p><div class="puzzle-clue" aria-hidden="true">🌍 🎬 💌</div><p class="games-instructions">Take turns guessing countries, movies, and sweet phrases. Your custom puzzles are shared between both of you.</p>${customControls}</article>`;
+      return;
+    }
+
+    if (room.status === "waiting") {
+      const isCreator = room.playerUids[0] === user.uid;
+      statusEl.innerHTML = `<div class="game-panel game-room-panel emoji-decoder-status"><p class="tic-tac-toe-status">${isCreator ? "Your five clues are ready. Waiting for your partner…" : `${esc(getDisplayName(room.playerUids[0], room.players[room.playerUids[0]]?.name || "Your partner"))} is waiting for you to join.`}</p>${scoreRow}${isCreator ? `<button type="button" class="secondary" data-room-cancel>Cancel match</button>` : `<button type="button" class="primary" data-room-start>Join match</button>`}</div>`;
+      content.innerHTML = `<article class="game-panel emoji-decoder-panel"><p class="puzzle-meta"><span>5 EMOJI CLUES</span><span>READY TO PLAY</span></p><div class="puzzle-clue" aria-hidden="true">🧩 💭 💖</div><p class="games-instructions">Guess the clue when it’s your turn. Each correct answer earns one point.</p>${customControls}</article>`;
+      return;
+    }
+
+    if (!room.playerUids.includes(user.uid)) {
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">This match is already in progress with your partner.</p>${scoreRow}</div>`;
+      content.replaceChildren();
+      return;
+    }
+
+    const isTurn = room.turnUid === user.uid;
+    const currentQuestion = room.emojiDecoderQuestions[room.emojiDecoderQuestionIndex];
+    const previousGuesser = room.emojiDecoderLastGuesserUid
+      ? getDisplayName(room.emojiDecoderLastGuesserUid, room.players[room.emojiDecoderLastGuesserUid]?.name || "Partner")
+      : "";
+    const lastResult = room.emojiDecoderLastAnswer
+      ? `<p class="puzzle-previous-result"><strong>${esc(previousGuesser)}</strong> ${room.emojiDecoderLastCorrect ? "got it right! +1 point 💖" : "tried their best ♡"}<span>Answer: <b>${esc(room.emojiDecoderLastAnswer)}</b></span></p>`
+      : "";
+    statusEl.innerHTML = `<div class="game-panel game-room-panel emoji-decoder-status"><p class="tic-tac-toe-status">${isTurn ? "Your turn to decode!" : `${esc(getDisplayName(room.turnUid, room.players[room.turnUid]?.name || "Your partner"))} is guessing…`}</p>${scoreRow}<p class="emoji-decoder-rule">One point for each correct answer · ${room.emojiDecoderQuestionIndex + 1} of 5 clues</p><button type="button" class="secondary" data-room-end>End this match</button></div>`;
+    content.innerHTML = isTurn
+      ? `<article class="game-panel emoji-decoder-panel">${lastResult}<div class="puzzle-meta"><span>${esc(currentQuestion.category)}</span><span>${String(room.emojiDecoderQuestionIndex + 1).padStart(2, "0")} / 05</span></div><div class="puzzle-clue" aria-label="Emoji clue">${esc(currentQuestion.emojis)}</div><div class="puzzle-guess-form"><label for="emoji-puzzle-guess">What do you think it is?</label><input id="emoji-puzzle-guess" data-puzzle-guess maxlength="80" autocomplete="off" placeholder="Type your guess"><button type="button" class="primary" data-puzzle-submit>Check answer <span aria-hidden="true">♡</span></button></div>${customControls}</article>`
+      : `<article class="game-panel emoji-decoder-panel">${lastResult}<p class="games-instructions">Your partner is thinking through the emoji clue. Your turn is next!</p>${customControls}</article>`;
+    content.querySelector("[data-puzzle-guess]")?.addEventListener("keydown", event => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        content.querySelector("[data-puzzle-submit]")?.click();
+      }
+    });
+  }
+
+  function callBattleshipAction(payload) {
+    if (!functions) throw new Error("Firebase Functions is not configured.");
+    return httpsCallable(functions, "battleshipAction")(payload).then(result => result.data);
+  }
+
+  function renderBattleshipGrid({ room, own = false, clickable = false, ships = [], shots = {} }) {
+    const shipByCell = new Map();
+    for (const ship of ships || []) {
+      for (const index of ship.cells || []) shipByCell.set(index, ship);
+    }
+    const cells = Array.from({ length: 100 }, (_, index) => {
+      const row = Math.floor(index / 10);
+      const column = index % 10;
+      const coordinate = `${String.fromCharCode(65 + row)}${column + 1}`;
+      const ship = shipByCell.get(index);
+      const shot = shots?.[index];
+      const isHit = own ? Boolean(ship?.hits?.includes(index) || shot?.hit) : shot?.hit;
+      const isMiss = shot && !shot.hit;
+      const classes = ["battleship-cell", ship ? "has-ship" : "", isHit ? "is-hit" : "", isMiss ? "is-miss" : ""].filter(Boolean).join(" ");
+      const contentText = isHit ? "💥" : isMiss ? "🌊" : ship ? "🚢" : "";
+      const action = clickable ? own ? `data-bs-place="${index}"` : `data-bs-fire="${index}"` : "";
+      const disabled = !clickable || shot ? " disabled" : "";
+      return `<button type="button" class="${classes}" ${action} title="${coordinate}" aria-label="${coordinate}${ship ? `, ${ship.name}` : ""}${isHit ? ", hit" : isMiss ? ", miss" : ""}"${disabled}>${contentText}</button>`;
+    }).join("");
+    const columnLabels = Array.from({ length: 10 }, (_, column) => `<span>${column + 1}</span>`).join("");
+    const rowLabels = Array.from({ length: 10 }, (_, row) => `<span>${String.fromCharCode(65 + row)}</span>`).join("");
+    return `<div class="battleship-grid-wrap"><div class="battleship-axis-corner" aria-hidden="true">♡</div><div class="battleship-axis columns" aria-hidden="true">${columnLabels}</div><div class="battleship-axis rows" aria-hidden="true">${rowLabels}</div><div class="battleship-grid" role="grid" aria-label="Battleship ${own ? "fleet" : "target"} grid">${cells}</div></div>`;
+  }
+
+  function placeDraftShip(index) {
+    const ship = BATTLESHIP_FLEET.find(item => item.id === battleshipSelectedShipId);
+    if (!ship || battleshipDraftShips.some(item => item.id === ship.id)) return;
+    const row = Math.floor(index / 10);
+    const column = index % 10;
+    const cells = Array.from({ length: ship.length }, (_, offset) => battleshipOrientation === "horizontal"
+      ? row * 10 + column + offset
+      : (row + offset) * 10 + column);
+    if (cells.some(cell => cell >= 100 || (battleshipOrientation === "horizontal" && Math.floor(cell / 10) !== row))) {
+      toast("That ship does not fit there. Try another starting square.");
+      return;
+    }
+    if (battleshipDraftShips.some(placed => placed.cells.some(cell => cells.includes(cell)))) {
+      toast("Ships cannot overlap. Choose another square.");
+      return;
+    }
+    battleshipDraftShips.push({ id: ship.id, name: ship.name, cells });
+    battleshipSelectedShipId = BATTLESHIP_FLEET.find(item => !battleshipDraftShips.some(placed => placed.id === item.id))?.id || "";
+    try { localStorage.setItem(`olw-battleship-draft:${gameRoomState?.matchId}:${user.uid}`, JSON.stringify(battleshipDraftShips)); } catch { /* The match itself remains available in Realtime Database. */ }
+    renderCurrentGame();
+  }
+
+  function renderBattleshipRoom(room, statusEl, content) {
+    if (room?.matchId && room.playerUids?.includes(user.uid) && battleshipBoardMatchId !== room.matchId) {
+      stopBattleshipBoard?.();
+      stopBattleshipBoard = null;
+      battleshipBoardMatchId = room.matchId;
+      battleshipBoard = null;
+      battleshipDraftShips = [];
+      battleshipSelectedShipId = BATTLESHIP_FLEET[0].id;
+      try {
+        const savedDraft = JSON.parse(localStorage.getItem(`olw-battleship-draft:${room.matchId}:${user.uid}`) || "[]");
+        battleshipDraftShips = Array.isArray(savedDraft) ? savedDraft.filter(ship =>
+          BATTLESHIP_FLEET.some(spec => spec.id === ship?.id && Array.isArray(ship.cells) && ship.cells.length === spec.length &&
+            ship.cells.every(index => Number.isInteger(index) && index >= 0 && index < 100))
+        ) : [];
+        battleshipSelectedShipId = BATTLESHIP_FLEET.find(ship => !battleshipDraftShips.some(placed => placed.id === ship.id))?.id || "";
+      } catch { battleshipDraftShips = []; }
+      stopBattleshipBoard = onValue(battleshipBoardRef(room.matchId, user.uid), snapshot => {
+        battleshipBoard = snapshot.val();
+        if (activeGame === "battleship") renderCurrentGame();
+      }, error => {
+        console.error("Your Battleship fleet could not be loaded:", error);
+        toast("Your private fleet could not be loaded. Please reconnect.");
+      });
+    }
+    if (!room?.matchId || !room.playerUids?.includes(user.uid)) {
+      stopBattleshipBoard?.();
+      stopBattleshipBoard = null;
+      battleshipBoardMatchId = "";
+      battleshipBoard = null;
+    }
+
+    const players = room?.players || {};
+    const playerUids = room?.playerUids || [];
+    const opponentUid = playerUids.find(uid => uid !== user.uid);
+    const scoreRow = room ? `<div class="battleship-score-row">${playerUids.map(uid => `<div class="battleship-player-card">${gamePlayerAvatar(uid, players[uid]?.name)}<span>${esc(getDisplayName(uid, players[uid]?.name || "Partner"))}</span><strong>${players[uid]?.score || 0}</strong><small>hits</small><em>${players[uid]?.shipsRemaining ?? 5} ships left</em></div>`).join("")}${playerUids.length < 2 ? `<div class="battleship-player-card waiting">${gamePlayerAvatar("", "Partner")}<span>Waiting for partner</span><strong>—</strong><small>hits</small></div>` : ""}</div>` : "";
+
+    if (!room || room.status === "finished" || room.status === "cancelled") {
+      const result = room?.status === "finished"
+        ? room.winnerUid === user.uid ? "You sank the fleet — you win! 🎉" : `${esc(getDisplayName(room.winnerUid, players[room.winnerUid]?.name || "Your partner"))} sank your fleet. Better luck next time! ♡`
+        : room?.status === "cancelled" ? "This Battleship match ended." : "Hide your fleet, take turns, and find all five ships.";
+      statusEl.innerHTML = `<div class="game-panel game-room-panel battleship-status"><p class="tic-tac-toe-status">${result}</p>${scoreRow}<button type="button" class="primary" data-room-start>${room ? "Play again" : "Start a match"}</button></div>`;
+      content.innerHTML = `<article class="game-panel battleship-panel"><div class="battleship-hero" aria-hidden="true">🚢 🛳️ 🚤</div><h2>Ready, captain?</h2><p class="games-instructions">Place your fleet on a private 10 × 10 board, then take turns firing at your partner's hidden ships. Each hit earns one point.</p><div class="battleship-fleet-list">${BATTLESHIP_FLEET.map(ship => `<span>${ship.emoji} ${ship.name} · ${ship.length}</span>`).join("")}</div></article>`;
+      return;
+    }
+
+    const isMember = room.playerUids.includes(user.uid);
+    if (room.status === "waiting") {
+      statusEl.innerHTML = `<div class="game-panel game-room-panel battleship-status"><p class="tic-tac-toe-status">${room.playerUids[0] === user.uid ? "Waiting for your partner to join…" : `${esc(getDisplayName(room.playerUids[0], players[room.playerUids[0]]?.name || "Your partner"))} is waiting. Join the fleet!`}</p>${scoreRow}${room.playerUids[0] === user.uid ? `<button type="button" class="secondary" data-room-cancel>Cancel match</button>` : `<button type="button" class="primary" data-room-start>Join match</button>`}</div>`;
+      content.innerHTML = `<article class="game-panel battleship-panel"><div class="battleship-hero" aria-hidden="true">⚓ 🌊 ⚓</div><p class="games-instructions">Once your partner joins, both of you will place ships on your own hidden boards.</p></article>`;
+      return;
+    }
+    if (!isMember) {
+      statusEl.innerHTML = `<div class="game-panel game-room-panel battleship-status"><p class="tic-tac-toe-status">This match is already in progress.</p></div>`;
+      content.replaceChildren();
+      return;
+    }
+
+    if (room.status === "placing") {
+      const ready = players[user.uid]?.ready;
+      const nextShip = BATTLESHIP_FLEET.find(ship => !battleshipDraftShips.some(placed => placed.id === ship.id));
+      const draftShips = battleshipBoard?.ships || battleshipDraftShips;
+      statusEl.innerHTML = `<div class="game-panel game-room-panel battleship-status"><p class="tic-tac-toe-status">${ready ? "Fleet ready! Waiting for your partner to finish placing ships…" : "Place your fleet on your private board."}</p>${scoreRow}</div>`;
+      if (ready) {
+        content.innerHTML = `<article class="game-panel battleship-panel"><p class="games-instructions">Your ships are hidden and saved. The match begins as soon as your partner marks ready.</p>${renderBattleshipGrid({ room, own: true, ships: battleshipBoard?.ships || [], shots: room.shots?.[opponentUid] || {} })}</article>`;
+        return;
+      }
+      if (!nextShip && battleshipSelectedShipId) battleshipSelectedShipId = "";
+      const draftMap = draftShips.map(ship => ({ ...ship, hits: [] }));
+      content.innerHTML = `<article class="game-panel battleship-panel"><p class="battleship-step">PLACE YOUR FLEET <span>${battleshipDraftShips.length} / 5</span></p><p class="games-instructions">Choose a ship and orientation, then tap its starting square. Ships cannot overlap.</p><div class="battleship-placement-controls"><select data-bs-ship ${nextShip ? "" : "disabled"}>${BATTLESHIP_FLEET.map(ship => `<option value="${ship.id}" ${ship.id === battleshipSelectedShipId ? "selected" : ""} ${battleshipDraftShips.some(item => item.id === ship.id) ? "disabled" : ""}>${ship.emoji} ${ship.name} · ${ship.length}</option>`).join("")}</select><button type="button" class="secondary" data-bs-orientation>${battleshipOrientation === "horizontal" ? "↔ Horizontal" : "↕ Vertical"}</button></div>${renderBattleshipGrid({ room, own: true, clickable: Boolean(nextShip), ships: draftMap })}<div class="battleship-placement-actions"><button type="button" class="secondary" data-bs-reset-layout ${battleshipDraftShips.length ? "" : "disabled"}>Reset ships</button><button type="button" class="primary" data-bs-ready ${battleshipDraftShips.length === 5 ? "" : "disabled"}>Ready to play ♡</button></div></article>`;
+      return;
+    }
+
+    const hasTurn = room.turnUid === user.uid;
+    const isTurn = hasTurn && !room.processingShot;
+    const myShots = room.shots?.[user.uid] || {};
+    const incomingShots = room.shots?.[opponentUid] || {};
+    const latestShot = Object.values(room.shots || {}).flatMap(playerShots => Object.values(playerShots || {}))
+      .sort((left, right) => right.at - left.at)[0];
+    const latestCoordinate = latestShot ? `${String.fromCharCode(65 + Math.floor(latestShot.index / 10))}${latestShot.index % 10 + 1}` : "";
+    const latestShotMessage = latestShot
+      ? `<p class="battleship-last-shot" aria-live="polite"><strong>${latestShot.by === user.uid ? "Your shot" : "Your partner's shot"} · ${latestCoordinate}</strong><span>${latestShot.hit ? `HIT! 💥${latestShot.sunkShip ? ` ${esc(latestShot.sunkShip)} sunk! 🚢` : ""}` : "MISS 🌊"}</span></p>`
+      : "";
+    statusEl.innerHTML = `<div class="game-panel game-room-panel battleship-status"><p class="tic-tac-toe-status">${isTurn ? "Your turn — choose a target square!" : hasTurn ? "Saving your shot…" : `${esc(getDisplayName(room.turnUid, players[room.turnUid]?.name || "Your partner"))} is taking aim…`}</p>${scoreRow}<p class="battleship-turn-note">${isTurn ? "Tap a square on the target board to fire." : "Your fleet is hidden. Your turn starts after the shot."}</p></div>`;
+    const ownBoard = `<section class="battleship-board-card"><h3>Your fleet <span>PRIVATE</span></h3>${renderBattleshipGrid({ room, own: true, ships: battleshipBoard?.ships || [], shots: incomingShots })}<p class="battleship-legend"><span>🚢 Ship</span><span>💥 Hit</span><span>🌊 Miss</span></p></section>`;
+    const targetBoard = `<section class="battleship-board-card"><h3>${esc(getDisplayName(opponentUid, players[opponentUid]?.name || "Partner"))}'s waters <span>${isTurn ? "YOUR TURN" : "WAITING"}</span></h3>${renderBattleshipGrid({ room, own: false, clickable: isTurn, shots: myShots })}<p class="battleship-legend"><span>💥 Hit</span><span>🌊 Miss</span><span>☞ Fire</span></p></section>`;
+    content.innerHTML = `${latestShotMessage}<div class="battleship-boards">${ownBoard}${targetBoard}</div><div class="battleship-actions"><button type="button" class="secondary" data-room-end>End match</button></div>`;
+  }
+
   function renderCurrentGame() {
     if (!activeGame) {
       document.body.classList.remove("sos-fullscreen");
       disposeFindTheWords?.();
       disposeFindTheWords = null;
+      disposeLudoGame?.();
+      disposeLudoGame = null;
       el.innerHTML = gamesHome();
       renderedShellGame = "";
       renderScoreboard();
@@ -1173,8 +1538,29 @@ export function renderGames(el, user, profile) {
       }
       return;
     }
+    if (activeGame === "ludo") {
+      const gameInfo = ["Ludo", "Race your four photo coins home — capture a coin and complete a lap to unlock your home lane.", "🎲"];
+      if (renderedShellGame !== activeGame) {
+        el.innerHTML = activeShell(activeGame, ...gameInfo, "LIVE 2 PLAYERS");
+        renderedShellGame = activeGame;
+      }
+      if (!disposeLudoGame && !ludoModuleLoading) {
+        ludoModuleLoading = true;
+        import("./games-2.js").then(({ mountLudoGame }) => {
+          if (activeGame !== "ludo" || !el.isConnected || $("#games-active-content", el)?.dataset.activeGame !== "ludo") return;
+          disposeLudoGame = mountLudoGame(el, user, profile);
+        }).catch(error => {
+          console.error("Ludo could not be loaded:", error);
+          const status = $("#games-room-status", el);
+          if (status) status.innerHTML = `<p class="error">Ludo could not be loaded. Please refresh and try again.</p>`;
+        }).finally(() => { ludoModuleLoading = false; });
+      }
+      return;
+    }
     const gameInfo = {
       "memory-match": ["Memory Match", "Flip the cards and find all ten pairs.", "🧠"],
+      "emoji-decoder": ["Emoji Decoder", "Guess five country, movie, and phrase clues.", "🧩"],
+      battleship: ["Battleship", "Hide your fleet and find your partner's ships.", "🚢"],
       "true-false": ["True or False", "Guess together, then learn a surprising fact.", "💡"]
     }[activeGame];
     if (renderedShellGame !== activeGame) {
@@ -1208,7 +1594,7 @@ export function renderGames(el, user, profile) {
     const target = event.target.closest("button");
     if (!target || !el.contains(target)) return;
     const turnOnlyActions = [
-      "data-memory-card", "data-emoji-answer", "data-next-emoji"
+      "data-memory-card", "data-emoji-answer", "data-next-emoji", "data-puzzle-submit"
     ];
     if (activeGame && turnOnlyActions.some(attribute => target.hasAttribute(attribute)) &&
         (gameRoomState?.status !== "playing" || gameRoomState.turnUid !== user.uid)) {
@@ -1223,8 +1609,19 @@ export function renderGames(el, user, profile) {
       clearSosSession();
       stopGameMatch?.();
       stopGameMatch = null;
+      stopBattleshipBoard?.();
+      stopBattleshipBoard = null;
+      battleshipBoardMatchId = "";
+      battleshipBoard = null;
+      battleshipDraftShips = [];
+      battleshipOrientation = "horizontal";
+      battleshipSelectedShipId = BATTLESHIP_FLEET[0].id;
+      stopCustomEmojiPuzzles?.();
+      stopCustomEmojiPuzzles = null;
       disposeFindTheWords?.();
       disposeFindTheWords = null;
+      disposeLudoGame?.();
+      disposeLudoGame = null;
       activeGame = target.dataset.startGame;
       activeState = resetActiveGame(activeGame);
       sosGameState = null;
@@ -1233,8 +1630,23 @@ export function renderGames(el, user, profile) {
       gameRoomState = null;
       if (activeGame === "sos") {
         startSosSession();
-      } else if (rtdb && activeGame !== "find-words") {
-        stopGameMatch = onValue(gameMatchRef(activeGame), snapshot => {
+      } else if (rtdb && activeGame === "emoji-decoder") {
+        stopCustomEmojiPuzzles = onValue(customEmojiPuzzlesRef(), snapshot => {
+          const entries = Object.values(snapshot.val() || {}).filter(item =>
+            item && typeof item.emojis === "string" && item.emojis.trim() && item.emojis.length <= 80 &&
+            typeof item.answer === "string" && item.answer.trim() && item.answer.length <= 80
+          ).slice(-100);
+          customEmojiPuzzleBank = entries.map(item => ({ category: String(item.category || "OTHER").slice(0, 24), emojis: item.emojis, answer: item.answer }));
+          try { localStorage.setItem(emojiPuzzleStorageKey, JSON.stringify(customEmojiPuzzleBank)); } catch { /* Shared puzzles remain available from Firebase. */ }
+          if (activeGame === "emoji-decoder") renderCurrentGame();
+        }, error => {
+          console.error("Custom emoji puzzles could not be loaded:", error);
+          toast("Your shared emoji puzzles could not be loaded.");
+        });
+      }
+      if (rtdb && activeGame !== "find-words" && activeGame !== "ludo") {
+        const currentMatchRef = activeGame === "battleship" ? battleshipRoomRef() : gameMatchRef(activeGame);
+        stopGameMatch = onValue(currentMatchRef, snapshot => {
           gameRoomState = normalizeRoom(snapshot.val());
           if (gameRoomState?.status === "finished") recordFinishedMatch(gameRoomState);
           if (gameRoomState?.matchId !== roomStateInitializing?.split(":")[0]) roomStateInitializing = "";
@@ -1270,6 +1682,68 @@ export function renderGames(el, user, profile) {
       return;
     }
 
+    if (activeGame === "battleship" && target.hasAttribute("data-room-start")) {
+      try {
+        await callBattleshipAction({ action: "startOrJoin", playerName: getDisplayName(user.uid, profile?.name || "") });
+      } catch (error) {
+        console.error("Could not start or join Battleship:", error);
+        toast(error.message || "Could not start the match. Please try again.");
+      }
+      return;
+    }
+
+    if (activeGame === "battleship" && (target.hasAttribute("data-room-cancel") || target.hasAttribute("data-room-end"))) {
+      try {
+        await callBattleshipAction({ action: target.hasAttribute("data-room-cancel") ? "cancel" : "end", matchId: gameRoomState?.matchId });
+      } catch (error) {
+        console.error("Could not end Battleship match:", error);
+        toast(error.message || "The match could not be ended.");
+      }
+      return;
+    }
+
+    if (activeGame === "battleship" && target.hasAttribute("data-bs-place")) {
+      placeDraftShip(Number(target.dataset.bsPlace));
+      return;
+    }
+
+    if (activeGame === "battleship" && target.hasAttribute("data-bs-orientation")) {
+      battleshipOrientation = battleshipOrientation === "horizontal" ? "vertical" : "horizontal";
+      renderCurrentGame();
+      return;
+    }
+
+    if (activeGame === "battleship" && target.hasAttribute("data-bs-reset-layout")) {
+      battleshipDraftShips = [];
+      battleshipSelectedShipId = BATTLESHIP_FLEET[0].id;
+      try { localStorage.removeItem(`olw-battleship-draft:${gameRoomState?.matchId}:${user.uid}`); } catch { /* Optional placement recovery. */ }
+      renderCurrentGame();
+      return;
+    }
+
+    if (activeGame === "battleship" && target.hasAttribute("data-bs-ready")) {
+      if (battleshipDraftShips.length !== BATTLESHIP_FLEET.length) return;
+      try {
+        await callBattleshipAction({ action: "placeFleet", matchId: gameRoomState?.matchId, ships: battleshipDraftShips });
+        try { localStorage.removeItem(`olw-battleship-draft:${gameRoomState?.matchId}:${user.uid}`); } catch { /* Fleet is safely stored on the server. */ }
+        toast("Your fleet is hidden and ready! ⚓");
+      } catch (error) {
+        console.error("Could not save Battleship fleet:", error);
+        toast(error.message || "Your fleet could not be saved. Please try again.");
+      }
+      return;
+    }
+
+    if (activeGame === "battleship" && target.hasAttribute("data-bs-fire")) {
+      try {
+        await callBattleshipAction({ action: "fire", matchId: gameRoomState?.matchId, index: Number(target.dataset.bsFire) });
+      } catch (error) {
+        console.error("Could not fire in Battleship:", error);
+        toast(error.message || "Your shot could not be saved. Please try again.");
+      }
+      return;
+    }
+
     if (target.hasAttribute("data-room-start")) {
       if (!rtdb) {
         toast("Two-player games need Firebase Realtime Database.");
@@ -1278,6 +1752,9 @@ export function renderGames(el, user, profile) {
       try {
         const trueFalseQuestions = activeGame === "true-false"
           ? pickTrueFalseQuestions(await loadTrueFalseQuestionBank(), 12)
+          : [];
+        const emojiDecoderQuestions = activeGame === "emoji-decoder"
+          ? makeEmojiDecoderState(customEmojiPuzzleBank).questions
           : [];
         const transaction = await runTransaction(gameMatchRef(activeGame), current => {
           if (!isValidGameRoom(current, activeGame) || current.status === "finished" || current.status === "cancelled") {
@@ -1293,6 +1770,11 @@ export function renderGames(el, user, profile) {
               trueFalseQuestionIndex: 0,
               trueFalseAnswers: null,
               trueFalsePhase: "answering",
+              emojiDecoderQuestions,
+              emojiDecoderQuestionIndex: 0,
+              emojiDecoderLastAnswer: "",
+              emojiDecoderLastCorrect: false,
+              emojiDecoderLastGuesserUid: "",
               players: {
                 [user.uid]: { name: getDisplayName(user.uid, profile?.name), score: 0, completed: false, state: null }
               },
@@ -1390,6 +1872,14 @@ export function renderGames(el, user, profile) {
       clearSosSession();
       stopGameMatch?.();
       stopGameMatch = null;
+      disposeLudoGame?.();
+      disposeLudoGame = null;
+      stopBattleshipBoard?.();
+      stopBattleshipBoard = null;
+      battleshipBoardMatchId = "";
+      battleshipBoard = null;
+      stopCustomEmojiPuzzles?.();
+      stopCustomEmojiPuzzles = null;
       activeGame = "";
       activeState = null;
       sosGameState = null;
@@ -1432,15 +1922,6 @@ export function renderGames(el, user, profile) {
       return;
     }
 
-    if (target.hasAttribute("data-word-letter")) {
-      const letter = target.dataset.wordLetter;
-      if (activeState.guessed.includes(letter)) return;
-      activeState.guessed.push(letter);
-      if (!activeState.word.toLocaleLowerCase().includes(letter)) activeState.guessesLeft--;
-      renderAndSavePlayerProgress();
-      return;
-    }
-
     if (target.hasAttribute("data-emoji-answer")) {
       const question = activeState.questions[activeState.question];
       const answer = Number(target.dataset.emojiAnswer);
@@ -1456,6 +1937,91 @@ export function renderGames(el, user, profile) {
       activeState.answered = false;
       activeState.selected = -1;
       renderAndSavePlayerProgress();
+      return;
+    }
+
+    if (target.hasAttribute("data-puzzle-submit") && activeGame === "emoji-decoder") {
+      const input = $("[data-puzzle-guess]", el);
+      const guess = input?.value.trim() || "";
+      if (!guess) { toast("Type your guess first ♡"); input?.focus(); return; }
+      if (!normalizePuzzleAnswer(guess)) { toast("Use letters or numbers for your guess."); input?.focus(); return; }
+      const room = gameRoomState;
+      const questionIndex = room?.emojiDecoderQuestionIndex;
+      if (!room || room.status !== "playing" || room.turnUid !== user.uid ||
+          !Number.isInteger(questionIndex) || questionIndex < 0 || questionIndex >= 5) {
+        toast("Your turn has changed. Please check the match status.");
+        renderCurrentGame();
+        return;
+      }
+      try {
+        const transaction = await runTransaction(gameMatchRef(activeGame), current => {
+          if (!current || current.game !== "emoji-decoder" || current.status !== "playing" ||
+              current.matchId !== room.matchId || current.turnUid !== user.uid ||
+              current.emojiDecoderQuestionIndex !== questionIndex) return;
+          const question = current.emojiDecoderQuestions?.[questionIndex];
+          if (!question) return;
+          const correct = normalizePuzzleAnswer(guess) === normalizePuzzleAnswer(question.answer);
+          const players = {
+            ...current.players,
+            [user.uid]: {
+              ...current.players[user.uid],
+              score: (current.players[user.uid]?.score || 0) + (correct ? 1 : 0)
+            }
+          };
+          const nextIndex = questionIndex + 1;
+          const finished = nextIndex >= 5;
+          const updated = {
+            ...current,
+            players,
+            emojiDecoderQuestionIndex: nextIndex,
+            emojiDecoderLastAnswer: question.answer,
+            emojiDecoderLastCorrect: correct,
+            emojiDecoderLastGuesserUid: user.uid,
+            turnUid: finished ? "" : current.playerUids.find(uid => uid !== user.uid),
+            updatedAt: Date.now()
+          };
+          if (finished) {
+            updated.status = "finished";
+            updated.winnerUid = gameWinner("emoji-decoder", current.playerUids, players);
+          }
+          return updated;
+        });
+        if (!transaction.committed) toast("Your answer was not saved because the turn changed.");
+      } catch (error) {
+        console.error("Could not save emoji decoder answer:", error);
+        toast("Your answer could not be saved. Please try again.");
+      }
+      return;
+    }
+
+    if (target.hasAttribute("data-add-emoji-puzzle") && activeGame === "emoji-decoder") {
+      const emojisInput = $("[data-custom-puzzle-emojis]", el);
+      const answerInput = $("[data-custom-puzzle-answer]", el);
+      const categoryInput = $("[data-custom-puzzle-category]", el);
+      const emojis = emojisInput?.value.trim() || "";
+      const answer = answerInput?.value.trim() || "";
+      const category = categoryInput?.value || "OTHER";
+      if (!emojis || !answer) { toast("Add both an emoji clue and its answer."); return; }
+      if (!normalizePuzzleAnswer(answer)) { toast("Add a written answer using letters or numbers."); return; }
+      if (emojis.length > 80 || answer.length > 80) { toast("Keep the clue and answer under 80 characters."); return; }
+      if (customEmojiPuzzleBank.some(item => item.emojis === emojis && normalizePuzzleAnswer(item.answer) === normalizePuzzleAnswer(answer))) {
+        toast("That puzzle is already in your shared collection.");
+        return;
+      }
+      const puzzle = { category, emojis, answer, authorUid: user.uid, createdAt: Date.now() };
+      try {
+        if (rtdb) {
+          await set(push(customEmojiPuzzlesRef()), puzzle);
+        } else {
+          customEmojiPuzzleBank.push({ category, emojis, answer });
+          localStorage.setItem(emojiPuzzleStorageKey, JSON.stringify(customEmojiPuzzleBank));
+          renderCurrentGame();
+        }
+        toast("Your puzzle was added for both of you ♡");
+      } catch (error) {
+        console.error("Could not add custom emoji puzzle:", error);
+        toast("Your puzzle could not be saved. Please try again.");
+      }
       return;
     }
 
@@ -1526,6 +2092,12 @@ export function renderGames(el, user, profile) {
 
   };
 
+  el.onchange = event => {
+    const selector = event.target.closest("[data-bs-ship]");
+    if (!selector || activeGame !== "battleship") return;
+    battleshipSelectedShipId = selector.value;
+  };
+
 
 }
 
@@ -1535,8 +2107,16 @@ export function disposeGames() {
   stopSosListeners();
   stopGameMatch?.();
   stopGameMatch = null;
+  stopBattleshipBoard?.();
+  stopBattleshipBoard = null;
+  battleshipBoardMatchId = "";
+  battleshipBoard = null;
+  stopCustomEmojiPuzzles?.();
+  stopCustomEmojiPuzzles = null;
   if (memoryTimer) clearTimeout(memoryTimer);
   memoryTimer = null;
   disposeFindTheWords?.();
   disposeFindTheWords = null;
+  disposeLudoGame?.();
+  disposeLudoGame = null;
 }

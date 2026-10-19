@@ -11,6 +11,7 @@ import {
   persistentMultipleTabManager
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { getDatabase } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
+import { getFunctions } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-functions.js";
 import { firebaseConfig } from "../firebase/firebase-config.js";
 
 export const firebaseReady = ["apiKey", "authDomain", "projectId", "appId", "databaseURL"].every(key =>
@@ -64,4 +65,5 @@ export const db = firestoreInstance;
 // strokes are lost offline. Photo bytes themselves are cached in
 // IndexedDB by `src/services/telegramService.js` (see olw-media-cache).
 export const rtdb = app ? getDatabase(app) : null;
+export const functions = app ? getFunctions(app, "us-central1") : null;
 

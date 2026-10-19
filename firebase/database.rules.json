@@ -2,6 +2,8 @@
   "rules": {
     "couples": {
       "$coupleId": {
+        ".read": "auth != null && (auth.token.email === 'akabeeram@gmail.com' || auth.token.email === 'hizasgallery@gmail.com')",
+        ".write": "auth != null && (auth.token.email === 'akabeeram@gmail.com' || auth.token.email === 'hizasgallery@gmail.com')",
         "partnerChat": {
           "messages": {
             ".indexOn": ["createdAt"]
@@ -9,7 +11,19 @@
         }
       }
     },
-    ".read": "auth != null && (auth.token.email === 'akabeeram@gmail.com' || auth.token.email === 'hizasgallery@gmail.com')",
-    ".write": "auth != null && (auth.token.email === 'akabeeram@gmail.com' || auth.token.email === 'hizasgallery@gmail.com')"
+    "battleshipMatches": {
+      "$matchId": {
+        ".read": "auth != null && (auth.token.email === 'akabeeram@gmail.com' || auth.token.email === 'hizasgallery@gmail.com')",
+        ".write": false
+      }
+    },
+    "battleshipPrivate": {
+      "$matchId": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid && (auth.token.email === 'akabeeram@gmail.com' || auth.token.email === 'hizasgallery@gmail.com')",
+          ".write": false
+        }
+      }
+    }
   }
 }
