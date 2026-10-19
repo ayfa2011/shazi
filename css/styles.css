@@ -2446,3 +2446,48 @@ body.partner-chat-open { overflow:hidden; }
   .ludo-home-count { font-size:12px; }
 }
 @media(prefers-reduced-motion:reduce) { .ludo-token,.ludo-token-arrive,.ludo-token-captured { animation:none!important; } }
+
+/* Navigation tabs: pill bar with a clear pink selected state. */
+.bottom-nav,
+.home-dashboard .bottom-nav {
+  width:min(760px,calc(100% - 20px));
+  gap:4px;
+  padding:7px;
+  border:1px solid #f4d7e3;
+  border-radius:999px;
+  background:#fffdfef7;
+  box-shadow:0 12px 34px #8f315d1a;
+}
+.bottom-nav button,
+.home-dashboard .bottom-nav button {
+  min-height:58px;
+  gap:3px;
+  padding:6px 3px;
+  border:1px solid transparent;
+  border-radius:999px;
+  color:#493943;
+  transition:color .18s ease,background-color .18s ease,border-color .18s ease,box-shadow .18s ease,transform .18s ease;
+}
+.bottom-nav button svg,
+.home-dashboard .bottom-nav button svg { width:26px;height:26px; }
+.bottom-nav button span,
+.home-dashboard .bottom-nav button span { font-size:10px;font-weight:600; }
+.bottom-nav button.active,
+.home-dashboard .bottom-nav button.active {
+  border-color:#f5a8c4;
+  background:linear-gradient(145deg,#ffe8f1,#ffd9e8);
+  color:#d63e7c;
+  box-shadow:inset 0 0 0 1px #fff8,0 3px 12px #d7488226;
+}
+.bottom-nav button.active svg,
+.home-dashboard .bottom-nav button.active svg { stroke-width:2.25; }
+.bottom-nav button.active span,
+.home-dashboard .bottom-nav button.active span { color:#c32f6b;font-weight:800; }
+.bottom-nav button:focus-visible,
+.home-dashboard .bottom-nav button:focus-visible { outline:3px solid #e65391;outline-offset:2px; }
+@media(max-width:420px) {
+  .bottom-nav,.home-dashboard .bottom-nav { width:calc(100% - 14px);gap:2px;padding:5px; }
+  .bottom-nav button,.home-dashboard .bottom-nav button { min-height:52px;padding:4px 1px; }
+  .bottom-nav button svg,.home-dashboard .bottom-nav button svg { width:23px;height:23px; }
+  .bottom-nav button span,.home-dashboard .bottom-nav button span { font-size:9px; }
+}
