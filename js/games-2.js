@@ -66,7 +66,7 @@ function targetForMove(player, position, dice) {
   if (position >= 52) return position + dice <= 57 ? position + dice : null;
   const next = position + dice;
   if (next <= 51) return next;
-  const homeUnlocked = player.hasCaptured && (player.completedLap || next > 51);
+  const homeUnlocked = player.hasCaptured;
   if (homeUnlocked && next <= 57) return next;
   return next - 52;
 }
@@ -129,10 +129,10 @@ function renderBoard(room, uid, selectedPieces = []) {
     const tokens = tokensAt.get(key) || [];
     const classes = ["ludo-cell", position != null ? "track-cell" : "", baseColor ? `base-${baseColor}` : "", laneColor ? `lane-${laneColor}` : "", inCenter ? "center-cell" : "", isSafe ? "safe-cell" : "", isStart ? "start-cell" : "", tokens.length ? "has-token" : "", tokens.some(token => token.progress === 57) ? "home-cell" : ""].filter(Boolean).join(" ");
     const lanePlayer = laneColor ? room.playerUids.map(playerUid => room.players[playerUid]).find(player => player.color === laneColor) : null;
-    const homeLocked = lanePlayer && !(lanePlayer.hasCaptured && lanePlayer.completedLap);
+    const homeLocked = lanePlayer && !lanePlayer.hasCaptured;
     const centerIcon = inCenter && row === 7 && column === 7 ? `<span class="ludo-center-mark" aria-hidden="true">🏆</span>` : "";
     const lockIcon = homeLocked && row === homeLanes[laneColor][0][0] && column === homeLanes[laneColor][0][1]
-      ? `<span class="ludo-path-lock" title="Capture a piece and complete a lap to unlock home">🔒</span>` : "";
+      ? `<span class="ludo-path-lock" title="Capture a coin to unlock your home lane">🔒</span>` : "";
     const tokenMarkup = tokens.map(token => {
       const canMove = token.uid === uid && selected.has(token.pieceIndex) && room.turnUid === uid && room.phase === "move";
       const color = colorInfo[token.player.color]?.css || "red";
@@ -205,7 +205,7 @@ export function mountLudoGame(el, user, profile) {
         ? `<details class="ludo-history ludo-previous-history"><summary>Previous match history <span>${room.history.length} moves</span></summary><ol>${room.history.slice(-16).reverse().map(item => `<li><span>${esc(item.text || "A move was made")}</span><time>${new Date(item.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></li>`).join("")}</ol></details>`
         : "";
       statusEl.innerHTML = `<div class="game-panel game-room-panel ludo-status"><p class="tic-tac-toe-status">${summary}</p>${playerCards}<button type="button" class="primary" data-ludo-start>${room ? "Play again" : "Start a private match"}</button></div>`;
-      content.innerHTML = `<article class="game-panel ludo-panel"><div class="ludo-intro-icon" aria-hidden="true">🎲</div><p class="ludo-overline">OUR LITTLE GAMES · 2 PLAYERS</p><h2>${room?.status === "finished" ? "A sweet match together" : "Choose your color"}</h2><p class="games-instructions">Your four coins each carry your profile photo. Pick different colors before the match begins.</p>${room?.status === "finished" ? `${previousHistory}<h3 class="ludo-final-score">${esc(playerName(room, room.winnerUid))} wins · ${room.playerUids.map(uid => `${esc(playerName(room, uid))}: ${room.players[uid].captures || 0} captures`).join(" · ")}</h3>` : colorPicker}<p class="ludo-special-rule"><strong>Our home-path rule</strong><span>Capture at least one opponent coin and complete a full lap to unlock your home lane.</span></p></article>`;
+      content.innerHTML = `<article class="game-panel ludo-panel"><div class="ludo-intro-icon" aria-hidden="true">🎲</div><p class="ludo-overline">OUR LITTLE GAMES · 2 PLAYERS</p><h2>${room?.status === "finished" ? "A sweet match together" : "Choose your color"}</h2><p class="games-instructions">Your four coins each carry your profile photo. Pick different colors before the match begins.</p>${room?.status === "finished" ? `${previousHistory}<h3 class="ludo-final-score">${esc(playerName(room, room.winnerUid))} wins · ${room.playerUids.map(uid => `${esc(playerName(room, uid))}: ${room.players[uid].captures || 0} captures`).join(" · ")}</h3>` : colorPicker}<p class="ludo-special-rule"><strong>Our home-path rule</strong><span>Capture an opponent coin to unlock your home lane. Each coin must complete a full lap before it can enter.</span></p></article>`;
       return;
     }
 
@@ -227,7 +227,7 @@ export function mountLudoGame(el, user, profile) {
     const player = room.players[user.uid];
     const isTurn = room.turnUid === user.uid;
     const available = room.phase === "move" && isTurn ? legalPieces(player, room.dice) : [];
-    const unlocked = player.hasCaptured && player.completedLap;
+    const unlocked = player.hasCaptured;
     const turnName = room.turnUid ? playerName(room, room.turnUid) : "";
     const lastMove = room.lastMove;
     const message = room.phase === "move"
@@ -367,10 +367,12 @@ export function mountLudoGame(el, user, profile) {
   }
 
   async function rollDice() {
-    const dice = Math.floor(Math.random() * 6) + 1;
     try {
       const transaction = await runTransaction(matchRef(), current => {
         if (current?.game !== "ludo" || current.status !== "playing" || current.turnUid !== user.uid || current.phase !== "roll") return;
+        const randomWord = new Uint32Array(1);
+        crypto.getRandomValues(randomWord);
+        const dice = Math.floor(randomWord[0] / 0x100000000 * 6) + 1;
         const player = current.players[user.uid];
         const streak = dice === 6 ? (player.sixStreak || 0) + 1 : 0;
         if (streak >= 3) {
@@ -448,7 +450,7 @@ export function mountLudoGame(el, user, profile) {
           }
         }
         const finished = pieces.every(position => position === 57);
-        const extraTurn = current.dice === 6 || captured.length > 0;
+        const extraTurn = current.dice === 6 || captured.length > 0 || nextPosition === 57;
         const nextUid = current.playerUids.find(uid => uid !== user.uid);
         const destinationName = nextPosition === 57 ? "home" : nextPosition >= 52 ? "the home lane" : "the track";
         const moveDescription = captured.length
@@ -477,6 +479,7 @@ export function mountLudoGame(el, user, profile) {
   }
 
   async function endMatch() {
+    if (!window.confirm("End this Ludo match for both players?")) return;
     try {
       const transaction = await runTransaction(matchRef(), current => {
         if (!ensurePlayer(current, user.uid) || !["waiting", "setup", "playing"].includes(current.status)) return;

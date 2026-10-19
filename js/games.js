@@ -10,7 +10,7 @@ import { httpsCallable } from "https://www.gstatic.com/firebasejs/11.0.2/firebas
 
 const sosGameRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sos`);
 const sosPresenceRef = uid => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sosPresence/${uid}`);
-const gameMatchRef = game => ref(rtdb, `couples/our-little-world/games/matches/${game}`);
+const gameMatchRef = game => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/matches/${game}`);
 const trueFalseBankRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/questionBanks/trueFalse`);
 const SOS_ROWS = 10;
 const SOS_COLUMNS = 10;
