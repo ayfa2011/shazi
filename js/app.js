@@ -304,18 +304,21 @@ function renderPostFeed(el, user, profile) {
         margin: 6px 0;
         line-height: 1.4;
       }
-      .tw-post-photo-frame { width:100%; aspect-ratio:4/3; margin-top:8px; overflow:hidden; border-radius:16px; background:#fff0f6; touch-action:pan-y pinch-zoom; cursor:zoom-in; }
+      .tw-post-photo-frame { width:100%; aspect-ratio:4/3; margin-top:8px; overflow:hidden; border-radius:16px; background:#fff0f6; touch-action:pan-x pan-y pinch-zoom; cursor:zoom-in; -webkit-tap-highlight-color:transparent; }
       .tw-post-photo {
         display:block; width:100%; height:100%;
         border-radius: 16px;
         object-fit: cover;
         cursor: zoom-in;
-        pointer-events: none;
+        touch-action:pan-x pan-y pinch-zoom;
         user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
         -webkit-user-drag: none;
       }
-      .tw-post-detail-photo-frame { height:min(65dvh,600px); aspect-ratio:auto; display:grid; place-items:center; background:#fff8fb; cursor:zoom-in; }
+      .tw-post-detail-photo-frame { height:min(65dvh,600px); aspect-ratio:auto; display:grid; place-items:center; background:#fff8fb; cursor:zoom-in; touch-action:pan-x pan-y pinch-zoom; }
       .tw-post-detail-photo-frame .tw-post-photo { width:auto; height:auto; max-width:100%; max-height:100%; object-fit:contain; }
+      .tw-image-backdrop img { touch-action:pan-x pan-y pinch-zoom; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
       .tw-crop-editor { display:none; position:relative; width:min(100%,360px); aspect-ratio:4/3; margin:10px 0 2px; overflow:hidden; border:1px solid #f0cedd; border-radius:14px; background:#fff0f6; touch-action:none; cursor:grab; }
       .tw-crop-editor.visible { display:block; }
       .tw-crop-editor:active { cursor:grabbing; }
@@ -601,7 +604,7 @@ function renderPostFeed(el, user, profile) {
     const post = posts.find(item => item.id === detailPostId);
     if (!post || !detailPostId) return;
     const comments = commentsByPost.get(post.id) || [];
-    const image = post.photoUrl ? `<div class="tw-post-photo-frame tw-post-detail-photo-frame"><img src="${esc(post.photoUrl)}" class="tw-post-photo" alt="Post photo" data-post-image></div>` : post.telegramFileId ? `<div class="tw-post-photo-frame tw-post-detail-photo-frame"><img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Post photo" data-post-image></div>` : "";
+    const image = post.photoUrl ? `<div class="tw-post-photo-frame tw-post-detail-photo-frame"><img src="${esc(post.photoUrl)}" class="tw-post-photo" alt="Post photo" data-post-image draggable="false"></div>` : post.telegramFileId ? `<div class="tw-post-photo-frame tw-post-detail-photo-frame"><img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Post photo" data-post-image draggable="false"></div>` : "";
     const isAuthor = getPostAuthorKey(post) === getProfileKey(profile);
     detailBody.innerHTML = `<article><div class="tw-post-header"><strong>${esc(getDisplayName(post.authorId, post.authorName || "Us"))}</strong><time class="tw-post-time">${esc(post.createdAt?.toDate ? post.createdAt.toDate().toLocaleString() : post.createdAt ? new Date(post.createdAt).toLocaleString() : "Just now")}</time></div><p class="tw-post-text">${esc(post.text || "")}</p>${image}${voiceMarkup(post)}<div class="tw-actions-bar"><span>❤️ ${(post.likedBy || []).length} likes</span><span>💬 ${comments.length} comments</span></div>${isAuthor ? `<div class="tw-detail-comment-actions"><button type="button" class="tw-edit-btn" data-id="${esc(post.id)}">✏️ Edit post</button><button type="button" class="tw-del-btn" data-id="${esc(post.id)}">🗑 Delete post</button></div>` : ""}</article><h3>Replies</h3><div class="tw-detail-comments">${comments.map(comment => commentComponent(comment, user, voiceMarkup)).join("") || `<p style="color:#8c737d">No replies yet. Start the conversation ♡</p>`}</div><form class="tw-detail-reply" id="tw-detail-reply-form"><input name="reply" placeholder="Write a reply…"><button class="tw-post-btn" type="submit">Reply</button></form><button type="button" class="tw-voice-recorder" data-voice-record="comment" aria-label="Record reply voice note">🎙 Record voice note</button><span id="tw-comment-voice-state" class="tw-photo-name"></span>`;
     detailBody.querySelectorAll("img[data-telegram-file-id]").forEach(img => getTelegramMediaUrl(img.dataset.telegramFileId, img.dataset.telegramMime).then(url => { if (img.isConnected) img.src = url; }).catch(() => {}));
@@ -646,13 +649,48 @@ function renderPostFeed(el, user, profile) {
     });
   }
   let selectedCommentVoice = null;
-  detailBody.addEventListener("click", event => {
-    const image = event.target.closest("[data-post-image]");
-    if (!image) return;
+  // ── Tap-vs-scroll guard: scrolling starting on a post photo must never
+  // open the image viewer (that is what makes scroll feel "stuck" on photos).
+  let postPhotoTouchStart = null;
+  let suppressPostPhotoClickUntil = 0;
+  const POST_PHOTO_TAP_SLOP = 12;
+  function trackPostPhotoTouchStart(event) {
+    if (event.touches?.length !== 1) { postPhotoTouchStart = null; return; }
+    const touch = event.touches[0];
+    postPhotoTouchStart = { x: touch.clientX, y: touch.clientY };
+  }
+  function trackPostPhotoTouchEnd(event) {
+    if (!postPhotoTouchStart || event.changedTouches?.length !== 1) { postPhotoTouchStart = null; return; }
+    const touch = event.changedTouches[0];
+    const dx = Math.abs(touch.clientX - postPhotoTouchStart.x);
+    const dy = Math.abs(touch.clientY - postPhotoTouchStart.y);
+    postPhotoTouchStart = null;
+    if (Math.max(dx, dy) > POST_PHOTO_TAP_SLOP) suppressPostPhotoClickUntil = Date.now() + 600;
+  }
+  function shouldSuppressPostPhotoClick() { return Date.now() < suppressPostPhotoClickUntil; }
+  function openPostImageViewer(image) {
+    if (!image || shouldSuppressPostPhotoClick()) return;
     const viewerImage = imageViewer.querySelector("img");
     viewerImage.src = image.currentSrc || image.src;
     imageViewer.classList.add("open");
     imageViewer.setAttribute("aria-hidden", "false");
+  }
+  [feed, detailBody].forEach(scope => {
+    scope.addEventListener("touchstart", trackPostPhotoTouchStart, { passive: true });
+    scope.addEventListener("touchend", trackPostPhotoTouchEnd, { passive: true });
+    scope.addEventListener("touchcancel", () => { postPhotoTouchStart = null; }, { passive: true });
+  });
+  // iOS/Safari long-press drag on an <img> can hijack the scroll gesture.
+  feed.addEventListener("dragstart", event => {
+    if (event.target?.closest?.("[data-post-image]")) event.preventDefault();
+  });
+  detailBody.addEventListener("dragstart", event => {
+    if (event.target?.closest?.("[data-post-image]")) event.preventDefault();
+  });
+  detailBody.addEventListener("click", event => {
+    const image = event.target.closest("[data-post-image]");
+    if (!image) return;
+    openPostImageViewer(image);
   });
 
   el.querySelectorAll(".tw-profile-card").forEach(button => {
@@ -929,11 +967,9 @@ function renderPostFeed(el, user, profile) {
   feed.addEventListener("click", event => {
     const image = event.target.closest("[data-post-image]");
     if (!image) return;
+    if (shouldSuppressPostPhotoClick()) return;
     event.stopPropagation();
-    const viewerImage = imageViewer.querySelector("img");
-    viewerImage.src = image.currentSrc || image.src;
-    imageViewer.classList.add("open");
-    imageViewer.setAttribute("aria-hidden", "false");
+    openPostImageViewer(image);
   });
   el.addEventListener("click", async event => {
     const button = event.target.closest("[data-voice-record]");

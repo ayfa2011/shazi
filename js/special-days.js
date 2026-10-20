@@ -172,15 +172,23 @@ export function renderSpecialDays(el, user) {
   stopSpecialDays = watchItems("specialDay", nextItems => {
     const liveItems = nextItems || [];
     const liveIds = new Set(liveItems.map(item => item.id));
-    for (const id of awaitingSnapshot.keys()) {
-      if (liveIds.has(id)) awaitingSnapshot.delete(id);
+    // Keep optimistic writes visible until the server confirms them. A local
+    // snapshot can omit a pending server-timestamp document from this ordered
+    // query, which previously made a newly saved day disappear immediately.
+    for (const [id, optimisticItem] of awaitingSnapshot) {
+      const confirmedItem = liveItems.find(item => item.id === id);
+      if (confirmedItem && !confirmedItem.createdAt?.toDate && confirmedItem.createdAt) {
+        awaitingSnapshot.delete(id);
+      } else if (confirmedItem) {
+        awaitingSnapshot.set(id, { ...optimisticItem, ...confirmedItem });
+      }
     }
     items = [...liveItems, ...[...awaitingSnapshot.values()].filter(item => !liveIds.has(item.id))];
     renderList();
   }, error => {
     console.error("Special days could not be loaded:", error);
     list.innerHTML = `<p class="error">Special days could not be loaded. Please try again.</p>`;
-  });
+  }, null, { includeMetadataChanges: true });
   scheduleRollover();
 }
 

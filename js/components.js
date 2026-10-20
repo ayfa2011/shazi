@@ -14,7 +14,7 @@ export function postCardComponent(post, isLiked, likeCount, isAuthor, authorName
         </div>
 
         <p class="tw-post-text" id="post-text-${post.id}">${esc(post.text || '')}</p>
-        ${post.photoUrl ? `<div class="tw-post-photo-frame"><img src="${esc(post.photoUrl)}" class="tw-post-photo" alt="Photo attached to post" data-post-image style="object-position:${cropPositionStyle(post)}"></div>` : post.telegramFileId ? `<div class="tw-post-photo-frame"><img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Photo attached to post" data-post-image style="object-position:${cropPositionStyle(post)}" loading="lazy"></div>` : ''}
+        ${post.photoUrl ? `<div class="tw-post-photo-frame"><img src="${esc(post.photoUrl)}" class="tw-post-photo" alt="Photo attached to post" data-post-image draggable="false" style="object-position:${cropPositionStyle(post)}"></div>` : post.telegramFileId ? `<div class="tw-post-photo-frame"><img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Photo attached to post" data-post-image draggable="false" style="object-position:${cropPositionStyle(post)}" loading="lazy"></div>` : ''}
         ${voiceMarkup(post)}
 
         <div class="tw-actions-bar">
