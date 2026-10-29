@@ -301,7 +301,7 @@ export function renderDrawing(el, user, profile) {
   liveBuffer.height = canvas.height;
   const liveBufferCtx = liveBuffer.getContext("2d");
 
-  const boardResizeObserver = new ResizeObserver(() => { if (active) applyZoom(zoom); });
+  const boardResizeObserver = new ResizeObserver(() => { if (active) { refreshCanvasRect(); applyZoom(zoom); } });
   boardResizeObserver.observe(drawBoard);
   requestAnimationFrame(() => applyZoom(1));
 
@@ -411,8 +411,10 @@ export function renderDrawing(el, user, profile) {
   }
   $("#drawing-history-restore", el).onclick = restoreHistory;
 
+  let canvasRect = null;
+  function refreshCanvasRect() { canvasRect = canvas.getBoundingClientRect(); }
   function point(e) {
-    const r = canvas.getBoundingClientRect();
+    const r = canvasRect || refreshCanvasRect();
     const x = ((e.clientX - r.left) / r.width) * 1200;
     const y = ((e.clientY - r.top) / r.height) * 900;
     return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
@@ -596,6 +598,7 @@ export function renderDrawing(el, user, profile) {
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
     canvas.setPointerCapture(e.pointerId);
     closePopovers();
+    refreshCanvasRect();
 
     drawing = true;
     last = point(e);
@@ -613,21 +616,29 @@ export function renderDrawing(el, user, profile) {
     renderSingleStroke(ctx, activeStroke);
   });
 
+  let moveFrame = null, movePoint = null;
   canvas.addEventListener("pointermove", e => {
     if (!drawing || !activeStroke || !last) return;
     if (e.cancelable) e.preventDefault();
-    const p = point(e);
-    const dx = p.x - last.x;
-    const dy = p.y - last.y;
-    if (dx * dx + dy * dy < 1.5) return;
-    activeStroke.points.push(p);
-    last = p;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(liveBuffer, 0, 0);
-    renderSingleStroke(ctx, activeStroke);
+    movePoint = point(e);
+    if (moveFrame) return;
+    moveFrame = requestAnimationFrame(() => {
+      moveFrame = null;
+      const p = movePoint;
+      movePoint = null;
+      const dx = p.x - last.x;
+      const dy = p.y - last.y;
+      if (dx * dx + dy * dy < 1.5) return;
+      activeStroke.points.push(p);
+      last = p;
+      ctx.drawImage(liveBuffer, 0, 0);
+      renderSingleStroke(ctx, activeStroke);
+    });
   });
 
   function endStroke() {
+    cancelAnimationFrame(moveFrame);
+    moveFrame = null; movePoint = null;
     if (drawing && activeStroke && activeStroke.points && activeStroke.points.length > 0) {
       history.add(activeStroke);
       const committedStroke = activeStroke;
@@ -642,6 +653,8 @@ export function renderDrawing(el, user, profile) {
   canvas.addEventListener("pointerup", endStroke);
   canvas.addEventListener("pointercancel", endStroke);
   canvas.addEventListener("lostpointercapture", endStroke);
+
+  drawBoard.addEventListener("scroll", refreshCanvasRect, { passive: true });
 
   function applyRemoteOperation(s, allowPartnerClearPrompt) {
     if (knownOperationKeys.has(s.key)) return;
