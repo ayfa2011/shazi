@@ -8,7 +8,7 @@ export function isVideoPost(post) {
 }
 
 /** Photo or video markup for a post's Telegram media reference. */
-export function mediaMarkup(post) {
+export function mediaMarkup(post, cropPositionStyle) {
   if (post.photoUrl) {
     return `<div class="tw-post-photo-frame"><img src="${esc(post.photoUrl)}" class="tw-post-photo" alt="Photo attached to post" data-post-image draggable="false" style="object-position:${cropPositionStyle(post)}"></div>`;
   }
@@ -37,7 +37,7 @@ export function postCardComponent(post, isLiked, likeCount, isAuthor, authorName
         </div>
 
         <p class="tw-post-text" id="post-text-${post.id}">${esc(post.text || '')}</p>
-        ${mediaMarkup(post)}
+        ${mediaMarkup(post, cropPositionStyle)}
         ${voiceMarkup(post)}
 
         <div class="tw-actions-bar">
