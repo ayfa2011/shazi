@@ -522,10 +522,42 @@ const scoreboardStyles = `<style>
   }
 </style>`;
 
+const scoreboardSkeletonStyles = `<style>
+  .games-scoreboard-skeleton{display:grid;gap:8px;padding:12px;border-radius:18px;margin:0 0 12px;
+    background:linear-gradient(135deg,#fff5f9 0%,#fdeaf3 55%,#f6e2ff 100%);border:1px solid #f3d5e2;box-shadow:0 14px 30px -20px rgba(182,79,123,.55)}
+  .games-scoreboard-skeleton-head{height:15px;width:34%}
+  .games-scoreboard-skeleton-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .games-scoreboard-skeleton-player{display:grid;grid-template-columns:52px minmax(0,1fr);gap:7px;align-items:center;
+    padding:8px;border-radius:14px;background:rgba(255,255,255,.8);border:1px solid #f3d5e2}
+  .games-scoreboard-skeleton-stat{height:30px;border-radius:8px}
+  .games-scoreboard-skeleton-copy{display:grid;gap:8px}
+  .games-scoreboard-skeleton-bar{height:6px;border-radius:999px}
+  @media (max-width:420px){.games-scoreboard-skeleton-player{grid-template-columns:42px minmax(0,1fr)}.games-scoreboard-skeleton-stat{height:26px}}
+</style>`;
+
+function scoreboardSkeletonMarkup() {
+  const playerSkeleton = `<div class="games-scoreboard-skeleton-player">
+    <i class="skeleton-shape skeleton-circle"></i>
+    <span class="games-scoreboard-skeleton-copy"><i class="skeleton-shape skeleton-line short"></i><i class="skeleton-shape skeleton-line"></i></span>
+  </div>`;
+  return `<div class="games-scoreboard-skeleton" aria-busy="true" aria-label="Loading scoreboard" role="status">
+    <i class="skeleton-shape games-scoreboard-skeleton-head"></i>
+    <div class="games-scoreboard-skeleton-grid">
+      <div class="games-scoreboard-skeleton-player">
+        <i class="skeleton-shape skeleton-circle"></i>
+        <span class="games-scoreboard-skeleton-copy"><i class="skeleton-shape games-scoreboard-skeleton-stat"></i><i class="skeleton-shape skeleton-line"></i></span>
+      </div>
+      ${playerSkeleton}
+    </div>
+    <i class="skeleton-shape games-scoreboard-skeleton-bar"></i>
+  </div>`;
+}
+
 function gamesHome() {
   return `<section class="games-page">
     ${scoreboardStyles}
-    <div id="games-scoreboard"></div>
+    ${scoreboardSkeletonStyles}
+    <div id="games-scoreboard">${scoreboardSkeletonMarkup()}</div>
     <div class="games-hub-grid">
       ${gameCard("sos", "🔠", "SOS")}
       ${gameCard("memory-match", "🧠", "Memory Match")}
@@ -841,6 +873,14 @@ export function renderGames(el, user, profile) {
   function renderScoreboard() {
     const container = $("#games-scoreboard", el);
     if (!container) return;
+    // gameResults === null means Firebase has not answered yet: keep the
+    // shimmering skeleton. An empty array is a real "no matches" state.
+    if (gameResults == null) {
+      if (!container.querySelector(".games-scoreboard-skeleton")) container.innerHTML = scoreboardSkeletonMarkup();
+      return;
+    }
+    // Data arrived — skeleton is replaced entirely, so it is gone (no layout shift:
+    // the real card mirrors the skeleton's footprint).
     container.innerHTML = scoreboardSummaryMarkup(gameResults || [], user, profile);
   }
 
@@ -1649,6 +1689,9 @@ export function renderGames(el, user, profile) {
         if (!activeGame) renderScoreboard();
       }, error => {
         console.error("Game scores could not be loaded:", error);
+        // Never leave the shimmering skeleton stuck: fall back to the empty-state
+        // scoreboard so the user always sees a real card.
+        if (gameResults == null) { gameResults = []; if (!activeGame) renderScoreboard(); }
       });
     } catch (error) {
       console.error("Game scores could not be loaded:", error);

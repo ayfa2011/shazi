@@ -54,11 +54,20 @@ export function renderProfile(el, user, profile) {
       .profile-handle { margin:5px 0 14px; color:#8c737d; font-size:13px; }
       .profile-save { justify-self:end; padding:9px 16px; border-radius:999px; }
       @media(max-width:420px) { .profile-cover { height:116px; } .profile-edit-card { padding-right:16px; padding-left:16px; } .profile-photo-preview { width:152px; height:152px; margin-top:-76px; font-size:48px; } .profile-photo-preview .verified-badge { width:42px;height:42px;right:-4px;bottom:1px; } }
+      .profile-loading-skeleton { display:grid; gap:14px; padding:18px 20px 22px; }
+      .profile-loading-skeleton-avatar { width:152px; height:152px; margin:-76px 0 0 2px; border-radius:50%; border:5px solid #fff; box-shadow:0 0 0 3px #f8c9db; }
+      @media(max-width:420px) { .profile-loading-skeleton-avatar { width:132px; height:132px; margin-top:-66px; } }
     </style>
     <section class="profile-settings">
       <header class="profile-topbar"><button type="button" class="profile-back" aria-label="Back">←</button><h2>Profile</h2></header>
       <div class="profile-cover" aria-hidden="true"></div>
-      <article class="profile-edit-card">
+      ${person.bioConfigured === true ? "" : `
+      <div class="profile-loading-skeleton" role="status" aria-busy="true" aria-label="Loading your profile">
+        <i class="skeleton-shape profile-loading-skeleton-avatar"></i>
+        <i class="skeleton-shape skeleton-line short" style="height:18px"></i>
+        <i class="skeleton-shape skeleton-line" style="height:66px;border-radius:12px"></i>
+      </div>`}
+      <article class="profile-edit-card" ${person.bioConfigured === true ? "" : "hidden"}>
         <button type="button" class="profile-photo-preview" data-preview="${esc(ownProfileKey)}" aria-label="Change profile photo" aria-haspopup="dialog">
           ${avatar ? `<img src="${esc(avatar)}" alt="">` : esc((person.name || "♡")[0])}
           <span class="verified-badge" role="img" aria-label="Verified profile"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 10.2 3.1 3.1L15.3 6"/></svg></span>
@@ -93,6 +102,13 @@ export function renderProfile(el, user, profile) {
   `;
 
   const form = el.querySelector("[data-profile-form]");
+  // First Firebase confirmation of this profile's settings clears the skeleton;
+  // if the profile was already hydrated locally this never shows.
+  const dismissProfileSkeleton = () => {
+    el.querySelector(".profile-loading-skeleton")?.remove();
+    el.querySelector(".profile-edit-card")?.removeAttribute("hidden");
+  };
+  if (!el.querySelector(".profile-loading-skeleton")) dismissProfileSkeleton();
   if (form) {
     const key = ownProfileKey;
     const photoInput = form.elements.photo;
@@ -194,8 +210,12 @@ export function renderProfile(el, user, profile) {
 
   el.onProfileSettingsChanged = () => {
     const updated = APP_CONFIG.profiles[ownProfileKey];
+    if (!updated) return;
+    // Profile data has arrived from Firebase: drop the skeleton and reveal the
+    // real card (a layout swap inside the same card footprint — no jump).
+    dismissProfileSkeleton();
     const currentForm = el.querySelector("[data-profile-form]");
-    if (!updated || !currentForm) return;
+    if (!currentForm) return;
     currentForm.elements.name.value = updated.name;
     currentForm.elements.bio.value = updated.bio || "";
     const currentPreview = $(`[data-preview="${ownProfileKey}"]`, el);

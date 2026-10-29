@@ -8,6 +8,17 @@ import { getCachedTelegramMediaUrl, getTelegramMediaUrl } from "../src/services/
 
 let stopPosts = null, stopRelationship = null, stopDrawings = null, stopQuestionParticipants = null, stopSpecialDays = null, counterTimer = null, dayRolloverTimer = null, homeRenderToken = 0, postCommentStops = new Map();
 
+function feedSkeletonMarkup(count = 2) {
+  const card = `<div class="home-skeleton-card" aria-hidden="true">
+    <span class="home-post-author"><span class="skeleton-shape skeleton-circle"></span>
+      <span style="display:grid;gap:7px;flex:1"><i class="skeleton-shape skeleton-line short"></i><i class="skeleton-shape skeleton-line" style="width:38%;height:9px"></i></span>
+    </span>
+    <i class="skeleton-shape skeleton-line"></i>
+    <i class="skeleton-shape skeleton-line short"></i>
+  </div>`;
+  return `<div class="home-feed-skeleton" role="status">${Array.from({ length: count }, () => card).join("")}</div>`;
+}
+
 export function renderHome(el, user, profile) {
   const renderToken = ++homeRenderToken;
   const isCurrent = () => renderToken === homeRenderToken && el.isConnected;
@@ -186,6 +197,8 @@ export function renderHome(el, user, profile) {
         font-size: 13px;
         outline: none;
       }
+      .home-feed-skeleton{display:grid;gap:9px}
+      .home-skeleton-card{display:grid;gap:10px;padding:11px;border:1px solid var(--line);border-radius:16px;background:#fff}
     </style>
 
     <div class="home-container">
@@ -208,8 +221,8 @@ export function renderHome(el, user, profile) {
 
       <section class="home-feature-grid">
         <div class="home-post-panel">
-          <div id="home-posts-feed" class="home-feed">
-            <p class="home-feed-loading" aria-live="polite">Loading…</p>
+          <div id="home-posts-feed" class="home-feed" aria-busy="true" aria-label="Loading latest moments">
+            ${feedSkeletonMarkup()}
           </div>
           <button type="button" class="home-view-more" id="view-more-posts">Open all posts <span aria-hidden="true">→</span></button>
         </div>
@@ -340,7 +353,7 @@ export function renderHome(el, user, profile) {
     }
     const fileId = latest.telegramFileId;
     preview.dataset.drawingFileId = fileId;
-    preview.innerHTML = `<small>Loading latest drawing…</small>`;
+    preview.innerHTML = `<span class="skeleton-shape" style="position:absolute;inset:0;border-radius:inherit" aria-hidden="true"></span><small>Loading latest drawing…</small>`;
     const mimeType = latest.mimeType || "image/jpeg";
     void (async () => {
       try {
@@ -443,6 +456,10 @@ export function renderHome(el, user, profile) {
   }, 1, partnerAuthorIds);
 
   function renderFeed(posts) {
+    // Data arrived (or genuinely empty): the skeleton nodes are wiped by this
+    // render, so remove the busy flag to end the "loading" announcement.
+    feed.removeAttribute("aria-busy");
+    feed.removeAttribute("aria-label");
     const visiblePostIds = new Set(posts.map(post => post.id));
     for (const [postId, stop] of postCommentStops) {
       if (!visiblePostIds.has(postId)) {

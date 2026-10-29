@@ -10,6 +10,17 @@
 @keyframes skeleton-shimmer{to{background-position-x:-220%}}
 @keyframes skeleton-glint{to{transform:translateX(100%)}}
 @media(prefers-reduced-motion:reduce){.skeleton-shape,.skeleton-shape::after{animation:none!important}}
+/* Reusable skeleton layouts for async content (dashboard, games, profile) */
+.skeleton{display:grid;gap:10px}
+.skeleton-line{height:12px;width:100%}
+.skeleton-line.short{width:62%}
+.skeleton-circle{width:40px;height:40px;border-radius:50%}
+.skeleton-avatar-row{display:flex;align-items:center;gap:11px}
+.skeleton-card{padding:16px;border:1px solid var(--line);border-radius:18px;background:#fff;box-shadow:0 6px 22px rgba(143,49,93,.05)}
+.skeleton[aria-busy="true"]{min-height:1px}
+@keyframes skeleton-fade-in{from{opacity:0}to{opacity:1}}
+.skeleton{animation:skeleton-fade-in .25s ease}
+@media(prefers-reduced-motion:reduce){.skeleton{animation:none!important}}
 *{box-sizing:border-box} html,body{touch-action:manipulation} html{background:#ffeef5} body{margin:0;color:var(--text);font-family:"DM Sans",sans-serif;min-height:100vh;min-height:100dvh}
 button,[role="button"],a,input,select,textarea,label{touch-action:manipulation}
 button,input,textarea,select{font:inherit} button{cursor:pointer;border:0}
