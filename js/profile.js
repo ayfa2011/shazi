@@ -290,16 +290,9 @@ export function renderProfile(el, user, profile) {
       image.alt = `${updated.name} profile`;
       image.style.objectPosition = pos;
       currentPreview.append(image);
-    if (updated.avatar) {
-      const image = new Image();
-      image.src = updated.avatar;
-      image.alt = `${updated.name} profile`;
-      image.style.objectPosition = pos;
-      currentPreview.append(image);
       const apply = () => { image.style.objectPosition = pos; currentPreview.style.setProperty("--profile-avatar-pos", pos); };
       image.addEventListener("load", apply, { once: true });
       apply();
-    } else {
     } else {
       currentPreview.textContent = updated.name[0] || "♡";
     }
