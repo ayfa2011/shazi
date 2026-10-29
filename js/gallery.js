@@ -119,7 +119,7 @@ export function renderSharedGallery(el, user, profile) {
       .gallery-heading h1 { margin:0; color:var(--deep); font:700 clamp(25px,6vw,34px)/1.1 "Playfair Display",Georgia,serif; }
       .gallery-primary-btn { flex:none; display:inline-flex; align-items:center; gap:6px; min-height:42px; padding:9px 15px; border:0; border-radius:999px; background:linear-gradient(135deg,#ed6b99,#c8477a); color:#fff; font-size:12px; font-weight:800; box-shadow:0 7px 18px #c94f7c30; cursor:pointer; }
       .gallery-folder-form { display:flex; gap:8px; margin:0 0 14px; padding:12px; border:1px solid #f2d6e1; border-radius:16px; background:#fff9fc; }
-      .gallery-folder-form[hidden],.gallery-folder-page[hidden] { display:none; }
+      .gallery-folder-form[hidden],.gallery-folder-page[hidden],.gallery-folder-list[hidden],#gallery-create-open[hidden] { display:none; }
       .gallery-folder-form input { flex:1; min-width:0; min-height:40px; padding:9px 12px; border:1px solid #efd3df; border-radius:12px; background:#fff; color:#513544; }
       .gallery-folder-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px 16px; }
       .gallery-empty { padding:34px 16px; border:1px dashed #ecc3d4; border-radius:20px; background:#fffafd; color:#a27d8e; text-align:center; font-size:13px; line-height:1.6; }

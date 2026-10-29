@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>gallery qa</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body>
+  <div id="main-content"></div>
+  <script type="module">
+    // Load the real gallery module with its data/upload dependencies stubbed,
+    // so folder-click navigation can be driven without a Firebase backend.
+    const files = {
+      "./js/gallery.js": "./js/gallery.js",
+      "./utils.js": "./js/utils.js",
+      "./firestore.js": "./__qa-firestore-stub.js",
+      "../src/services/telegramService.js": "./__qa-telegram-stub.js"
+    };
+    const sources = new Map();
+    await Promise.all(Object.entries(files).map(async ([spec, path]) => {
+      sources.set(spec, await (await fetch(path)).text());
+    }));
+    const built = new Map();
+    const build = async spec => {
+      if (built.has(spec)) return built.get(spec);
+      const deps = [...sources.get(spec).matchAll(/from\s+"([^"]+)"/g)].map(m => m[1]);
+      const urls = await Promise.all(deps.map(dep => build(files[dep] ? dep : dep)));
+      let index = 0;
+      const code = sources.get(spec).replace(/from\s+"([^"]+)"/g, () => `from "${urls[index++]}"`);
+      const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+      built.set(spec, url);
+      return url;
+    };
+    window.__qaLoadGallery = async () => (await import(await build("./js/gallery.js"))).renderSharedGallery;
+  </script>
+</body>
+
+</html>
