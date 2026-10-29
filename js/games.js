@@ -397,10 +397,16 @@ function computeGameStats(items) {
 
 function findPartnerUid(items, myUid) {
   if (!myUid) return "";
+  const seen = new Set();
   for (const item of items || []) {
-    if (typeof item?.matchId === "string" && Array.isArray(item.players) && item.players.includes(myUid)) {
-      const other = item.players.find(uid => uid && uid !== myUid);
-      if (other) return other;
+    if (typeof item?.matchId === "string" && Array.isArray(item.players)) {
+      if (!item.players.includes(myUid)) continue;
+      for (const uid of item.players) {
+        if (uid && uid !== myUid && !seen.has(uid)) {
+          seen.add(uid);
+          return uid;
+        }
+      }
     }
   }
   return "";
@@ -413,10 +419,16 @@ function ownProfileKey(profile, user) {
 function scoreboardSummaryMarkup(items, user, profile) {
   const myUid = user?.uid || "";
   const stats = computeGameStats(items);
-  const ownProfile = APP_CONFIG.profiles[ownProfileKey(profile, user)] || {};
-  const ownKey = ownProfileKey(profile, user);
-  const partnerProfile = APP_CONFIG.profiles[Object.keys(APP_CONFIG.profiles).find(key => key !== ownKey)] || {};
-  const partnerUid = findPartnerUid(items, myUid) || partnerProfile.authUid || "";
+  const ownProfileKeyResolved = ownProfileKey(profile, user);
+  let ownProfile = APP_CONFIG.profiles[ownProfileKeyResolved] || gamePlayerProfile(myUid) || {};
+  let partnerUid = findPartnerUid(items, myUid);
+  let partnerProfile = gamePlayerProfile(partnerUid);
+  if (!partnerProfile || Object.keys(partnerProfile).length === 0 || partnerProfile === ownProfile) {
+    const profiles = Object.values(APP_CONFIG.profiles);
+    partnerProfile = profiles.find(p => p && p !== ownProfile) || profiles.find(p => p) || {};
+    if (!partnerUid) partnerUid = partnerProfile.authUid || "";
+  }
+  if (!partnerUid && partnerProfile.authUid) partnerUid = partnerProfile.authUid;
   const mine = stats.get(myUid) || emptyStats();
   const theirs = partnerUid ? (stats.get(partnerUid) || emptyStats()) : emptyStats();
   const partnerName = getDisplayName(partnerUid, partnerProfile.name || "Partner");
@@ -696,15 +708,34 @@ function renderSosGame(content, user, gameState, presence, pendingCell) {
           : "This match was cancelled.";
 
   const lineCells = new Set((state?.lines || []).flatMap(line => line.cells));
+
+  // A player's display name comes from their own profile only. Never fall back to
+  // the partner's saved name (or to the partner's profile through a "You"
+  // fallback), which made both SOS cards show the same person's name and photo.
+  const sosPlayerName = (playerUid, nameOverride = "") => {
+    const ownName = nameOverride || state?.players?.[playerUid]?.name || "";
+    return getDisplayName(playerUid, ownName) || (playerUid === uid ? "You" : "Partner");
+  };
+
   const playerCard = (playerUid, color) => {
     const isOnline = presence?.[playerUid]?.online === true;
     const playerData = state?.players?.[playerUid] || {};
-    const playerName = getDisplayName(playerUid, playerData.name || (playerUid === uid ? "You" : "Partner"));
+    const playerName = sosPlayerName(playerUid, playerData.name);
     const score = state?.scores?.[playerUid] || 0;
     const isTurn = state?.turnUid === playerUid && playing;
     const playerSecondsLeft = isTurn ? secondsUntilTurn(state) : 0;
+    // The card that already holds the timer keeps its markup across re-renders so
+    // the 1s countdown writes in place. Any other card is re-created without a
+    // timer, so only the player whose turn it is sees a running countdown.
+    const liveCountdown = isTurn ? el.querySelector(".sos-player-card.turn-active [data-sos-countdown]") : null;
+    const timerMarkup = isTurn
+      ? `<span class="sos-avatar-countdown" data-sos-countdown>${liveCountdown ? liveCountdown.textContent : String(playerSecondsLeft).padStart(2, "0")}</span>`
+      : "";
+    const ringStyle = isTurn
+      ? ` style="--sos-turn-progress:${liveCountdown?.closest(".sos-avatar-wrap")?.style.getPropertyValue("--sos-turn-progress")?.trim() || (playerSecondsLeft / SOS_TURN_SECONDS)}"`
+      : "";
     return `<div class="sos-player-card ${color}${isTurn ? " turn-active" : ""}">
-      <span class="sos-avatar-wrap${isTurn ? " sos-avatar-turn" : ""}"${isTurn ? ` style="--sos-turn-progress:${playerSecondsLeft / SOS_TURN_SECONDS}"` : ""}>${gamePlayerAvatar(playerUid, playerName)}${isTurn ? `<span class="sos-avatar-countdown" data-sos-countdown>${String(playerSecondsLeft).padStart(2, "0")}</span>` : ""}<i class="sos-presence${isOnline ? " online" : ""}" aria-label="${isOnline ? "Online" : "Offline"}"></i></span>
+      <span class="sos-avatar-wrap${isTurn ? " sos-avatar-turn" : ""}"${ringStyle}>${gamePlayerAvatar(playerUid, playerName)}${timerMarkup}<i class="sos-presence${isOnline ? " online" : ""}" aria-label="${isOnline ? "Online" : "Offline"}"></i></span>
       <span class="sos-player-details"><span class="sos-player-name">${esc(playerName)}</span><span class="sos-player-label">${color === "blue" ? "Blue Player" : "Red Player"}</span></span>
       <strong class="sos-live-score">${score}</strong>
     </div>`;
@@ -726,7 +757,7 @@ function renderSosGame(content, user, gameState, presence, pendingCell) {
 
   const result = finished
     ? state.winnerUid
-      ? `${esc(getDisplayName(state.winnerUid, state.players?.[state.winnerUid]?.name || "Your partner"))} wins!`
+      ? `${esc(sosPlayerName(state.winnerUid, state.players?.[state.winnerUid]?.name))} wins!`
       : `It's a draw!`
     : "";
   const canJoin = waiting && state.playerUids[0] !== uid;
@@ -758,7 +789,7 @@ function renderSosGame(content, user, gameState, presence, pendingCell) {
     <div class="sos-turn${playing && state.turnUid === uid ? " your-turn" : ""}" aria-live="polite">${esc(turnMessage)}</div>
     <div class="sos-board-frame"><div class="sos-board" role="grid" aria-label="SOS game board, ${SOS_COLUMNS} columns by ${SOS_ROWS} rows" style="grid-template-columns: repeat(${SOS_COLUMNS}, minmax(0, 1fr)); grid-template-rows: repeat(${SOS_ROWS}, minmax(0, 1fr));">${cells}<svg class="sos-lines" viewBox="0 0 ${SOS_COLUMNS * 100} ${SOS_ROWS * 100}" preserveAspectRatio="none" aria-hidden="true">${lineMarkup}</svg></div></div>
     ${result ? `<div class="sos-result" aria-live="polite">${result}<span>${ownScore} : ${partnerScore}</span></div>` : ""}
-    <footer class="sos-presence-strip"><span class="sos-online-label${presence?.[uid]?.online ? " online" : ""}"><i></i>${presence?.[uid]?.online ? "ONLINE" : "OFFLINE"}<small>You</small></span><span class="sos-tap-hint">Tap an empty cell to choose a letter</span>${partnerUid ? `<span class="sos-online-label${partnerOnline ? " online" : ""}"><i></i>${partnerOnline ? "ONLINE" : "OFFLINE"}<small>${esc(getDisplayName(partnerUid, state?.players?.[partnerUid]?.name || "Partner"))}</small></span>` : `<span class="sos-online-label"><i></i>OFFLINE<small>Partner</small></span>`}</footer>
+    <footer class="sos-presence-strip"><span class="sos-online-label${presence?.[uid]?.online ? " online" : ""}"><i></i>${presence?.[uid]?.online ? "ONLINE" : "OFFLINE"}<small>${esc(sosPlayerName(uid, state?.players?.[uid]?.name || profile?.name))}</small></span><span class="sos-tap-hint">Tap an empty cell to choose a letter</span>${partnerUid ? `<span class="sos-online-label${partnerOnline ? " online" : ""}"><i></i>${partnerOnline ? "ONLINE" : "OFFLINE"}<small>${esc(sosPlayerName(partnerUid, state?.players?.[partnerUid]?.name))}</small></span>` : `<span class="sos-online-label"><i></i>OFFLINE<small>Partner</small></span>`}</footer>
     ${playing ? "" : `<div class="sos-timer" aria-live="off"><span aria-hidden="true">♡</span><b>◷</b><span>Time Left</span><strong>${String(secondsLeft).padStart(2, "0")}</strong><span aria-hidden="true">♡</span></div>`}
     <div class="sos-actions">${startAction}${member && playing ? `<button type="button" class="secondary sos-action" data-sos-leave>Leave game</button>` : ""}</div>
   </section>`;

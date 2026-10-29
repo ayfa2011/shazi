@@ -1,4 +1,4 @@
-import { getProfileKey, getDisplayName } from "./profile-data.js";
+import { getProfileKey, getDisplayName, findProfileForAuthor } from "./profile-data.js";
 import { $, esc, toast } from "./utils.js";
 import { firebaseReady, rtdb } from "./firebase.js";
 import { recordGameMatchResult } from "./firestore.js";
@@ -128,6 +128,28 @@ function makeBoard(excludedWords = []) {
   return { grid: board.map(line => line.join("")), words };
 }
 
+function playerProfile(uid, fallbackName = "") {
+  const configured = Object.values(APP_CONFIG.profiles).find(profile => profile.authUid === uid || profile.id === uid);
+  return configured || findProfileForAuthor(uid, fallbackName) || {};
+}
+
+function playerCard(uid, fallbackName, points, isOwn, isOnline) {
+  // Avatar comes from the configured couple profiles, so both phones show the
+  // same photo and name for each player.
+  const profile = playerProfile(uid, fallbackName);
+  const name = getDisplayName(uid, profile.name || fallbackName || "Partner");
+  const photo = profile.avatar
+    ? `<img src="${esc(profile.avatar)}" alt="${esc(name)}" loading="lazy">`
+    : `<span class="find-words-avatar-fallback" aria-hidden="true">${esc(name.slice(0, 1).toLocaleUpperCase())}</span>`;
+  // Pink card for you, violet for your partner — the same pairing the hub
+  // scoreboard and Ludo cards use.
+  return `<div class="find-words-player ${isOwn ? "pink is-own" : "violet"}">
+    <span class="find-words-avatar">${photo}<i class="find-words-avatar-status${isOnline ? " online" : ""}" aria-hidden="true"></i></span>
+    <span class="find-words-player-copy"><strong>${esc(isOwn ? "You" : name)}</strong><small>${esc(isOwn ? name : "Your partner")}</small></span>
+    <span class="find-words-player-points"><b>${points}</b><small>points</small></span>
+  </div>`;
+}
+
 function validGame(game) {
   return Boolean(game && typeof game === "object" &&
     Array.isArray(game.grid) && game.grid.length === BOARD_SIZE &&
@@ -175,6 +197,7 @@ export function mountFindTheWordsGame(container, user, profile) {
   let saving = false;
   let disposed = false;
   let recordedGameId = "";
+  let ownOnline = false;
 
   container.innerHTML = `<main class="find-words-page">
     <header class="find-words-header">
@@ -218,7 +241,16 @@ export function mountFindTheWordsGame(container, user, profile) {
       item.cells.forEach(index => pathColors.set(index, style));
     });
     const previewCells = selectionStart == null || selectionEnd == null ? [] : traceCells(selectionStart, selectionEnd);
-    const scoreCards = participants.map(([uid, player]) => `<div class="find-words-score"><span class="find-words-score-dot ${uid === user.uid ? "own" : "partner"}"></span><span>${uid === user.uid ? "You" : esc(player.name || getDisplayName(uid, "Partner"))}</span><strong>${foundCounts[uid] || 0}</strong></div>`).join("");
+    const partnerOnline = Boolean(otherPlayer && presence[otherPlayer[0]]?.online);
+    const scoreCards = participants
+      .map(([uid, player]) => playerCard(uid, player.name, foundCounts[uid] || 0, uid === user.uid, uid === user.uid ? ownOnline : partnerOnline))
+      .join("") + (participants.length < 2
+        ? `<div class="find-words-player waiting">
+            <span class="find-words-avatar"><span class="find-words-avatar-fallback" aria-hidden="true">♡</span></span>
+            <span class="find-words-player-copy"><strong>Partner</strong><small>Waiting to join…</small></span>
+            <span class="find-words-player-points"><b>—</b><small>points</small></span>
+          </div>`
+        : "");
     const cells = game.grid.flatMap(row => [...row]).map((letter, index) => {
       const style = pathColors.get(index) || "";
       const selected = previewCells.includes(index);
@@ -245,8 +277,8 @@ export function mountFindTheWordsGame(container, user, profile) {
         <div><strong>${finished ? "Round complete" : "Word hunt is live"}</strong><span>${esc(ownerMessage)}</span></div>
         <div class="find-words-counter">${completedCount}<small> / ${WORDS_PER_GAME}</small></div>
       </div>
-      <div class="find-words-scores">${scoreCards}<div class="find-words-online-count"><span class="find-words-presence-dot${presence[otherPlayer?.[0]]?.online ? " online" : ""}"></span>${presence[otherPlayer?.[0]]?.online ? "Partner online" : "Partner offline"}</div></div>
       ${isPlayer ? "" : `<p class="find-words-watcher" role="status">This round is full — you are watching ${esc(otherPlayer?.[1]?.name || "your partner")} play live.</p>`}
+      <div class="find-words-scores">${scoreCards}</div>
       <div class="find-words-play-area">
         <div class="find-words-board-wrap"><div class="find-words-board" role="group" aria-label="Letter grid">${cells}</div></div>
       </div>
@@ -424,7 +456,9 @@ export function mountFindTheWordsGame(container, user, profile) {
     }));
     const connectionRef = ref(rtdb, ".info/connected");
     stopListeners.push(onValue(connectionRef, snapshot => {
-      if (snapshot.val() !== true || !profileKey) return;
+      ownOnline = snapshot.val() === true;
+      render();
+      if (!ownOnline || !profileKey) return;
       const playerRef = presenceRef(user.uid);
       set(playerRef, { name: playerName, profileKey, online: true, lastSeen: Date.now() })
         .then(() => onDisconnect(playerRef).remove())

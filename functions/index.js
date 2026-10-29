@@ -71,7 +71,7 @@ function playerIsInRoom(room, uid) {
   return Array.isArray(room?.playerUids) && room.playerUids.includes(uid) && room.players?.[uid];
 }
 
-export const battleshipAction = onCall(async request => {
+export const battleshipAction = onCall({ cors: ["https://ayfa2011.github.io"] }, async request => {
   const player = authenticatedPlayer(request);
   const action = request.data?.action;
 

@@ -27,10 +27,15 @@ export function renderProfile(el, user, profile) {
       .profile-photo-preview { position:relative; width:172px; height:172px; padding:0; display:grid; place-items:center; overflow:visible; border:5px solid #fff; border-radius:50%; background:linear-gradient(145deg,#ffe9f1,#ffd4e4); color:#8f315d; font:700 54px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin-top:-86px; box-shadow:0 0 0 3px #f8c9db,0 12px 30px #a43f6c2b; cursor:pointer; transition:transform .25s ease,box-shadow .25s ease; -webkit-tap-highlight-color:transparent; }
       .profile-photo-preview:hover { transform:translateY(-2px); box-shadow:0 0 0 4px #f4b8d0,0 16px 36px #a43f6c35; }
       .profile-photo-preview:focus-visible { outline:3px solid #d94f8a; outline-offset:5px; }
-      .profile-photo-preview img { width:100%; height:100%; object-fit:cover; border-radius:50%; transition:transform .35s ease; }
+      .profile-photo-preview img { width:100%; height:100%; object-fit:cover; border-radius:50%; transition:transform .35s ease; object-position:var(--profile-avatar-pos,50% 50%); }
       .profile-photo-preview .verified-badge { right:-4px; bottom:1px; width:46px; height:46px; }
       .profile-photo-preview:hover img { transform:scale(1.04); }
       .profile-photo-picker { display:none !important; }
+      .profile-photo-crop { display:none; position:relative; width:220px; height:220px; margin:14px auto 0; border-radius:50%; overflow:hidden; border:3px solid #f3d5e2; background:#fff0f6; touch-action:none; cursor:grab; }
+      .profile-photo-crop.is-visible { display:block; }
+      .profile-photo-crop:active { cursor:grabbing; }
+      .profile-photo-crop img { width:100%; height:100%; object-fit:cover; pointer-events:none; user-select:none; -webkit-user-drag:none; object-position:50% 50%; }
+      .profile-photo-crop-hint { position:absolute; right:10px; bottom:10px; left:10px; padding:6px 10px; border-radius:999px; background:#402532a6; color:#fff; font-size:11px; text-align:center; pointer-events:none; }
       .profile-photo-dialog { position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:22px; background:#29151f75; backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px); opacity:0; visibility:hidden; transition:opacity .22s ease,visibility .22s ease; }
       .profile-photo-dialog.is-open { opacity:1; visibility:visible; }
       .profile-photo-dialog-card { width:min(100%,330px); padding:24px 20px 18px; text-align:center; border:1px solid #f6d6e3; border-radius:24px; background:linear-gradient(155deg,#fffafd,#fff0f6); box-shadow:0 22px 70px #31132335; transform:translateY(12px) scale(.97); transition:transform .22s ease; }
@@ -80,6 +85,7 @@ export function renderProfile(el, user, profile) {
             <label>Bio
               <textarea name="bio" maxlength="160" placeholder="A little about you...">${esc(bio)}</textarea>
             </label>
+            <div class="profile-photo-crop" data-profile-crop aria-label="Drag photo to adjust profile crop"><img data-profile-crop-img alt="Profile photo crop preview"><span class="profile-photo-crop-hint">Drag photo to adjust</span></div>
             <label class="profile-photo-picker">Profile photo
               <input name="photo" type="file" accept="image/*" aria-label="Choose or take a profile photo">
             </label>
@@ -114,6 +120,44 @@ export function renderProfile(el, user, profile) {
     const photoInput = form.elements.photo;
     const preview = $(`[data-preview="${key}"]`, el);
     const photoDialog = $("[data-photo-dialog]", el);
+    const cropWrap = $("[data-profile-crop]", el);
+    const cropImg = $("[data-profile-crop-img]", el);
+    let cropObjectUrl = "";
+    let cropPosition = { x: 50, y: 50 };
+    let cropDrag = null;
+    const clampCrop = v => Math.min(100, Math.max(0, v));
+    const applyCrop = () => {
+      const pos = `${cropPosition.x}% ${cropPosition.y}%`;
+      cropImg?.style.setProperty("object-position", pos);
+      preview?.style.setProperty("--profile-avatar-pos", pos);
+      if (preview?.querySelector("img")) {
+        preview.querySelector("img").style.objectPosition = pos;
+      }
+    };
+    const hideCrop = () => {
+      cropWrap?.classList.remove("is-visible");
+      if (cropObjectUrl) { URL.revokeObjectURL(cropObjectUrl); cropObjectUrl = ""; }
+      cropImg?.removeAttribute("src");
+      cropDrag = null;
+    };
+    cropWrap?.addEventListener("pointerdown", event => {
+      if (!cropImg?.src) return;
+      event.preventDefault();
+      cropDrag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, x: cropPosition.x, y: cropPosition.y };
+      cropWrap.setPointerCapture(event.pointerId);
+    });
+    cropWrap?.addEventListener("pointermove", event => {
+      if (!cropDrag || cropDrag.pointerId !== event.pointerId || !cropWrap) return;
+      const rect = cropWrap.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      cropPosition = {
+        x: clampCrop(cropDrag.x - (event.clientX - cropDrag.startX) / rect.width * 100),
+        y: clampCrop(cropDrag.y - (event.clientY - cropDrag.startY) / rect.height * 100)
+      };
+      applyCrop();
+    });
+    cropWrap?.addEventListener("pointerup", () => { cropDrag = null; });
+    cropWrap?.addEventListener("pointercancel", () => { cropDrag = null; });
     const openPhotoDialog = () => {
       photoDialog?.classList.add("is-open");
       photoDialog?.setAttribute("aria-hidden", "false");
@@ -124,7 +168,6 @@ export function renderProfile(el, user, profile) {
       photoDialog?.setAttribute("aria-hidden", "true");
       preview?.focus();
     };
-    let selectedPhoto = null;
 
     $(".profile-back", el).onclick = () => window.App?.navigate("more");
     preview.onclick = openPhotoDialog;
@@ -140,16 +183,31 @@ export function renderProfile(el, user, profile) {
     photoDialog.addEventListener("keydown", event => {
       if (event.key === "Escape") closePhotoDialog();
     });
+    let selectedPhoto = null;
+    let selectedPhotoPosition = { x: 50, y: 50 };
+
     photoInput.onchange = () => {
       selectedPhoto = photoInput.files[0] || null;
-      if (!selectedPhoto) return;
+      if (!selectedPhoto) { hideCrop(); return; }
+      cropPosition = { x: 50, y: 50 };
+      selectedPhotoPosition = { x: 50, y: 50 };
+      if (cropObjectUrl) URL.revokeObjectURL(cropObjectUrl);
+      cropObjectUrl = URL.createObjectURL(selectedPhoto);
+      if (cropImg) {
+        cropImg.src = cropObjectUrl;
+        cropImg.style.objectPosition = "50% 50%";
+      }
+      cropWrap?.classList.add("is-visible");
+      applyCrop();
       const reader = new FileReader();
       reader.onload = () => {
         preview.replaceChildren();
         const image = new Image();
         image.alt = `${form.elements.name.value} profile preview`;
         image.src = reader.result;
+        image.style.objectPosition = "50% 50%";
         preview.append(image);
+        preview.style.setProperty("--profile-avatar-pos", "50% 50%");
       };
       reader.readAsDataURL(selectedPhoto);
     };
@@ -177,7 +235,8 @@ export function renderProfile(el, user, profile) {
           avatarTelegramFileId: person.avatarTelegramFileId || "",
           avatarMimeType: person.avatarMimeType || "image/jpeg",
           authUid: person.authUid || (key === ownProfileKey ? user.uid : ""),
-          previousNames
+          previousNames,
+          avatarPosition: selectedPhoto ? `${Math.round(cropPosition.x)}% ${Math.round(cropPosition.y)}%` : (person.avatarPosition || "50% 50%")
         };
 
         if (selectedPhoto) {
@@ -196,6 +255,9 @@ export function renderProfile(el, user, profile) {
         }
         selectedPhoto = null;
         photoInput.value = "";
+        hideCrop();
+        cropPosition = { x: 50, y: 50 };
+        selectedPhotoPosition = { x: 50, y: 50 };
         window.dispatchEvent(new CustomEvent("couple-profiles-updated"));
         toast("Profile saved ♡");
       } catch (error) {
@@ -220,14 +282,28 @@ export function renderProfile(el, user, profile) {
     currentForm.elements.bio.value = updated.bio || "";
     const currentPreview = $(`[data-preview="${ownProfileKey}"]`, el);
     currentPreview.replaceChildren();
+    const pos = updated.avatarPosition || "50% 50%";
+    currentPreview.style.setProperty("--profile-avatar-pos", pos);
     if (updated.avatar) {
       const image = new Image();
       image.src = updated.avatar;
       image.alt = `${updated.name} profile`;
+      image.style.objectPosition = pos;
       currentPreview.append(image);
+    if (updated.avatar) {
+      const image = new Image();
+      image.src = updated.avatar;
+      image.alt = `${updated.name} profile`;
+      image.style.objectPosition = pos;
+      currentPreview.append(image);
+      const apply = () => { image.style.objectPosition = pos; currentPreview.style.setProperty("--profile-avatar-pos", pos); };
+      image.addEventListener("load", apply, { once: true });
+      apply();
+    } else {
     } else {
       currentPreview.textContent = updated.name[0] || "♡";
     }
+    $("[data-profile-crop]", el)?.classList.remove("is-visible");
   };
   el.addEventListener("couple-profile-settings-changed", el.onProfileSettingsChanged);
 }

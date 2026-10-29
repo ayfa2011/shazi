@@ -516,13 +516,31 @@ body.word-search-fullscreen .content{width:100%;max-width:none;min-height:100vh;
 .find-words-status>div:first-child span{color:var(--muted);font-size:10px;line-height:1.35}
 .find-words-counter{flex:none;color:var(--deep);font-size:24px;font-weight:700}
 .find-words-counter small{color:var(--muted);font-size:12px;font-weight:600}
-.find-words-scores{display:flex;align-items:center;gap:15px;padding:0 4px}
-.find-words-score{min-width:0;display:flex;align-items:center;gap:6px;color:#725360;font-size:11px}
-.find-words-score strong{color:var(--deep);font-size:14px}
-.find-words-score-dot,.find-words-presence-dot{width:9px;height:9px;flex:none;border-radius:50%;background:#b5a8af}
-.find-words-score-dot.own{background:#35a66b}
-.find-words-score-dot.partner{background:#e45883}
-.find-words-online-count{display:flex;align-items:center;gap:5px;margin-left:auto;color:var(--muted);font-size:10px}
+.find-words-scores{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.find-words-player{min-width:0;display:flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid #f3d5e2;border-radius:16px;
+  background:linear-gradient(135deg,#fff7fb,#fdeaf3);box-shadow:0 10px 24px -20px rgba(182,79,123,.6)}
+.find-words-player.violet{border-color:#e2d7f6;background:linear-gradient(135deg,#faf7ff,#f0e9fd)}
+.find-words-player.waiting{border-style:dashed;background:#fffafd;box-shadow:none;opacity:.85}
+.find-words-player.is-own{border-color:#f2b6cd;box-shadow:0 10px 24px -18px rgba(182,79,123,.75)}
+.find-words-player.is-own.violet{border-color:#c9b6f7}
+.find-words-avatar{position:relative;width:44px;height:44px;flex:none;display:grid;place-items:center;border:2px solid #fff;border-radius:50%;overflow:visible;
+  background:linear-gradient(135deg,#f8bbd0,#f5a3c2);box-shadow:0 4px 10px rgba(182,79,123,.2)}
+.find-words-player.violet .find-words-avatar{background:linear-gradient(135deg,#d5c0f4,#c3aaf0)}
+.find-words-avatar img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
+.find-words-avatar-fallback{font-size:17px;font-weight:800;color:#75435a}
+.find-words-player.violet .find-words-avatar-fallback{color:#5b3f9b}
+.find-words-avatar-status{position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;border:2px solid #fff;border-radius:50%;background:#c4b6bc}
+.find-words-avatar-status.online{background:#35a66b}
+.find-words-player-copy{min-width:0;display:grid;gap:1px}
+.find-words-player-copy strong{overflow:hidden;color:#75435a;font-size:13px;font-weight:800;text-overflow:ellipsis;white-space:nowrap}
+.find-words-player.violet .find-words-player-copy strong{color:#5b3f9b}
+.find-words-player-copy small{overflow:hidden;color:#8c7480;font-size:9px;letter-spacing:.06em;text-transform:uppercase;text-overflow:ellipsis;white-space:nowrap}
+.find-words-player-points{margin-left:auto;flex:none;display:grid;justify-items:center;min-width:42px;padding:3px 8px;border-radius:12px;
+  background:linear-gradient(135deg,#f7b6cf,#b64f7b);color:#fff;box-shadow:0 6px 14px -8px rgba(182,79,123,.9)}
+.find-words-player.violet .find-words-player-points{background:linear-gradient(135deg,#c9b6f7,#7c5cc4);box-shadow:0 6px 14px -8px rgba(124,92,196,.9)}
+.find-words-player-points b{font-size:20px;font-weight:900;line-height:1}
+.find-words-player-points small{font-size:8px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;opacity:.9}
+.find-words-presence-dot{width:9px;height:9px;flex:none;border-radius:50%;background:#b5a8af}
 .find-words-presence-dot.online{background:#35a66b;box-shadow:0 0 0 3px #35a66b21}
 .find-words-watcher{margin:0;padding:7px 12px;border-radius:12px;background:#fff3f8;color:#b63865;font-size:11px;font-weight:600;text-align:center}
 .find-words-play-area{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 250px;align-items:center;gap:16px;min-height:0}
@@ -573,6 +591,12 @@ body.word-search-fullscreen .content{width:100%;max-width:none;min-height:100vh;
   .find-words-play-area{flex:none;grid-template-columns:1fr;gap:7px}
   .find-words-board{width:min(100%,620px);gap:2px;padding:5px;border-radius:15px}
   .find-words-cell{border-radius:5px;font-size:clamp(10px,4.4vw,18px)}
+  .find-words-player{gap:7px;padding:6px 8px;border-radius:13px}
+  .find-words-avatar{width:34px;height:34px}
+  .find-words-player-copy strong{font-size:11px}
+  .find-words-player-copy small{font-size:8px}
+  .find-words-player-points{min-width:34px;padding:2px 6px}
+  .find-words-player-points b{font-size:16px}
   .find-words-words-tray{padding:8px 9px;gap:6px}
   .find-words-chip{padding:4px 7px;font-size:10px}
   .find-words-chip .chip-finder{display:none}
@@ -1685,6 +1709,12 @@ body.sos-fullscreen .topbar,body.sos-fullscreen .bottom-nav{display:none}
 .sos-avatar-turn{--sos-turn-progress:1;width:clamp(48px,6.8vw,68px);height:clamp(48px,6.8vw,68px);display:grid;place-items:center;border-radius:50%;background:conic-gradient(#ff4f91 calc(var(--sos-turn-progress)*1turn),#f7dce6 0);padding:3px}
 .sos-avatar-turn .game-player-avatar{width:100%!important;height:100%!important;border:2px solid #fff!important}
 .sos-avatar-countdown{position:absolute;right:-7px;top:-8px;z-index:2;min-width:25px;height:25px;display:grid;place-items:center;padding:0 4px;border:2px solid #fff;border-radius:999px;background:#ec3c78;color:#fff;font-size:10px;font-weight:900;box-shadow:0 2px 8px #8f315d50}
+/* One running timer only: on the card of the player whose turn it is */
+.sos-player-card:not(.turn-active) .sos-avatar-countdown{display:none}
+.sos-player-card:not(.turn-active) .sos-avatar-wrap{background:none!important}
+.sos-player-card.turn-active .sos-player-name{color:#d83872}
+.sos-timer{display:none!important}
+.sos-avatar-wrap{display:grid;place-items:center}
 body.sos-fullscreen .content{width:100%;max-width:none;min-height:100vh;min-height:100dvh;margin:0;padding:0}
 .sos-game-page{--sos-pink:#ff4f91;--sos-rose:#ff9dbc;--sos-blue:#1595ec;--sos-red:#ec3c55;box-sizing:border-box;min-height:100dvh;padding:clamp(16px,3vw,34px) max(16px,calc((100vw - 960px)/2));display:flex;flex-direction:column;align-items:center;gap:clamp(12px,2vh,22px);background:radial-gradient(ellipse at 50% -8%,#fff 0,#fff5f9 48%,#ffedf5 100%);color:#69354d;}
 .sos-header{width:min(100%,930px);display:grid;grid-template-columns:1fr auto 1fr;align-items:center;min-height:72px;}

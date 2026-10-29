@@ -405,7 +405,7 @@ export async function recordGameMatchResult({ uid, authorId, matchId, game, winn
     scores,
     matchId,
     author: uid,
-    authorId,
+    authorId: uid,
     createdAt: serverTimestamp()
   });
 }

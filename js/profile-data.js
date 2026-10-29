@@ -15,7 +15,7 @@ export function applyCoupleProfiles(data = {}) {
     if (!profile || !saved || typeof saved !== "object") continue;
     const previousAvatarFileId = profile.avatarTelegramFileId || "";
 
-    for (const field of ["name", "bio", "avatar", "driveFileId", "authUid", "avatarTelegramFileId", "avatarMimeType"]) {
+    for (const field of ["name", "bio", "avatar", "driveFileId", "authUid", "avatarTelegramFileId", "avatarMimeType", "avatarPosition"]) {
       if (typeof saved[field] !== "string") continue;
       if (field === "bio" && !saved.bio && saved.bioConfigured !== true && profile.bio) continue;
       if (field === "avatar" && !saved.avatar && profile.avatar) continue;

@@ -201,6 +201,7 @@ function renderPostFeed(el, user, profile) {
         display: flex;
         gap: 12px;
         position: relative;
+        margin-bottom: 0.1cm;
       }
       .tw-post-card .tw-post-actions {
         position: absolute;
