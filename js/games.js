@@ -416,7 +416,7 @@ function scoreboardSummaryMarkup(items, user, profile) {
   const ownProfile = APP_CONFIG.profiles[ownProfileKey(profile, user)] || {};
   const ownKey = ownProfileKey(profile, user);
   const partnerProfile = APP_CONFIG.profiles[Object.keys(APP_CONFIG.profiles).find(key => key !== ownKey)] || {};
-  const partnerUid = findPartnerUid(items, myUid) || partnerProfile.authUid || partnerProfile.id || "";
+  const partnerUid = findPartnerUid(items, myUid) || partnerProfile.authUid || "";
   const mine = stats.get(myUid) || emptyStats();
   const theirs = partnerUid ? (stats.get(partnerUid) || emptyStats()) : emptyStats();
   const partnerName = getDisplayName(partnerUid, partnerProfile.name || "Partner");

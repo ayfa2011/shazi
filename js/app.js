@@ -1,6 +1,6 @@
 import { initAuth, logout } from "./auth.js";
 import { $, $$, esc, toast } from "./utils.js";
-import { postCardComponent, commentComponent } from "./components.js";
+import { postCardComponent, commentComponent, isVideoPost } from "./components.js";
 import { initPresence, watchAllPresence } from "./presence.js";
 import { initPartnerChat } from "./partner-chat.js";
 import { renderHome, disposeHome } from "./dashboard.js";
@@ -115,6 +115,7 @@ function renderPostFeed(el, user, profile) {
   let voiceResolve = null;
   let voiceTarget = null;
   let selectedPostVoice = null;
+  let selectedPostMediaFile = null;
   let selectedPhotoPosition = { x: 50, y: 50 };
   let selectedPhotoPreviewUrl = "";
   const getPostAuthorKey = (post) => {
@@ -336,6 +337,16 @@ function renderPostFeed(el, user, profile) {
       .tw-voice-duration { flex:none; color:#896678; font-size:11px; font-variant-numeric:tabular-nums; }
       .tw-voice-recorder { min-height:36px; padding:7px 11px; border-radius:999px; background:#fff0f6; color:#a33d68; font-weight:700; cursor:pointer; }
       .tw-voice-recorder.recording { background:#a33d68; color:white; animation:tw-record-pulse 1s infinite alternate; }
+      .tw-media-icon { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; background:#fff0f6; color:#a33d68; font-size:17px; cursor:pointer; border:none; }
+      .tw-media-icon.active { background:#d74482; color:white; }
+      .tw-post-video-frame { position:relative; width:100%; aspect-ratio:4/3; margin-top:8px; overflow:hidden; border-radius:16px; background:#160711; }
+      .tw-post-video-frame video { display:block; width:100%; height:100%; object-fit:cover; border-radius:16px; background:#160711; }
+      .tw-post-video-frame .tw-video-play-overlay { position:absolute; inset:0; display:grid; place-items:center; border:none; background:transparent; color:#fff; font-size:44px; cursor:pointer; text-shadow:0 2px 12px #0009; pointer-events:none; }
+      .tw-post-video-frame.playing .tw-video-play-overlay { display:none; }
+      .tw-post-video-frame .tw-video-mute { position:absolute; right:8px; bottom:8px; z-index:2; width:32px; height:32px; border-radius:50%; border:none; background:#16071199; color:#fff; font-size:14px; cursor:pointer; }
+      .tw-video-waiting { position:absolute; inset:0; display:grid; place-items:center; color:#fff3; font-size:26px; }
+      .tw-load-older { display:none; }
+      .tw-feed-sentinel { min-height:8px; }
       @keyframes tw-record-pulse { to { opacity:.65; } }
       .tw-detail-backdrop,.tw-image-backdrop { position:fixed; inset:0; z-index:1400; display:none; align-items:center; justify-content:center; padding:16px; background:#21131bc9; }
       .tw-detail-backdrop.open,.tw-image-backdrop.open { display:flex; }
@@ -420,12 +431,14 @@ function renderPostFeed(el, user, profile) {
           <textarea name="text" rows="3" placeholder="What's happening?"></textarea>
           <div class="tw-crop-editor" id="tw-crop-editor" aria-label="Drag photo to adjust thumbnail crop"><img id="tw-crop-preview" alt="Post thumbnail crop preview"><span class="tw-crop-hint">Drag photo to show the part you want ♡</span></div>
           <div class="tw-composer-actions">
-            <label style="cursor:pointer; color:#d74482; font-weight:600; font-size:14px;">
-              📷 Photo
-              <input type="file" name="photo" accept="image/*" style="display:none;">
-            </label>
-            <button type="button" class="tw-voice-recorder" data-voice-record="post" aria-label="Record voice note">🎙 Record voice note</button>
-            <span class="tw-photo-name" style="font-size:12px; color:#8b7180;"></span>
+            <span style="display:flex; gap:9px; align-items:center;">
+              <button type="button" class="tw-media-icon" data-media-pick="photo" aria-label="Add a photo" title="Photo">🖼️</button>
+              <button type="button" class="tw-media-icon" data-media-pick="video" aria-label="Add a video" title="Video">🎬</button>
+              <button type="button" class="tw-media-icon" data-voice-record="post" aria-label="Record voice note" title="Voice note">🎙️</button>
+            </span>
+            <input type="file" name="photo" accept="image/*" style="display:none;">
+            <input type="file" name="video" accept="video/*" style="display:none;">
+            <span class="tw-photo-name" style="font-size:12px; color:#8b7180; flex:1; text-align:left;"></span>
             <button type="submit" class="tw-post-btn">Post</button>
           </div>
         </div>
@@ -600,15 +613,41 @@ function renderPostFeed(el, user, profile) {
     detailModal.setAttribute("aria-hidden", "true");
   }
 
+  // Instagram-style infinite feed: a sentinel div at the bottom of the feed
+  // auto-triggers loading of the next page of older posts as you scroll.
+  let feedSentinelObserver = null;
+  function mountFeedSentinel(hasMore) {
+    let sentinel = feed.querySelector(".tw-feed-sentinel");
+    if (!hasMore) {
+      sentinel?.remove();
+      if (feedSentinelObserver) { feedSentinelObserver.disconnect(); feedSentinelObserver = null; }
+      return;
+    }
+    if (!sentinel) {
+      sentinel = document.createElement("div");
+      sentinel.className = "tw-feed-sentinel";
+      feed.appendChild(sentinel);
+    }
+    if (!("IntersectionObserver" in window)) { void loadOlderPosts(); return; }
+    if (feedSentinelObserver) feedSentinelObserver.disconnect();
+    feedSentinelObserver = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting) && postHasMore && !postPageLoading) void loadOlderPosts();
+    }, { rootMargin: "400px" });
+    feedSentinelObserver.observe(sentinel);
+  }
+
   function renderPostDetail() {
     const post = posts.find(item => item.id === detailPostId);
     if (!post || !detailPostId) return;
     const comments = commentsByPost.get(post.id) || [];
     const image = post.photoUrl ? `<div class="tw-post-photo-frame tw-post-detail-photo-frame"><img src="${esc(post.photoUrl)}" class="tw-post-photo" alt="Post photo" data-post-image draggable="false"></div>` : post.telegramFileId ? `<div class="tw-post-photo-frame tw-post-detail-photo-frame"><img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Post photo" data-post-image draggable="false"></div>` : "";
     const isAuthor = getPostAuthorKey(post) === getProfileKey(profile);
-    detailBody.innerHTML = `<article><div class="tw-post-header"><strong>${esc(getDisplayName(post.authorId, post.authorName || "Us"))}</strong><time class="tw-post-time">${esc(post.createdAt?.toDate ? post.createdAt.toDate().toLocaleString() : post.createdAt ? new Date(post.createdAt).toLocaleString() : "Just now")}</time></div><p class="tw-post-text">${esc(post.text || "")}</p>${image}${voiceMarkup(post)}<div class="tw-actions-bar"><span>❤️ ${(post.likedBy || []).length} likes</span><span>💬 ${comments.length} comments</span></div>${isAuthor ? `<div class="tw-detail-comment-actions"><button type="button" class="tw-edit-btn" data-id="${esc(post.id)}">✏️ Edit post</button><button type="button" class="tw-del-btn" data-id="${esc(post.id)}">🗑 Delete post</button></div>` : ""}</article><h3>Replies</h3><div class="tw-detail-comments">${comments.map(comment => commentComponent(comment, user, voiceMarkup)).join("") || `<p style="color:#8c737d">No replies yet. Start the conversation ♡</p>`}</div><form class="tw-detail-reply" id="tw-detail-reply-form"><input name="reply" placeholder="Write a reply…"><button class="tw-post-btn" type="submit">Reply</button></form><button type="button" class="tw-voice-recorder" data-voice-record="comment" aria-label="Record reply voice note">🎙 Record voice note</button><span id="tw-comment-voice-state" class="tw-photo-name"></span>`;
+    detailBody.innerHTML = `<article><div class="tw-post-header"><strong>${esc(getDisplayName(post.authorId, post.authorName || "Us"))}</strong><time class="tw-post-time">${esc(post.createdAt?.toDate ? post.createdAt.toDate().toLocaleString() : post.createdAt ? new Date(post.createdAt).toLocaleString() : "Just now")}</time></div><p class="tw-post-text">${esc(post.text || "")}</p>        ${isVideoPost(post)
+          ? `<div class="tw-post-video-frame" data-post-video="${post.id}"><span class="tw-video-waiting" aria-hidden="true">◌</span><span class="tw-video-play-overlay" aria-hidden="true">▶</span><button type="button" class="tw-video-mute" aria-label="Mute or unmute video">🔈</button></div>`
+          : image}<div class="tw-actions-bar"><span>❤️ ${(post.likedBy || []).length} likes</span><span>💬 ${comments.length} comments</span></div>${isAuthor ? `<div class="tw-detail-comment-actions"><button type="button" class="tw-edit-btn" data-id="${esc(post.id)}">✏️ Edit post</button><button type="button" class="tw-del-btn" data-id="${esc(post.id)}">🗑 Delete post</button></div>` : ""}</article><h3>Replies</h3><div class="tw-detail-comments">${comments.map(comment => commentComponent(comment, user, voiceMarkup)).join("") || `<p style="color:#8c737d">No replies yet. Start the conversation ♡</p>`}</div><form class="tw-detail-reply" id="tw-detail-reply-form"><input name="reply" placeholder="Write a reply…"><button class="tw-post-btn" type="submit">Reply</button></form><button type="button" class="tw-voice-recorder" data-voice-record="comment" aria-label="Record reply voice note">🎙 Record voice note</button><span id="tw-comment-voice-state" class="tw-photo-name"></span>`;
     detailBody.querySelectorAll("img[data-telegram-file-id]").forEach(img => getTelegramMediaUrl(img.dataset.telegramFileId, img.dataset.telegramMime).then(url => { if (img.isConnected) img.src = url; }).catch(() => {}));
     hydrateVoicePlayers(detailBody);
+    hydratePostVideos(detailBody);
     detailBody.querySelector("#tw-detail-reply-form").onsubmit = async event => {
       event.preventDefault();
       const input = event.currentTarget.elements.reply;
@@ -703,16 +742,34 @@ function renderPostFeed(el, user, profile) {
 
   composer.elements.photo.onchange = () => {
     const file = composer.elements.photo.files[0] || null;
-    composer.querySelector(".tw-photo-name").textContent = file?.name || "";
+    selectedPostMediaFile = file;
+    composer.querySelector(".tw-photo-name").textContent = file ? `📷 ${file.name}` : "";
+    composer.elements.video.value = "";
+    composer.querySelectorAll("[data-media-pick]").forEach(button => button.classList.toggle("active", Boolean(file) && button.dataset.mediaPick === "photo"));
     setPhotoPreview(file);
   };
+  composer.elements.video.onchange = () => {
+    const file = composer.elements.video.files[0] || null;
+    selectedPostMediaFile = file;
+    composer.querySelector(".tw-photo-name").textContent = file ? `🎬 ${file.name}` : "";
+    composer.elements.photo.value = "";
+    composer.querySelectorAll("[data-media-pick]").forEach(button => button.classList.toggle("active", Boolean(file) && button.dataset.mediaPick === "video"));
+    setPhotoPreview(null);
+  };
+  el.querySelectorAll("[data-media-pick]").forEach(button => {
+    button.onclick = () => {
+      const input = button.dataset.mediaPick === "video" ? composer.elements.video : composer.elements.photo;
+      input.click();
+    };
+  });
 
   composer.onsubmit = async (e) => {
     e.preventDefault();
     const text = composer.elements.text.value.trim();
-    const file = composer.elements.photo.files[0];
+    const file = selectedPostMediaFile;
+    const isVideoFile = Boolean(file?.type?.startsWith("video/") || /\.(mp4|mov|webm|m4v|mkv|avi|3gp)$/i.test(file?.name || ""));
 
-    if (!text && !file && !selectedPostVoice) return toast("Write something first or add a voice note.");
+    if (!text && !file && !selectedPostVoice) return toast("Write something first or add a photo, video or voice note.");
     const submitButton = composer.querySelector('[type="submit"]');
     if (submitButton.disabled) return;
     submitButton.disabled = true;
@@ -721,8 +778,9 @@ function renderPostFeed(el, user, profile) {
       let photoMetadata = {};
       if (file) {
         const timestamp = new Date().toLocaleString();
-        const result = await sendToTelegram(file, `New Post Photo 📸 · ${profile.name} · ${timestamp}`);
+        const result = await sendToTelegram(file, `${isVideoFile ? "New Post Video 🎬" : "New Post Photo 📸"} · ${profile.name} · ${timestamp}`);
         photoMetadata = { ...telegramMediaReferences(result), photoMimeType: telegramUploadMimeType(file) };
+        if (isVideoFile) photoMetadata.videoMimeType = telegramUploadMimeType(file);
       }
 
       const postRef = await addDiaryPost({
@@ -738,6 +796,8 @@ function renderPostFeed(el, user, profile) {
       await notifyPartnerSafely(getProfileKey(profile), "post", `${profile.name} shared a new post.`, postRef.id, "gallery");
 
       composer.reset();
+      selectedPostMediaFile = null;
+      composer.querySelectorAll("[data-media-pick]").forEach(button => button.classList.remove("active"));
       setPhotoPreview(null);
       selectedPostVoice = null;
       composer.querySelector(".tw-photo-name").textContent = "";
@@ -816,8 +876,8 @@ function renderPostFeed(el, user, profile) {
     }
     if (visiblePosts.length === 0) {
       const person = APP_CONFIG.profiles[selectedProfile];
-      feed.innerHTML = `<p style="padding:24px 16px; text-align:center; color:#8b7180;">${person ? `No posts yet.` : "No posts yet. Share your first thought!"}</p>${postHasMore ? `<button class="tw-load-older" type="button" style="display:block;margin:18px auto;padding:11px 20px;border:1px solid #f0c9dc;border-radius:24px;background:#fff;color:#a33a69;font:inherit;cursor:pointer">Load older posts</button>` : ""}`;
-      feed.querySelector(".tw-load-older")?.addEventListener("click", event => void loadOlderPosts(event.currentTarget));
+      feed.innerHTML = `<p style="padding:24px 16px; text-align:center; color:#8b7180;">${person ? `No posts yet.` : "No posts yet. Share your first thought!"}</p><div class="tw-feed-sentinel"></div>`;
+      mountFeedSentinel(postHasMore);
       return;
     }
 
@@ -835,9 +895,7 @@ function renderPostFeed(el, user, profile) {
 
       const knownCommentCount = commentsByPost.has(post.id) ? commentsByPost.get(post.id).length : null;
       return postCardComponent(post, isLiked, likeCount, isAuthor, authorName, authorProfile, handle, timeStr, voiceMarkup, knownCommentCount, cropPositionStyle);
-    }).join("") + (postHasMore ? `<button class="tw-load-older" type="button" style="display:block;margin:18px auto;padding:11px 20px;border:1px solid #f0c9dc;border-radius:24px;background:#fff;color:#a33a69;font:inherit;cursor:pointer" ${postPageLoading ? "disabled" : ""}>${postPageLoading ? "Loading…" : "Load older posts"}</button>` : "");
-
-    feed.querySelector(".tw-load-older")?.addEventListener("click", event => void loadOlderPosts(event.currentTarget));
+    }).join("");
 
     feed.querySelectorAll("img[data-telegram-file-id]").forEach(image => {
       image.loading = "lazy";
@@ -852,6 +910,8 @@ function renderPostFeed(el, user, profile) {
     });
     hydratePostImages(feed);
     hydrateVoicePlayers(feed);
+    hydratePostVideos(feed, true);
+    mountFeedSentinel(postHasMore);
 
     visiblePosts.forEach((post) => {
       const likeBtn = feed.querySelector(`.tw-like-btn[data-id="${post.id}"]`);
@@ -956,6 +1016,86 @@ function renderPostFeed(el, user, profile) {
     pending.forEach(image => observer.observe(image));
   }
 
+  // ── Instagram-style video playback ──────────────────────────────────────
+  // Each feed video is attached to a frame only once, loaded lazily from the
+  // authenticated Telegram proxy, and muted-autoplayed when ≥55% visible.
+  // Scrolling away pauses and frees it, so playback stays smooth.
+  const videoFrames = new Map();   // postId -> { frame, video, observer }
+  let visibleVideoId = "";
+  function attachPostVideo(frame, postId, autoplay) {
+    if (frame.dataset.attached) return;
+    const post = posts.find(item => item.id === postId);
+    if (!post) return;
+    const fileId = post.telegramVideoFileId || post.telegramFileId;
+    const mime = post.videoMimeType || post.photoMimeType || post.telegramMimeType || "video/mp4";
+    if (!fileId) return;
+    frame.dataset.attached = "1";
+    const waiting = frame.querySelector(".tw-video-waiting");
+    const overlay = frame.querySelector(".tw-video-play-overlay");
+    const muteBtn = frame.querySelector(".tw-video-mute");
+    const video = document.createElement("video");
+    video.playsInline = true;
+    video.muted = true;
+    video.loop = true;
+    video.preload = autoplay ? "auto" : "metadata";
+    video.setAttribute("playsinline", "");
+    video.setAttribute("webkit-playsinline", "");
+    video.dataset.postVideoEl = postId;
+    frame.insertBefore(video, frame.firstChild);
+    videoFrames.set(postId, { frame, video });
+    video.addEventListener("loadedmetadata", () => { if (waiting) waiting.remove(); });
+    video.addEventListener("playing", () => frame.classList.add("playing"));
+    video.addEventListener("pause", () => frame.classList.remove("playing"));
+    video.addEventListener("waiting", () => frame.classList.remove("playing"));
+    overlay?.addEventListener("click", () => {
+      if (video.paused) video.play().catch(() => {});
+      else video.pause();
+    });
+    muteBtn?.addEventListener("click", event => {
+      event.stopPropagation();
+      video.muted = !video.muted;
+      muteBtn.textContent = video.muted ? "🔈" : "🔊";
+      if (!video.muted && visibleVideoId && visibleVideoId !== postId) {
+        videoFrames.get(visibleVideoId)?.video.pause();
+      }
+      if (!video.muted) visibleVideoId = postId;
+    });
+    getTelegramMediaUrl(fileId, mime)
+      .then(url => { if (video.isConnected) video.src = url; })
+      .catch(error => console.error("Post video could not load from Telegram:", error));
+    if (autoplay) video.play().catch(() => {});
+  }
+  function hydratePostVideos(root, autoplayFirst = false) {
+    const frames = [...root.querySelectorAll(".tw-post-video-frame[data-post-video]")];
+    frames.forEach(frame => {
+      const postId = frame.dataset.postVideo;
+      if (!("IntersectionObserver" in window)) { attachPostVideo(frame, postId, autoplayFirst); return; }
+      if (frame.dataset.observed) return;
+      frame.dataset.observed = "1";
+      const observer = new IntersectionObserver(entries => entries.forEach(entry => {
+        const record = videoFrames.get(postId);
+        if (entry.intersectionRatio >= 0.55) {
+          attachPostVideo(frame, postId, true);
+          const video = videoFrames.get(postId)?.video;
+          if (video) {
+            if (visibleVideoId && visibleVideoId !== postId && video.muted) videoFrames.get(visibleVideoId)?.video.pause();
+            visibleVideoId = postId;
+            if (video.paused) video.play().catch(() => {});
+          }
+        } else if (record && entry.intersectionRatio < 0.25) {
+          record.video.pause();
+          if (visibleVideoId === postId) visibleVideoId = "";
+        }
+      }), { threshold: [0, 0.25, 0.55, 0.75] });
+      observer.observe(frame);
+    });
+  }
+  function releasePostVideos() {
+    videoFrames.forEach(({ video }) => { try { video.pause(); video.removeAttribute("src"); video.load(); } catch { /* ignore */ } });
+    videoFrames.clear();
+    visibleVideoId = "";
+  }
+
   detailModal.addEventListener("click", event => { if (event.target === detailModal) closePostDetail(); });
   el.addEventListener("click", event => {
     if (event.target.closest?.(".tw-post-actions,[data-voice-record]")) return;
@@ -985,6 +1125,8 @@ function renderPostFeed(el, user, profile) {
 
   disposePostFeed = () => {
     active = false;
+    releasePostVideos();
+    if (feedSentinelObserver) { feedSentinelObserver.disconnect(); feedSentinelObserver = null; }
     if (voiceRecorder) {
       voiceRecorder.stream?.getTracks().forEach(track => track.stop());
       voiceRecorder.stop();

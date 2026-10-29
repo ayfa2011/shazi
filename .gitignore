@@ -4,3 +4,8 @@ __MACOSX/
 firebase-debug.log
 .firebase-debug.log
 .firebase/
+
+# Android local SDK configuration and generated build output
+android/local.properties
+android/.gradle/
+android/**/build/

@@ -1,5 +1,28 @@
 import { esc, $ } from "./utils.js";
 
+/** Video detection shared by feed cards and the detail modal. */
+export function isVideoPost(post) {
+  const mime = String(post.videoMimeType || post.photoMimeType || post.telegramMimeType || "").toLowerCase();
+  if (post.telegramVideoFileId || mime.startsWith("video/")) return true;
+  return mime.includes("mp4") || mime.includes("quicktime") || mime.includes("webm") || mime.includes("matroska");
+}
+
+/** Photo or video markup for a post's Telegram media reference. */
+export function mediaMarkup(post) {
+  if (post.photoUrl) {
+    return `<div class="tw-post-photo-frame"><img src="${esc(post.photoUrl)}" class="tw-post-photo" alt="Photo attached to post" data-post-image draggable="false" style="object-position:${cropPositionStyle(post)}"></div>`;
+  }
+  if (isVideoPost(post)) {
+    const fileId = esc(post.telegramVideoFileId || post.telegramFileId || "");
+    if (!fileId) return "";
+    return `<div class="tw-post-video-frame" data-post-video="${post.id}"><span class="tw-video-waiting" aria-hidden="true">◌</span><span class="tw-video-play-overlay" aria-hidden="true">▶</span><button type="button" class="tw-video-mute" aria-label="Mute or unmute video">🔈</button></div>`;
+  }
+  if (post.telegramFileId) {
+    return `<div class="tw-post-photo-frame"><img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Photo attached to post" data-post-image draggable="false" style="object-position:${cropPositionStyle(post)}" loading="lazy"></div>`;
+  }
+  return "";
+}
+
 export function postCardComponent(post, isLiked, likeCount, isAuthor, authorName, authorProfile, handle, timeStr, voiceMarkup, commentsCount, cropPositionStyle) {
   return `
     <div class="tw-post-card" id="post-${post.id}">
@@ -14,7 +37,7 @@ export function postCardComponent(post, isLiked, likeCount, isAuthor, authorName
         </div>
 
         <p class="tw-post-text" id="post-text-${post.id}">${esc(post.text || '')}</p>
-        ${post.photoUrl ? `<div class="tw-post-photo-frame"><img src="${esc(post.photoUrl)}" class="tw-post-photo" alt="Photo attached to post" data-post-image draggable="false" style="object-position:${cropPositionStyle(post)}"></div>` : post.telegramFileId ? `<div class="tw-post-photo-frame"><img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="tw-post-photo" alt="Photo attached to post" data-post-image draggable="false" style="object-position:${cropPositionStyle(post)}" loading="lazy"></div>` : ''}
+        ${mediaMarkup(post)}
         ${voiceMarkup(post)}
 
         <div class="tw-actions-bar">
