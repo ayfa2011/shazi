@@ -124,15 +124,15 @@ export function renderSharedGallery(el, user, profile) {
       .gallery-folder-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px 16px; }
       .gallery-empty { padding:34px 16px; border:1px dashed #ecc3d4; border-radius:20px; background:#fffafd; color:#a27d8e; text-align:center; font-size:13px; line-height:1.6; }
       .gallery-empty span { display:block; margin-bottom:7px; font-size:30px; }
-      .gallery-folder-card { position:relative; display:block; width:100%; padding:0; border:0; background:none; text-align:left; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+      .gallery-folder-card { position:relative; display:block; width:100%; padding:0; overflow:visible; border:0; background:none; text-align:left; cursor:pointer; -webkit-tap-highlight-color:transparent; }
       .gallery-folder-thumb { position:relative; display:block; width:100%; aspect-ratio:1; overflow:hidden; border-radius:16px; background:linear-gradient(145deg,#ffe6ef,#f7d5e3); }
       .gallery-folder-card img { display:block; width:100%; height:100%; object-fit:cover; transition:transform .35s ease; }
       .gallery-folder-card:hover img { transform:scale(1.045); }
       .gallery-folder-card:active img { transform:scale(1.02); }
       .gallery-folder-placeholder { position:absolute; inset:0; display:grid; place-items:center; color:#c9749a; font-size:34px; }
-      .gallery-folder-copy { display:block; padding:9px 2px 0; }
+      .gallery-folder-copy { display:block; min-height:34px; padding:9px 2px 0; }
       .gallery-folder-copy strong { display:block; overflow:hidden; color:#2b2430; font-size:13px; font-weight:700; line-height:1.3; text-overflow:ellipsis; white-space:nowrap; }
-      .gallery-folder-copy small { display:block; margin-top:3px; color:#8e8593; font-size:11px; font-weight:500; }
+      .gallery-folder-copy small { display:block; margin-top:3px; color:#8e8593; font-size:11px; font-weight:500; line-height:1.3; }
       .gallery-folder-page { padding:14px; border:1px solid #f1dce5; border-radius:22px; background:linear-gradient(160deg,#fff,#fff8fb); box-shadow:0 8px 24px #78395010; }
       .gallery-folder-toolbar { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:13px; }
       .gallery-folder-toolbar h2 { min-width:0; margin:0; color:#75445b; font-size:19px; overflow-wrap:anywhere; }
@@ -202,8 +202,47 @@ export function renderSharedGallery(el, user, profile) {
   const viewerStage = $("#gallery-viewer-stage", el);
   const uploadInput = $("#gallery-upload-input", el);
 
+  // Folder navigation keeps the open folder in the URL hash (#gallery-library/<id>),
+  // so a device reload, back gesture, or shared link lands back inside that
+  // folder's own grid instead of silently falling back to the folder list.
+  function folderFromHash() {
+    const match = window.location.hash.match(/^#gallery-library\/(.+)$/);
+    if (!match) return "";
+    try { return decodeURIComponent(match[1]); } catch { return ""; }
+  }
+
+  function syncFolderHash(folderId) {
+    const next = folderId ? `#gallery-library/${encodeURIComponent(folderId)}` : "#gallery-library";
+    if (window.location.hash === next) return;
+    window.history.replaceState({ route: "gallery-library", folderId }, "", `${window.location.pathname}${window.location.search}${next}`);
+  }
+
+  function openFolder(folderId) {
+    const folder = folders.find(item => item.id === folderId);
+    if (!folder) return false;
+    selectedFolderId = folder.id;
+    folderForm.hidden = true;
+    closeViewer();
+    syncFolderHash(folder.id);
+    render();
+    window.scrollTo({ top: 0, behavior: "instant" });
+    return true;
+  }
+
+  function closeFolder() {
+    closeViewer();
+    selectedFolderId = "";
+    folderForm.hidden = true;
+    syncFolderHash("");
+    render();
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }
+
   function render() {
     if (!activeGallery || !el.isConnected) return;
+    // A folder that no longer exists (deleted on the other device) drops us
+    // back to the folder list instead of leaving an empty page open.
+    if (selectedFolderId && folders.length && !folders.some(folder => folder.id === selectedFolderId)) selectedFolderId = "";
     const selectedFolder = folders.find(folder => folder.id === selectedFolderId);
     $("#gallery-page-title", el).textContent = selectedFolder ? selectedFolder.title : "Gallery";
     $("#gallery-back", el).textContent = selectedFolder ? "‹ Folders" : "‹ More";
@@ -223,7 +262,7 @@ export function renderSharedGallery(el, user, profile) {
         </button>`;
       }).join("") : `<div class="gallery-empty"><span>♡</span>Your gallery starts with a folder.<br>Create one to keep your photos and videos together.</div>`;
       folderList.querySelectorAll("[data-folder-id]").forEach(button => {
-        button.onclick = () => { selectedFolderId = button.dataset.folderId; render(); };
+        button.onclick = () => openFolder(button.dataset.folderId);
       });
       observePreviews();
       return;
@@ -241,7 +280,7 @@ export function renderSharedGallery(el, user, profile) {
   }
 
   $("#gallery-back", el).onclick = () => {
-    if (selectedFolderId) { selectedFolderId = ""; render(); }
+    if (selectedFolderId || folderFromHash()) closeFolder();
     else window.App?.navigate("more");
   };
   $("#gallery-create-open", el).onclick = () => {
@@ -468,8 +507,17 @@ export function renderSharedGallery(el, user, profile) {
     if (event.key === "Escape" && viewer.classList.contains("open")) closeViewer();
     else if (event.key === "ArrowRight" && viewer.classList.contains("open")) moveViewer(1);
     else if (event.key === "ArrowLeft" && viewer.classList.contains("open")) moveViewer(-1);
+    else if (event.key === "Escape" && selectedFolderId) closeFolder();
   };
   window.addEventListener("keydown", onEscape);
+  // A back gesture/history entry that leaves a folder goes back to the folder
+  // list. app.js restores the hash afterwards, so the router stays in sync.
+  const onPopState = () => {
+    if (!activeGallery || !selectedFolderId) return;
+    if (folderFromHash() === selectedFolderId) return;
+    if (!folderFromHash()) closeFolder();
+  };
+  window.addEventListener("popstate", onPopState);
   el.galleryMediaCleanup = () => {
     previewObserver?.disconnect();
     for (const url of mediaUrls.values()) URL.revokeObjectURL(url);
@@ -486,6 +534,13 @@ export function renderSharedGallery(el, user, profile) {
   stopFolders = watchItems("galleryFolder", items => {
     if (!activeGallery) return;
     folders = items;
+    // Re-enter the folder named in the URL (first load, reload, or deep link).
+    const hashFolderId = folderFromHash();
+    if (hashFolderId && items.some(folder => folder.id === hashFolderId)) {
+      selectedFolderId = hashFolderId;
+    } else if (hashFolderId && !selectedFolderId) {
+      syncFolderHash("");
+    }
     render();
   }, error => { console.error("Gallery folders could not load:", error); showError("Folders could not be loaded. Check your connection and try again."); });
   stopMedia = watchItems("galleryMedia", items => {
@@ -494,7 +549,10 @@ export function renderSharedGallery(el, user, profile) {
     render();
     if (viewer.classList.contains("open")) renderViewer();
   }, error => console.error("Gallery media could not load:", error));
-  el.galleryEscapeCleanup = () => window.removeEventListener("keydown", onEscape);
+  el.galleryEscapeCleanup = () => {
+    window.removeEventListener("keydown", onEscape);
+    window.removeEventListener("popstate", onPopState);
+  };
 }
 
 export function disposeSharedGallery() {
