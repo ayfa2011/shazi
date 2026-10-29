@@ -524,7 +524,23 @@ body.word-search-fullscreen .content{width:100%;max-width:none;min-height:100vh;
 .find-words-score-dot.partner{background:#e45883}
 .find-words-online-count{display:flex;align-items:center;gap:5px;margin-left:auto;color:var(--muted);font-size:10px}
 .find-words-presence-dot.online{background:#35a66b;box-shadow:0 0 0 3px #35a66b21}
+.find-words-watcher{margin:0;padding:7px 12px;border-radius:12px;background:#fff3f8;color:#b63865;font-size:11px;font-weight:600;text-align:center}
 .find-words-play-area{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 250px;align-items:center;gap:16px;min-height:0}
+.find-words-words-tray{display:grid;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:16px;background:#ffffffd9}
+.find-words-tray-header{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
+.find-words-tray-title{display:flex;align-items:center;gap:6px;min-width:0;color:var(--deep);font-size:12px}
+.find-words-tray-title .tray-icon{font-size:14px}
+.find-words-tray-badge{padding:2px 7px;border-radius:999px;background:#ffe7f0;color:#b63865;font-size:9px;font-weight:700;white-space:nowrap}
+.find-words-tray-progress{flex:none;color:var(--muted);font-size:10px;white-space:nowrap}
+.find-words-chips-grid{display:flex;flex-wrap:wrap;gap:6px}
+.find-words-chip{display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border:1px solid #f4e5eb;border-radius:999px;background:#fffafd;color:#533844;font-size:11px;font-weight:700;letter-spacing:.04em;line-height:1}
+.find-words-chip.remaining .chip-bullet{color:#e45883;font-size:14px;line-height:0}
+.find-words-chip.found{font-weight:600;text-decoration:line-through}
+.find-words-chip.found.own{border-color:#b5e3c7;background:#dff5e7;color:#27794a}
+.find-words-chip.found.partner{border-color:#f2bdce;background:#ffe4ec;color:#b63865}
+.find-words-chip .chip-status{font-size:10px;text-decoration:none}
+.find-words-chip .chip-finder{color:var(--muted);font-size:9px;font-weight:500;text-decoration:none}
+.find-words-chip.found .chip-word{text-decoration:line-through}
 .find-words-board-wrap{width:100%;display:grid;place-items:center}
 .find-words-board{width:min(100%,min(70vh,760px));width:min(100%,min(70dvh,760px));display:grid;grid-template-columns:repeat(14,minmax(0,1fr));gap:3px;padding:7px;border:1px solid #efd5e0;border-radius:20px;background:#fff;box-shadow:0 12px 36px #8f315d12;touch-action:none;user-select:none}
 .find-words-cell{min-width:0;aspect-ratio:1;display:grid;place-items:center;padding:0;border:1px solid #f4e5eb;border-radius:8px;background:#fffafd;color:#533844;font-size:clamp(11px,2.6vw,21px);font-weight:700;line-height:1;touch-action:none;user-select:none;-webkit-user-select:none}
@@ -557,6 +573,9 @@ body.word-search-fullscreen .content{width:100%;max-width:none;min-height:100vh;
   .find-words-play-area{flex:none;grid-template-columns:1fr;gap:7px}
   .find-words-board{width:min(100%,620px);gap:2px;padding:5px;border-radius:15px}
   .find-words-cell{border-radius:5px;font-size:clamp(10px,4.4vw,18px)}
+  .find-words-words-tray{padding:8px 9px;gap:6px}
+  .find-words-chip{padding:4px 7px;font-size:10px}
+  .find-words-chip .chip-finder{display:none}
   .find-words-words-panel{max-height:clamp(80px,17vh,145px);max-height:clamp(80px,17dvh,145px);padding:8px 10px}
   .find-words-words-panel h2{margin-bottom:5px;font-size:11px}
   .find-words-list{grid-template-columns:repeat(4,minmax(0,1fr));gap:3px}

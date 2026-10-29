@@ -121,18 +121,18 @@ export function renderSharedGallery(el, user, profile) {
       .gallery-folder-form { display:flex; gap:8px; margin:0 0 14px; padding:12px; border:1px solid #f2d6e1; border-radius:16px; background:#fff9fc; }
       .gallery-folder-form[hidden],.gallery-folder-page[hidden] { display:none; }
       .gallery-folder-form input { flex:1; min-width:0; min-height:40px; padding:9px 12px; border:1px solid #efd3df; border-radius:12px; background:#fff; color:#513544; }
-      .gallery-folder-list { display:grid; gap:13px; }
+      .gallery-folder-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px 16px; }
       .gallery-empty { padding:34px 16px; border:1px dashed #ecc3d4; border-radius:20px; background:#fffafd; color:#a27d8e; text-align:center; font-size:13px; line-height:1.6; }
       .gallery-empty span { display:block; margin-bottom:7px; font-size:30px; }
-      .gallery-folder-card { position:relative; display:block; width:100%; aspect-ratio:16 / 8; min-height:160px; padding:0; overflow:hidden; border:1px solid #f1d8e2; border-radius:20px; background:linear-gradient(145deg,#ffdfea,#f7d5e3); text-align:left; box-shadow:0 9px 22px #75354c12; cursor:pointer; }
+      .gallery-folder-card { position:relative; display:block; width:100%; padding:0; border:0; background:none; text-align:left; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+      .gallery-folder-thumb { position:relative; display:block; width:100%; aspect-ratio:1; overflow:hidden; border-radius:16px; background:linear-gradient(145deg,#ffe6ef,#f7d5e3); }
       .gallery-folder-card img { display:block; width:100%; height:100%; object-fit:cover; transition:transform .35s ease; }
-      .gallery-folder-card:hover img { transform:scale(1.035); }
-      .gallery-folder-card::after { content:""; position:absolute; inset:35% 0 0; background:linear-gradient(to top,rgba(31,13,22,.78),transparent); }
-      .gallery-folder-placeholder { position:absolute; inset:0; display:grid; place-items:center; color:#bd6388; font-size:48px; }
-      .gallery-folder-copy { position:absolute; right:16px; bottom:13px; left:16px; z-index:1; display:flex; align-items:flex-end; justify-content:space-between; gap:10px; color:#fff; }
-      .gallery-folder-copy strong { display:block; font-size:17px; font-weight:800; text-shadow:0 1px 4px #0009; }
-      .gallery-folder-copy small { display:block; margin-top:4px; color:#ffffffdf; font-size:10px; text-shadow:0 1px 4px #0009; }
-      .gallery-folder-count { flex:none; padding:5px 9px; border:1px solid #ffffff70; border-radius:999px; background:#fff2; font-size:10px; backdrop-filter:blur(6px); }
+      .gallery-folder-card:hover img { transform:scale(1.045); }
+      .gallery-folder-card:active img { transform:scale(1.02); }
+      .gallery-folder-placeholder { position:absolute; inset:0; display:grid; place-items:center; color:#c9749a; font-size:34px; }
+      .gallery-folder-copy { display:block; padding:9px 2px 0; }
+      .gallery-folder-copy strong { display:block; overflow:hidden; color:#2b2430; font-size:13px; font-weight:700; line-height:1.3; text-overflow:ellipsis; white-space:nowrap; }
+      .gallery-folder-copy small { display:block; margin-top:3px; color:#8e8593; font-size:11px; font-weight:500; }
       .gallery-folder-page { padding:14px; border:1px solid #f1dce5; border-radius:22px; background:linear-gradient(160deg,#fff,#fff8fb); box-shadow:0 8px 24px #78395010; }
       .gallery-folder-toolbar { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:13px; }
       .gallery-folder-toolbar h2 { min-width:0; margin:0; color:#75445b; font-size:19px; overflow-wrap:anywhere; }
@@ -156,7 +156,7 @@ export function renderSharedGallery(el, user, profile) {
       .gallery-viewer-nav.prev { left:6px; }
       .gallery-viewer-nav.next { right:6px; }
       .gallery-viewer-foot { min-height:38px; display:flex; align-items:center; justify-content:center; color:#ffffffb8; font-size:11px; }
-      @media(max-width:420px) { .gallery-heading { align-items:flex-end; } .gallery-primary-btn { min-height:39px; padding:8px 11px; font-size:11px; } .gallery-folder-card { min-height:140px; border-radius:17px; } .gallery-folder-copy { right:12px; bottom:11px; left:12px; } .gallery-folder-copy strong { font-size:15px; } .gallery-folder-page { padding:10px; } .gallery-media-grid { gap:7px; } .gallery-media-card { border-radius:12px; } }
+      @media(max-width:420px) { .gallery-heading { align-items:flex-end; } .gallery-primary-btn { min-height:39px; padding:8px 11px; font-size:11px; } .gallery-folder-list { gap:16px 10px; } .gallery-folder-thumb { border-radius:13px; } .gallery-folder-copy { padding-top:7px; } .gallery-folder-copy strong { font-size:12px; } .gallery-folder-copy small { font-size:10px; } .gallery-folder-page { padding:10px; } .gallery-media-grid { gap:7px; } .gallery-media-card { border-radius:12px; } }
     </style>
     <section class="shared-gallery">
       <header class="gallery-heading">
@@ -217,9 +217,9 @@ export function renderSharedGallery(el, user, profile) {
         const folderMedia = media.filter(item => item.folderId === folder.id).sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
         const latest = folderMedia[0];
         const thumb = latest?.thumbnailUrl || latest?.url || (latest?.telegramFileId ? latest : null);
-        return `<button type="button" class="gallery-folder-card" data-folder-id="${esc(folder.id)}" aria-label="Open folder ${esc(folder.title || "Gallery folder")}">
-          ${thumb ? `<img ${typeof thumb === "object" ? `data-gallery-preview="${esc(thumb.id)}"` : `src="${esc(thumb)}"`} alt="" loading="lazy" decoding="async">` : `<span class="gallery-folder-placeholder" aria-hidden="true">♡</span>`}
-          <span class="gallery-folder-copy"><span><strong>${esc(folder.title || "Untitled folder")}</strong><small>${esc(dateLabel(folder.createdAt || folder.createdAtMs))}</small></span><span class="gallery-folder-count">${folderMedia.length} ${folderMedia.length === 1 ? "item" : "items"}</span></span>
+        return `<button type="button" class="gallery-folder-card" data-folder-id="${esc(folder.id)}" aria-label="Open folder ${esc(folder.title || "Gallery folder")}, ${folderMedia.length} ${folderMedia.length === 1 ? "item" : "items"}">
+          <span class="gallery-folder-thumb">${thumb ? `<img ${typeof thumb === "object" ? `data-gallery-preview="${esc(thumb.id)}"` : `src="${esc(thumb)}"`} alt="" loading="lazy" decoding="async">` : `<span class="gallery-folder-placeholder" aria-hidden="true">♡</span>`}</span>
+          <span class="gallery-folder-copy"><strong>${esc(folder.title || "Untitled folder")}</strong><small>${folderMedia.length} ${folderMedia.length === 1 ? "item" : "items"}</small></span>
         </button>`;
       }).join("") : `<div class="gallery-empty"><span>♡</span>Your gallery starts with a folder.<br>Create one to keep your photos and videos together.</div>`;
       folderList.querySelectorAll("[data-folder-id]").forEach(button => {

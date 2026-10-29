@@ -1,12 +1,15 @@
 import { getProfileKey, getDisplayName } from "./profile-data.js";
 import { $, esc, toast } from "./utils.js";
-import { rtdb } from "./firebase.js";
+import { firebaseReady, rtdb } from "./firebase.js";
+import { recordGameMatchResult } from "./firestore.js";
+import { APP_CONFIG } from "../config/app-config.js";
 import { onDisconnect, onValue, ref, runTransaction, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
 const BOARD_SIZE = 14;
 const WORDS_PER_GAME = 16;
-const gameRef = () => ref(rtdb, "couples/our-little-world/games/findTheWords");
-const presenceRef = uid => ref(rtdb, `couples/our-little-world/games/findTheWordsPresence/${uid}`);
+const gameRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/findTheWords`);
+const presenceRef = uid => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/findTheWordsPresence/${uid}`);
+const presenceListRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/findTheWordsPresence`);
 const DIRECTIONS = [
   [0, 1], [1, 0], [0, -1], [-1, 0],
   [1, 1], [1, -1], [-1, 1], [-1, -1]
@@ -42,10 +45,20 @@ const WORD_BANK = [
   "world", "write", "yellow", "yesterday", "young", "your", "zebra"
 ];
 
+// A single random source for the whole board so the grid can never mix
+// different generators and end up with a wrong width.
+function randomNumber(maximum) {
+  if (maximum <= 0) return 0;
+  const limit = Math.floor(0xffffffff / maximum) * maximum;
+  const buffer = new Uint32Array(1);
+  do { globalThis.crypto.getRandomValues(buffer); } while (buffer[0] >= limit);
+  return buffer[0] % maximum;
+}
+
 function shuffle(items) {
   const result = [...items];
   for (let index = result.length - 1; index > 0; index--) {
-    const randomIndex = Math.floor(Math.random() * (index + 1));
+    const randomIndex = randomNumber(index + 1);
     [result[index], result[randomIndex]] = [result[randomIndex], result[index]];
   }
   return result;
@@ -59,7 +72,7 @@ function updateSelection(container, start, end) {
 }
 
 function makeBoard(excludedWords = []) {
-  const excluded = new Set(excludedWords);
+  const excluded = new Set(excludedWords.map(word => String(word).toLocaleLowerCase()));
   const chosenWords = shuffle(WORD_BANK.filter(word => !excluded.has(word))).slice(0, WORDS_PER_GAME);
   let board = null;
   let words = null;
@@ -71,16 +84,16 @@ function makeBoard(excludedWords = []) {
     for (const word of [...chosenWords].sort((first, second) => second.length - first.length)) {
       let placed = false;
       for (let attempt = 0; attempt < 500 && !placed; attempt++) {
-        const [rowStep, columnStep] = DIRECTIONS[Math.floor(Math.random() * DIRECTIONS.length)];
-        const row = Math.floor(Math.random() * BOARD_SIZE);
-        const column = Math.floor(Math.random() * BOARD_SIZE);
+        const [rowStep, columnStep] = DIRECTIONS[randomNumber(DIRECTIONS.length)];
+        const row = randomNumber(BOARD_SIZE);
+        const column = randomNumber(BOARD_SIZE);
         const cells = [...word].map((_, offset) => ({
           row: row + rowStep * offset,
           column: column + columnStep * offset
         }));
         if (cells.some((cell, index) => cell.row < 0 || cell.row >= BOARD_SIZE || cell.column < 0 || cell.column >= BOARD_SIZE ||
           (candidate[cell.row][cell.column] && candidate[cell.row][cell.column] !== word[index]))) continue;
-        cells.forEach((cell, index) => { candidate[cell.row][cell.column] = word[index]; });
+        cells.forEach((cell, index) => { candidate[cell.row][cell.column] = word[index].toUpperCase(); });
         paths.set(word, cells.map(cell => cell.row * BOARD_SIZE + cell.column));
         placed = true;
       }
@@ -94,11 +107,22 @@ function makeBoard(excludedWords = []) {
       words = chosenWords.map(word => ({ word, cells: paths.get(word), foundBy: "" }));
     }
   }
-  if (!board || !words) throw new Error("Could not build a complete Find the Words board.");
+  if (!board || !words) {
+    // Never leave a dead "Start" button behind: fall back to a guaranteed-fit
+    // straight placement of the same words.
+    board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(""));
+    const paths = new Map();
+    [...chosenWords].sort((first, second) => second.length - first.length).forEach((word, index) => {
+      const row = index % BOARD_SIZE;
+      [...word].forEach((letter, offset) => { board[row][offset] = letter.toUpperCase(); });
+      paths.set(word, [...word].map((_, offset) => row * BOARD_SIZE + offset));
+    });
+    words = chosenWords.map(word => ({ word, cells: paths.get(word), foundBy: "" }));
+  }
 
   for (let row = 0; row < BOARD_SIZE; row++) {
     for (let column = 0; column < BOARD_SIZE; column++) {
-      if (!board[row][column]) board[row][column] = String.fromCharCode(65 + Math.floor(Math.random() * 26));
+      if (!board[row][column]) board[row][column] = String.fromCharCode(65 + randomNumber(26));
     }
   }
   return { grid: board.map(line => line.join("")), words };
@@ -107,13 +131,14 @@ function makeBoard(excludedWords = []) {
 function validGame(game) {
   return Boolean(game && typeof game === "object" &&
     Array.isArray(game.grid) && game.grid.length === BOARD_SIZE &&
-    game.grid.every(row => typeof row === "string" && row.length === BOARD_SIZE && /^[A-Z]+$/.test(row)) &&
+    game.grid.every(row => typeof row === "string" && new RegExp(`^[A-Z]{${BOARD_SIZE}}$`).test(row)) &&
     Array.isArray(game.words) && game.words.length === WORDS_PER_GAME &&
     game.words.every(item => typeof item.word === "string" && /^[a-z]{3,12}$/.test(item.word) &&
       Array.isArray(item.cells) && item.cells.length === item.word.length &&
       item.cells.every(index => Number.isInteger(index) && index >= 0 && index < BOARD_SIZE * BOARD_SIZE) &&
       typeof item.foundBy === "string") &&
-    game.players && typeof game.players === "object" &&
+    game.players && typeof game.players === "object" && !Array.isArray(game.players) &&
+    Object.keys(game.players).length > 0 && Object.keys(game.players).length <= 2 &&
     ["playing", "finished"].includes(game.status));
 }
 
@@ -149,6 +174,7 @@ export function mountFindTheWordsGame(container, user, profile) {
   let selectionEnd = null;
   let saving = false;
   let disposed = false;
+  let recordedGameId = "";
 
   container.innerHTML = `<main class="find-words-page">
     <header class="find-words-header">
@@ -175,12 +201,16 @@ export function mountFindTheWordsGame(container, user, profile) {
     }
 
     const participants = Object.entries(game.players);
+    // Render our own card first and the partner's second, whatever order the
+    // players were written in when the round was joined.
+    participants.sort(([firstUid], [secondUid]) => (secondUid === user.uid) - (firstUid === user.uid));
+    const isPlayer = Boolean(game.players[user.uid]);
     const otherPlayer = participants.find(([uid]) => uid !== user.uid);
     const foundCounts = Object.fromEntries(participants.map(([uid]) => [uid, game.words.filter(item => item.foundBy === uid).length]));
     const completedCount = game.words.filter(item => item.foundBy).length;
     const finished = game.status === "finished";
     const ownerMessage = finished
-      ? game.winnerUid === user.uid ? "You won this word hunt! 🎉" : game.winnerUid ? `${esc(getDisplayName(game.winnerUid, "Your partner"))} won this word hunt! 💕` : "It's a tie! Great teamwork. 💕"
+      ? game.winnerUid === user.uid ? "You won this word hunt! 🎉" : game.winnerUid ? `${getDisplayName(game.winnerUid, "Your partner")} won this word hunt! 💕` : "All words found — it's a tie! Great teamwork. 💕"
       : "Drag across a word in any direction. Found words light up for both of you.";
     const pathColors = new Map();
     game.words.filter(item => item.foundBy).forEach(item => {
@@ -216,6 +246,7 @@ export function mountFindTheWordsGame(container, user, profile) {
         <div class="find-words-counter">${completedCount}<small> / ${WORDS_PER_GAME}</small></div>
       </div>
       <div class="find-words-scores">${scoreCards}<div class="find-words-online-count"><span class="find-words-presence-dot${presence[otherPlayer?.[0]]?.online ? " online" : ""}"></span>${presence[otherPlayer?.[0]]?.online ? "Partner online" : "Partner offline"}</div></div>
+      ${isPlayer ? "" : `<p class="find-words-watcher" role="status">This round is full — you are watching ${esc(otherPlayer?.[1]?.name || "your partner")} play live.</p>`}
       <div class="find-words-play-area">
         <div class="find-words-board-wrap"><div class="find-words-board" role="group" aria-label="Letter grid">${cells}</div></div>
       </div>
@@ -270,13 +301,38 @@ export function mountFindTheWordsGame(container, user, profile) {
       const transaction = await runTransaction(gameRef(), latest => {
         if (!validGame(latest) || latest.gameId !== current.gameId || latest.status !== "playing" ||
             latest.players[user.uid] || Object.keys(latest.players).length >= 2) return;
-        return { ...latest, players: { ...latest.players, [user.uid]: { name: playerName } } };
+        // Joining after the host already found words keeps their finds and only
+        // awards points for words claimed from now on.
+        return { ...latest, players: { ...latest.players, [user.uid]: { name: playerName } }, updatedAt: Date.now() };
       });
       if (!transaction.committed && !disposed) toast("This word hunt is already full or has ended.");
     } catch (error) {
       console.error("Could not join Find the Words:", error);
       toast("You could not join the live word hunt. Please try again.");
     }
+  }
+
+  function recordFinishedGame(finishedGame) {
+    if (!finishedGame || finishedGame.status !== "finished" || !finishedGame.gameId || recordedGameId === finishedGame.gameId) return;
+    // Only a player of the round can save its result, and only the first claim
+    // of this round is recorded.
+    if (!finishedGame.players?.[user.uid] || !firebaseReady) return;
+    recordedGameId = finishedGame.gameId;
+    const playerUids = Object.keys(finishedGame.players);
+    const scores = Object.fromEntries(playerUids.map(uid => [uid, finishedGame.words.filter(item => item.foundBy === uid).length]));
+    recordGameMatchResult({
+      uid: user.uid,
+      authorId: profile?.id || user.uid,
+      matchId: finishedGame.gameId,
+      game: "Find the Words",
+      winnerUid: finishedGame.winnerUid || "",
+      players: playerUids,
+      scores
+    }).catch(error => {
+      recordedGameId = "";
+      console.error("Could not save the Find the Words result:", error);
+      if (!disposed) toast("The round ended, but its result could not be saved.");
+    });
   }
 
   async function claimWord(foundWord) {
@@ -288,6 +344,9 @@ export function mountFindTheWordsGame(container, user, profile) {
         const item = current.words.find(entry => entry.word === foundWord.word && !entry.foundBy);
         if (!item) return;
         const words = current.words.map(entry => entry === item ? { ...entry, foundBy: user.uid } : entry);
+        // A solo round only ends once every word is claimed. A two-player round
+        // ends as soon as every word belongs to somebody, so an emptied list of
+        // outstanding words always closes the round instead of hiding it.
         const finished = words.every(entry => entry.foundBy);
         const scores = Object.fromEntries(Object.keys(current.players).map(uid => [
           uid, words.filter(entry => entry.foundBy === uid).length
@@ -297,7 +356,7 @@ export function mountFindTheWordsGame(container, user, profile) {
           ...current,
           words,
           status: finished ? "finished" : "playing",
-          winnerUid: finished && ordered[0]?.[1] !== ordered[1]?.[1] ? ordered[0]?.[0] || "" : "",
+          winnerUid: finished && ordered.length > 1 && ordered[0][1] !== ordered[1][1] ? ordered[0][0] : "",
           updatedAt: Date.now()
         };
       });
@@ -344,7 +403,7 @@ export function mountFindTheWordsGame(container, user, profile) {
     updateSelection(container, null, null);
   });
   container.addEventListener("click", event => {
-    if (event.target.closest("[data-new-find-words]")) startGame();
+    if (event.target.closest("[data-new-find-words]")) { startGame(); return; }
     const cell = event.target.closest("[data-find-cell]");
     if (cell && game?.status === "playing" && !dragStart) {
       const index = Number(cell.dataset.findCell);
@@ -356,7 +415,8 @@ export function mountFindTheWordsGame(container, user, profile) {
   if (rtdb) {
     stopListeners.push(onValue(gameRef(), snapshot => {
       game = snapshot.val();
-      if (validGame(game) && game.status === "playing" && !game.players[user.uid]) joinGame(game);
+      if (validGame(game) && game.status === "playing" && !game.players[user.uid]) void joinGame(game);
+      if (validGame(game) && game.status === "finished") recordFinishedGame(game);
       render();
     }, error => {
       console.error("Find the Words could not be loaded:", error);
@@ -375,7 +435,7 @@ export function mountFindTheWordsGame(container, user, profile) {
     }, error => {
       console.error("Find the Words connection status could not be loaded:", error);
     }));
-    stopListeners.push(onValue(ref(rtdb, "couples/our-little-world/games/findTheWordsPresence"), snapshot => {
+    stopListeners.push(onValue(presenceListRef(), snapshot => {
       presence = snapshot.val() || {};
       render();
     }, error => {
