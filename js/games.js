@@ -1758,7 +1758,11 @@ export function renderGames(el, user, profile) {
   /* ------------------------------------------------------------------ */
 
   function gtqRef() {
-    return ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/guessTheQuestion/questions`);
+    return ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/guessTheAnswer/questions`);
+  }
+
+  function gtqQRef(qId) {
+    return ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/guessTheAnswer/questions/${qId}`);
   }
 
   function gtqStorageKey() {
@@ -1879,9 +1883,9 @@ export function renderGames(el, user, profile) {
     for (const op of queue) {
       try {
         if (op.op === "create") {
-          void set(ref(gtqRef(), op.qId), op.data);
+          void set(gtqQRef(op.qId), op.data);
         } else if (op.op === "update") {
-          void update(ref(gtqRef(), op.qId), op.data);
+          void update(gtqQRef(op.qId), op.data);
         }
       } catch (error) {
         remaining.push(op);
@@ -1944,7 +1948,7 @@ export function renderGames(el, user, profile) {
     gtqDetailId = "";
     saveGuessTheQuestionsLocal();
     renderGuessTheQuestion(content);
-    const write = () => rtdb ? set(ref(gtqRef(), qId), doc) : Promise.reject(new Error("offline"));
+    const write = () => rtdb ? set(gtqQRef(qId), doc) : Promise.reject(new Error("offline"));
     await gtqQueueWrite({ op: "create", qId, data: doc }, write);
     toast("Your question was shared ♡");
   }
@@ -1966,7 +1970,7 @@ export function renderGames(el, user, profile) {
     if (autoCorrect) scores[user.uid] = gtqScoreOf(question, user.uid) + 1;
     const status = gtqStatus({ ...question, answers, scores });
     const patch = { answers, scores, status, updatedAt: Date.now() };
-    const questionRef = ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/guessTheQuestion/questions/${qId}`);
+    const questionRef = ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/guessTheAnswer/questions/${qId}`);
     guessTheQuestions = guessTheQuestions.map(item => item.id === qId ? { ...item, ...patch } : item);
     saveGuessTheQuestionsLocal();
     renderGuessTheQuestion($("#games-active-content", el));
@@ -1987,7 +1991,7 @@ export function renderGames(el, user, profile) {
     if (verdict === "correct") scores[answerUid] = gtqScoreOf(question, answerUid) + 1;
     const status = gtqStatus({ ...question, answers, scores });
     const patch = { answers, scores, status, updatedAt: Date.now() };
-    const questionRef = ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/guessTheQuestion/questions/${qId}`);
+    const questionRef = ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/guessTheAnswer/questions/${qId}`);
     guessTheQuestions = guessTheQuestions.map(item => item.id === qId ? { ...item, ...patch } : item);
     saveGuessTheQuestionsLocal();
     renderGuessTheQuestion($("#games-active-content", el));
@@ -1996,13 +2000,52 @@ export function renderGames(el, user, profile) {
     toast(`Answer marked ${verdict} ♡`);
   }
 
+  function gtqProfiles() {
+    const ownKey = ownProfileKey(profile, user);
+    const own = APP_CONFIG.profiles[ownKey] || gamePlayerProfile(user.uid) || {};
+    const partner = Object.values(APP_CONFIG.profiles).find(p => p && getProfileKey(p) !== ownKey) || {};
+    return { own, partner };
+  }
+
+  function gtqOnline(uid) {
+    return Boolean(appPresence?.[uid]?.online);
+  }
+
+  function gtqPlayersStrip() {
+    const { own, partner } = gtqProfiles();
+    const ownUid = own.authUid || user.uid;
+    const partnerUid = partner.authUid || "";
+    const ownName = getDisplayName(ownUid, own.name || "You");
+    const partnerName = getDisplayName(partnerUid, partner.name || "Partner");
+    const ownScore = guessTheQuestions.reduce((sum, q) => sum + gtqScoreOf(q, ownUid), 0);
+    const partnerScore = guessTheQuestions.reduce((sum, q) => sum + gtqScoreOf(q, partnerUid), 0);
+    return `
+      <div class="gtq-players">
+        <div class="gtq-player me">
+          ${gamePlayerAvatar(ownUid, ownName)}
+          <span class="gtq-player-name">${esc(ownName)}</span>
+          <span class="gtq-player-role">${ownUid === user.uid ? "You" : "Partner"}</span>
+          <span class="gtq-player-online ${gtqOnline(ownUid) ? "" : "offline"}"><i aria-hidden="true"></i>${gtqOnline(ownUid) ? "Online" : "Offline"}</span>
+          <span class="gtq-player-score">${ownScore}<small>points</small></span>
+        </div>
+        <div class="gtq-player partner">
+          ${gamePlayerAvatar(partnerUid, partnerName)}
+          <span class="gtq-player-name">${esc(partnerName)}</span>
+          <span class="gtq-player-role">${partnerUid ? "Partner" : "Partner"}</span>
+          <span class="gtq-player-online ${gtqOnline(partnerUid) ? "" : "offline"}"><i aria-hidden="true"></i>${gtqOnline(partnerUid) ? "Online" : "Offline"}</span>
+          <span class="gtq-player-score">${partnerScore}<small>points</small></span>
+        </div>
+      </div>`;
+  }
+
   function renderGuessTheQuestionNewForm(container) {
     if (!container) return;
     container.innerHTML = `
       <button type="button" class="gtq-back" data-gtq-back>← Questions List</button>
       <article class="gtq-panel">
-        <h2>Send a new question</h2>
-        <p class="games-instructions">Ask your partner anything — an emoji guess, a word puzzle, or a riddle. Add a hint and the answer so it can be checked automatically.</p>
+        <div class="gtq-detail-head"><span class="gtq-from">New question</span><span class="gtq-status gtq-status-open">Open</span></div>
+        <div class="gtq-question" style="font-size:22px;margin-bottom:6px">Send a new question</div>
+        <p class="games-instructions" style="margin-bottom:14px">Ask your partner anything — an emoji guess, a word puzzle, or a riddle. Add a hint and the answer so it can be checked automatically.</p>
         <div class="gtq-form">
           <label>Question<textarea id="gtq-question-input" maxlength="200" placeholder="e.g. What am I thinking of right now?"></textarea></label>
           <label>Hint (optional)<input id="gtq-hint-input" maxlength="120" placeholder="A gentle clue…"></label>
@@ -2020,7 +2063,7 @@ export function renderGames(el, user, profile) {
     if (!container) return;
     const questions = guessTheQuestions;
     if (questions.length === 0) {
-      container.innerHTML = `<div class="gtq-empty"><p>No questions yet. Send your partner the first question!</p></div>`;
+      container.innerHTML = `<div class="gtq-empty"><p style="font-size:16px">No questions yet.<br>Send your partner the first question!</p></div>`;
       return;
     }
     container.innerHTML = questions.map(question => {
@@ -2045,10 +2088,15 @@ export function renderGames(el, user, profile) {
       else if (canAnswer) actionLabel = "Try again";
       else if (isCreator && status === "answered") actionLabel = "Review answers";
       else if (isCreator) actionLabel = "View";
-      return `<article class="gtq-card">
+      const fromName = isCreator ? "You" : esc(gtqPartnerName(question));
+      const fromAvatar = isCreator ? gamePlayerAvatar(user.uid, getDisplayName(user.uid, "You")) : gamePlayerAvatar(partnerUid, gtqPartnerName(question));
+      return `<article class="gtq-card${isCreator ? " gtq-card-own" : ""}">
         <div class="gtq-card-head">
-          <span class="gtq-from">${isCreator ? "From you" : `From ${esc(gtqPartnerName(question))}`}</span>
-          <span class="gtq-status ${statusClass}">${esc(statusLabel)}</span>
+          ${fromAvatar}
+          <div class="gtq-card-info">
+            <span class="gtq-from">${isCreator ? "From you" : `From ${fromName}`}</span>
+            <span class="gtq-status ${statusClass}">${esc(statusLabel)}</span>
+          </div>
         </div>
         <div class="gtq-question">${esc(question.question)}</div>
         ${question.hint ? `<div class="gtq-hint">Hint · ${esc(question.hint)}</div>` : ""}
@@ -2101,12 +2149,17 @@ export function renderGames(el, user, profile) {
       let markButtons = "";
       if (isCreator && answer.verdict == null) {
         markButtons = `
-          <button type="button" class="secondary" data-gtq-mark="${esc(qId)}" data-gtq-answer-uid="${esc(answerUid)}" data-gtq-verdict="correct">Mark Correct</button>
-          <button type="button" class="secondary" data-gtq-mark="${esc(qId)}" data-gtq-answer-uid="${esc(answerUid)}" data-gtq-verdict="wrong">Mark Wrong</button>`;
+          <div class="gtq-mark-row">
+            <button type="button" class="secondary" data-gtq-mark="${esc(qId)}" data-gtq-answer-uid="${esc(answerUid)}" data-gtq-verdict="correct">Mark Correct</button>
+            <button type="button" class="secondary" data-gtq-mark="${esc(qId)}" data-gtq-answer-uid="${esc(answerUid)}" data-gtq-verdict="wrong">Mark Wrong</button>
+          </div>`;
       }
       const answerAttemptsHtml = answer.attempts >= 2 ? `<span class="gtq-attempts">${gtqOrdinal(answer.attempts)} try</span>` : "";
-      return `<div class="gtq-answer">
-        <span class="gtq-answer-who">${esc(name)}</span>
+      return `<div class="gtq-answer${isMe ? "" : " gtq-answer-partner"}${answer.verdict === "correct" ? " correct" : answer.verdict === "wrong" ? " wrong" : ""}">
+        <div class="gtq-answer-left">
+          ${gamePlayerAvatar(answerUid, name)}
+          <span class="gtq-answer-who">${esc(name)}</span>
+        </div>
         <span class="gtq-answer-text">${esc(answer.text)}</span>
         ${verdictHtml}${answerAttemptsHtml}
         ${markButtons}
@@ -2124,11 +2177,11 @@ export function renderGames(el, user, profile) {
         <div class="gtq-question">${esc(question.question)}</div>
         ${question.hint ? `<div class="gtq-hint">Hint · ${esc(question.hint)}</div>` : ""}
         ${answerForm}
-        <div class="gtq-score-row">
+        <div class="gtq-meta">
           <span class="gtq-score">You <strong>${gtqScoreOf(question, user.uid)}</strong></span>
           <span class="gtq-score">Partner <strong>${gtqScoreOf(question, partnerUid)}</strong></span>
         </div>
-        <h3 style="margin:10px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Answers</h3>
+        <h3 style="margin:14px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.18em;color:var(--muted);font-weight:900">Answers</h3>
         <div class="gtq-answers">${answersHtml}</div>
       </article>`;
   }
@@ -2140,31 +2193,35 @@ export function renderGames(el, user, profile) {
       content.innerHTML = `<section class="gtq-page"><button class="games-back-button" type="button" data-back-games>← All games</button><h1>Questions List</h1><p class="games-instructions">Guess the Answer needs Firebase Realtime Database.</p></section>`;
       return;
     }
-    if (gtqDetailId === "new") {
-      const formContainer = document.createElement("div");
-      formContainer.id = "gtq-new";
-      content.appendChild(formContainer);
-      renderGuessTheQuestionNewForm(formContainer);
-      return;
-    }
-    const header = document.createElement("div");
-    header.className = "gtq-toolbar";
-    header.innerHTML = `
+    const page = document.createElement("div");
+    page.className = "gtq-page";
+    page.innerHTML = `
       <button class="games-back-button" type="button" data-back-games>← All games</button>
       <h1>Questions List</h1>
-      <button type="button" class="primary" data-gtq-new>＋ New Question</button>`;
-    content.appendChild(header);
+      ${gtqPlayersStrip()}
+      <button type="button" class="primary gtq-action" data-gtq-new style="width:100%;margin:0 0 16px">＋ New Question</button>
+      <div id="gtq-list"></div>
+      <div id="gtq-detail"></div>`;
+    content.appendChild(page);
 
     const listContainer = document.createElement("div");
     listContainer.id = "gtq-list";
-    content.appendChild(listContainer);
+    page.querySelector("#gtq-list").replaceWith(listContainer);
+    page.appendChild(listContainer);
 
     const detailContainer = document.createElement("div");
     detailContainer.id = "gtq-detail";
-    content.appendChild(detailContainer);
+    page.appendChild(detailContainer);
 
     renderGuessTheQuestionList(listContainer);
-    if (gtqDetailId) renderGuessTheQuestionDetail(detailContainer, gtqDetailId);
+    if (gtqDetailId === "new") {
+      const formContainer = document.createElement("div");
+      formContainer.id = "gtq-new";
+      detailContainer.parentNode.insertBefore(formContainer, detailContainer);
+      renderGuessTheQuestionNewForm(formContainer);
+    } else if (gtqDetailId) {
+      renderGuessTheQuestionDetail(detailContainer, gtqDetailId);
+    }
   }
 
   listenForGameResults();

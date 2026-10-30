@@ -518,7 +518,7 @@ export function renderHome(el, user, profile) {
       likeBtn.onclick = async () => {
         const liked = (post.likedBy || []).includes(user.uid);
         try {
-          await toggleDiaryLike(post.id, user.uid, liked);
+          await toggleDiaryLike(post.id, user.uid);
           if (!liked) void notifyPartnerSafely(getProfileKey(profile), "like", `${profile.name} liked a post.`, `${post.id}-${user.uid}-${Date.now()}`, "gallery");
         } catch (err) {
           console.error("Could not update post like:", err);

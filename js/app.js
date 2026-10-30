@@ -921,7 +921,7 @@ function renderPostFeed(el, user, profile) {
           const liked = (post.likedBy || []).includes(user.uid);
           likeBtn.disabled = true;
           try {
-            await toggleDiaryLike(post.id, user.uid, liked);
+            await toggleDiaryLike(post.id, user.uid);
             if (!liked) {
               void notifyPartnerSafely(getProfileKey(profile), "like", `${profile.name} liked a post.`, `${post.id}-${user.uid}-${Date.now()}`, "gallery");
             }

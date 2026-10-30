@@ -323,7 +323,7 @@ export async function loadOlderDiaryPosts(cursor, maxItems = 50) {
   };
 }
 
-export async function toggleDiaryLike(postId, uid, liked) {
+export async function toggleDiaryLike(postId, uid) {
   if (!firebaseReady) throw new Error("Connect Firebase before liking posts.");
   const ref = doc(diaryCollection(), postId);
   await runTransaction(db, async transaction => {
@@ -331,8 +331,7 @@ export async function toggleDiaryLike(postId, uid, liked) {
     if (!snapshot.exists() || snapshot.data().deleting) throw new Error("This post is no longer available.");
     const likedBy = Array.isArray(snapshot.data().likedBy) ? snapshot.data().likedBy : [];
     const currentlyLiked = likedBy.includes(uid);
-    if (currentlyLiked === liked) return;
-    transaction.update(ref, { likedBy: liked ? arrayRemove(uid) : arrayUnion(uid) });
+    transaction.update(ref, { likedBy: currentlyLiked ? arrayRemove(uid) : arrayUnion(uid) });
   });
 }
 
