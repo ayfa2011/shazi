@@ -9,7 +9,7 @@
  *    (Firestore IndexedDB, olw-media-cache) own offline behavior.
  */
 const CACHE_PREFIX = "our-little-world-";
-const CACHE_VERSION = "v17";
+const CACHE_VERSION = "v18";
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${new URL(self.registration.scope).pathname}-${CACHE_VERSION}`;
 const STATIC_CACHE = `${CACHE_PREFIX}static-${new URL(self.registration.scope).pathname}-${CACHE_VERSION}`;
 let forceNetworkUntil = 0;
@@ -77,6 +77,25 @@ async function responsesDiffer(cached, fresh) {
   return oldView.some((byte, index) => byte !== newView[index]);
 }
 
+
+// Code (JS/CSS) is Network-First: always try the server for the newest file,
+// and only fall back to the cache when offline or the server is slow.
+async function networkFirstCode(request, cacheName) {
+  const cache = await caches.open(cacheName);
+  try {
+    const fresh = await Promise.race([
+      fetch(request, { cache: "no-cache" }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 4000))
+    ]);
+    if (fresh && fresh.ok) cache.put(request, fresh.clone()).catch(() => {});
+    return fresh;
+  } catch (error) {
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    throw error;
+  }
+}
+
 async function staleWhileRevalidate(request, cacheName, event) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
@@ -102,7 +121,7 @@ async function staleWhileRevalidate(request, cacheName, event) {
 self.addEventListener("install", event => {
   event.waitUntil(
     caches.open(SHELL_CACHE)
-      .then(cache => cache.addAll(SHELL_FILES))
+      .then(cache => cache.addAll(SHELL_FILES.map(u => new Request(u, { cache: "reload" }))))
       .then(() => caches.open(STATIC_CACHE))
       .then(cache => cache.addAll([
         "js/app.js", "js/firebase.js", "js/auth.js", "js/utils.js",
@@ -190,7 +209,7 @@ self.addEventListener("fetch", event => {
       return;
     }
     if (isCodeAsset(url)) {
-      event.respondWith(staleWhileRevalidate(request, STATIC_CACHE, event));
+      event.respondWith(networkFirstCode(request, STATIC_CACHE));
       return;
     }
     event.respondWith(cacheFirstThenNetwork(request, STATIC_CACHE));
