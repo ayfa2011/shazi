@@ -9,7 +9,7 @@
  *    (Firestore IndexedDB, olw-media-cache) own offline behavior.
  */
 const CACHE_PREFIX = "our-little-world-";
-const CACHE_VERSION = "v21";
+const CACHE_VERSION = "v22";
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${new URL(self.registration.scope).pathname}-${CACHE_VERSION}`;
 const STATIC_CACHE = `${CACHE_PREFIX}static-${new URL(self.registration.scope).pathname}-${CACHE_VERSION}`;
 let forceNetworkUntil = 0;
@@ -128,7 +128,7 @@ self.addEventListener("install", event => {
         "js/firestore.js", "js/components.js", "js/dashboard.js",
         "js/games.js", "js/games-2.js", "js/find-the-words.js", "js/true-false-question-bank.js",
         "js/memories.js", "js/gallery.js", "js/letters.js", "js/questions.js",
-        "js/question-service.js", "js/profile-data.js", "src/services/telegramService.js",
+        "js/question-service.js", "js/profile-data.js", "js/profile.js", "js/drive.js", "src/services/telegramService.js",
         "config/app-config.js", "config/telegram-config.js"
       ].map(path => new URL(path, self.registration.scope).href)))
       .then(() => self.skipWaiting())

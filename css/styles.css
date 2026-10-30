@@ -88,7 +88,9 @@ body:not(.home-dashboard) .hard-refresh-btn{display:none}
 .notification-panel-foot button{justify-self:center;padding:7px 11px;border-radius:999px;background:#ffe7f0;color:var(--deep);font-size:10px;font-weight:700}
 .notification-panel-foot button:disabled{opacity:.55;cursor:not-allowed}
 .notification-panel-foot small{color:var(--muted);font-size:9px}
-#avatar-letter img{width:100%;height:100%;border-radius:50%;object-fit:cover}
+.top-actions .avatar{position:relative;flex:0 0 auto;aspect-ratio:1/1;overflow:hidden;display:grid;place-items:center;padding:0}
+#avatar-letter{position:absolute;inset:0;width:100%;height:100%;border-radius:50%;overflow:hidden;display:grid;place-items:center;font-size:16px;line-height:1}
+#avatar-letter img{width:100%;height:100%;min-width:0;min-height:0;border-radius:50%;object-fit:cover;display:block}
 .content{max-width:1050px;margin:auto;padding:22px 18px 110px}.hero{padding:24px;border-radius:28px;background:linear-gradient(135deg,#ffd9e8,#fff);box-shadow:var(--shadow)}
 .hero h1{font-size:34px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:16px}.card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:18px;box-shadow:0 8px 30px #8f315d0a}.card h3{margin:0 0 8px}.stat{font-size:28px;font-weight:700;color:var(--deep)}
 .section-head{display:flex;justify-content:space-between;align-items:center;margin:24px 0 12px}.list{display:grid;gap:10px}.item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px;border:1px solid var(--line);border-radius:16px;background:#fff}
@@ -187,6 +189,7 @@ body:not(.home-dashboard) .hard-refresh-btn{display:none}
   justify-content: space-between;
   pointer-events: none;
 }
+.home-dashboard .top-actions .avatar { flex: 0 0 auto; }
 .home-dashboard .top-actions button { pointer-events: auto; }
 .home-dashboard #notification-center { pointer-events: auto; }
 .home-dashboard .notification-panel { left: 0; right: auto; }
@@ -195,8 +198,11 @@ body:not(.home-dashboard) .hard-refresh-btn{display:none}
 .home-dashboard .avatar {
   width: 44px;
   height: 44px;
+  flex: 0 0 auto;
+  aspect-ratio: 1 / 1;
   display: grid;
   place-items: center;
+  overflow: hidden;
   border: 0;
   border-radius: 50%;
   background: #ffe3ef;
@@ -2231,6 +2237,7 @@ body.home-dashboard .home-canvas-action {
 #app-view .top-actions .avatar,
 #app-view .top-actions .notification-toggle,
 #app-view .top-actions .icon-btn { width: 38px; height: 38px; min-height: 38px; }
+#app-view .top-actions .avatar { width: 38px; height: 38px; min-width: 38px; min-height: 38px; aspect-ratio: 1 / 1; }
 #main-content h1 { margin-top: 4px; margin-bottom: 4px; font-size: clamp(22px, 5vw, 27px); line-height: 1.18; }
 #main-content h2 { margin-top: 2px; margin-bottom: 4px; font-size: clamp(18px, 4vw, 21px); line-height: 1.25; }
 #main-content h3 { font-size: 16px; line-height: 1.3; }

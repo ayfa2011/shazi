@@ -363,6 +363,10 @@ function renderPostFeed(el, user, profile) {
       .tw-detail-reply input { min-width:0; flex:1; border:1px solid #efdce5; border-radius:999px; padding:10px 13px; outline:none; }
       .tw-image-backdrop { z-index:1450; }
       .tw-image-backdrop img { max-width:100%; max-height:90dvh; object-fit:contain; border-radius:12px; }
+      .tw-video-backdrop { position:fixed; inset:0; z-index:1500; display:none; align-items:center; justify-content:center; background:#000; color:#fff; touch-action:none; }
+      .tw-video-backdrop.open { display:flex; }
+      .tw-video-backdrop video { display:block; max-width:100%; max-height:100dvh; width:auto; height:auto; object-fit:contain; border-radius:0; background:#000; }
+      .tw-video-close { position:absolute; top:max(12px,env(safe-area-inset-top,12px)); right:max(12px,env(safe-area-inset-right,12px)); z-index:2; width:44px; height:44px; border-radius:50%; border:none; background:#ffffff1a; color:#fff; font-size:26px; line-height:1; cursor:pointer; backdrop-filter:blur(4px); }
       .tw-actions-bar {
         display: flex;
         justify-content: space-between;
@@ -449,6 +453,7 @@ function renderPostFeed(el, user, profile) {
       </div>
       <div class="tw-detail-page" id="tw-post-detail" aria-hidden="true"><header class="tw-detail-head"><button type="button" class="tw-detail-close" id="tw-detail-close" aria-label="Back">← Back</button><strong>Post & replies</strong><span></span></header><div class="tw-detail-body" id="tw-detail-body"></div></div>
       <div class="tw-image-backdrop" id="tw-post-image-viewer" aria-hidden="true"><img alt="Full size post photo"></div>
+      <div class="tw-video-backdrop" id="tw-post-video-viewer" aria-hidden="true"><button type="button" class="tw-video-close" aria-label="Close video">×</button><div class="tw-video-stage"><video class="tw-post-video-viewer-video" playsinline webkit-playsinline muted></video></div></div>
     </div>
   `;
 
@@ -458,6 +463,8 @@ function renderPostFeed(el, user, profile) {
   const detailModal = $("#tw-post-detail", el);
   const detailBody = $("#tw-detail-body", el);
   const imageViewer = $("#tw-post-image-viewer", el);
+  const videoViewer = $("#tw-post-video-viewer", el);
+  const viewerVideo = $(".tw-post-video-viewer-video", videoViewer);
   const cropEditor = $("#tw-crop-editor", el);
   const cropPreview = $("#tw-crop-preview", el);
 
@@ -611,7 +618,40 @@ function renderPostFeed(el, user, profile) {
     activePostCommentsId = "";
     detailModal.classList.remove("open");
     detailModal.setAttribute("aria-hidden", "true");
+    closePostVideoViewer();
   }
+
+  // ── Full-screen video viewer for post videos ────────────────────────────
+  // Android Chrome WebView does not open post videos full-screen on tap the
+  // way iPhone does, so tapping a video post opens a dedicated full-screen
+  // viewer loaded from the authenticated Telegram media URL.
+  async function openPostVideoViewer(postId) {
+    const post = posts.find(item => item.id === postId);
+    if (!post) return;
+    const fileId = post.telegramVideoFileId || post.telegramFileId;
+    const mime = post.videoMimeType || post.photoMimeType || post.telegramMimeType || "video/mp4";
+    if (!fileId) return;
+    try {
+      const url = await getTelegramMediaUrl(fileId, mime);
+      if (!videoViewer.isConnected) return;
+      viewerVideo.src = url;
+      viewerVideo.load();
+    } catch (error) {
+      console.error("Post video viewer could not load:", error);
+      toast("Could not open video.");
+      return;
+    }
+    videoViewer.classList.add("open");
+    videoViewer.setAttribute("aria-hidden", "false");
+    void viewerVideo.play().catch(() => {});
+  }
+  function closePostVideoViewer() {
+    videoViewer.classList.remove("open");
+    videoViewer.setAttribute("aria-hidden", "true");
+    try { viewerVideo.pause(); viewerVideo.removeAttribute("src"); viewerVideo.load(); } catch { /* ignore */ }
+  }
+  videoViewer.querySelector(".tw-video-close")?.addEventListener("click", () => closePostVideoViewer());
+  videoViewer.addEventListener("click", event => { if (event.target === videoViewer) closePostVideoViewer(); });
 
   // Instagram-style infinite feed: a sentinel div at the bottom of the feed
   // auto-triggers loading of the next page of older posts as you scroll.
@@ -1064,6 +1104,12 @@ function renderPostFeed(el, user, profile) {
         videoFrames.get(visibleVideoId)?.video.pause();
       }
       if (!video.muted) visibleVideoId = postId;
+    });
+    // Tapping a post video opens it full-screen (matches iPhone behaviour;
+    // Android Chrome WebView otherwise does not expand post videos).
+    frame.addEventListener("click", event => {
+      event.stopPropagation();
+      openPostVideoViewer(postId);
     });
     getTelegramMediaUrl(fileId, mime)
       .then(url => { if (video.isConnected) video.src = url; })
