@@ -18,6 +18,7 @@ import { renderProfile } from "./profile.js";
 import { disposeSpecialDays } from "./special-days.js";
 import { disposeNotificationCenter, initNotificationCenter } from "./notification-center.js";
 import { renderDrawing, disposeDrawing } from "./drawing.js";
+import { warmDrawing } from "./drawing-preload.js";
 import { renderChallenges, disposeChallenges } from "./challenges.js";
 import { initMusic } from "./music.js";
 import { firebaseReady } from "./firebase.js";
@@ -1343,6 +1344,11 @@ initAuth(
     const route = routes[routeFromHash] ? routeFromHash : initialRoute;
     window.history.replaceState({ route }, "", `#${route}`);
     navigate(route, { history: false });
+
+    // Pre-warm the Drawing Canvas in the background (RTDB connection +
+    // strokes snapshot + offscreen canvas context) so it opens instantly.
+    void warmDrawing();
+
     initNotificationCenter(user, currentProfile, navigate);
 
     // Initialize Background Music if Firebase Ready

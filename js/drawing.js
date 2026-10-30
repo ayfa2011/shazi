@@ -4,6 +4,7 @@ import { addDrawingMessage, watchDrawingMessages, deleteDrawingMessage, notifyPa
 import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences } from "../src/services/telegramService.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { createDrawingHistory, createOfflineQueue } from "./drawing-fixes.js";
+import { warmDrawing, drawingWarm } from "./drawing-preload.js";
 import { ref, push, get, onChildAdded, onValue, onDisconnect, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
 const root = "couples/our-little-world/drawing";
@@ -296,10 +297,12 @@ export function renderDrawing(el, user, profile) {
   let currentPreviewMessage = null;
   let cachedMessages = [];
 
-  const liveBuffer = document.createElement("canvas");
-  liveBuffer.width = canvas.width;
-  liveBuffer.height = canvas.height;
-  const liveBufferCtx = liveBuffer.getContext("2d");
+  const liveBuffer = drawingWarm.ctx ? drawingWarm.ctx.canvas : document.createElement("canvas");
+  if (!drawingWarm.ctx) {
+    liveBuffer.width = canvas.width;
+    liveBuffer.height = canvas.height;
+  }
+  const liveBufferCtx = drawingWarm.ctx || liveBuffer.getContext("2d");
 
   const boardResizeObserver = new ResizeObserver(() => { if (active) { refreshCanvasRect(); applyZoom(zoom); } });
   boardResizeObserver.observe(drawBoard);
@@ -712,26 +715,53 @@ export function renderDrawing(el, user, profile) {
     applyRemoteOperation(snapshot, true);
   }));
 
-  get(strokeRef).then(snapshot => {
-    if (!active) return;
-    snapshot.forEach(operation => applyRemoteOperation(operation, false));
-    initialEvents.sort((a, b) => a.key.localeCompare(b.key));
-    initialEvents.forEach(operation => applyRemoteOperation(operation, false));
-    initialEvents.length = 0;
+  // Fast path: render from the pre-warmed strokes snapshot so the canvas is
+  // interactive immediately without waiting on the network (this is what
+  // removes the 15–30s hang when opening the Drawing Page).
+  function applySnapshot(snapshot) {
+    if (!snapshot) return;
+    const ops = Object.entries(snapshot);
+    ops.sort((a, b) => a[0].localeCompare(b[0]));
+    for (const [key, value] of ops) {
+      applyRemoteOperation({ key, val: () => value }, false);
+    }
+  }
+
+  if (drawingWarm.strokesSnapshot) {
+    applySnapshot(drawingWarm.strokesSnapshot);
     initialSyncComplete = true;
     remoteSyncReady = true;
     redrawCanvas();
     updateSyncStatus();
+  }
+
+  // Background refresh — never blocks opening the canvas; keeps the cache fresh.
+  get(strokeRef).then(snapshot => {
+    if (!active) return;
+    const fresh = snapshot.val() || null;
+    drawingWarm.strokesSnapshot = fresh;
+    if (!initialSyncComplete) {
+      snapshot.forEach(operation => applyRemoteOperation(operation, false));
+      initialEvents.sort((a, b) => a.key.localeCompare(b.key));
+      initialEvents.forEach(operation => applyRemoteOperation(operation, false));
+      initialEvents.length = 0;
+      initialSyncComplete = true;
+      remoteSyncReady = true;
+      redrawCanvas();
+      updateSyncStatus();
+    }
   }).catch(error => {
     if (!active) return;
     console.warn("Could not load the initial shared canvas snapshot; applying available updates.", error);
-    initialEvents.sort((a, b) => a.key.localeCompare(b.key));
-    initialEvents.forEach(operation => applyRemoteOperation(operation, false));
-    initialEvents.length = 0;
-    initialSyncComplete = true;
-    remoteSyncReady = true;
-    redrawCanvas();
-    updateSyncStatus();
+    if (!initialSyncComplete) {
+      initialEvents.sort((a, b) => a.key.localeCompare(b.key));
+      initialEvents.forEach(operation => applyRemoteOperation(operation, false));
+      initialEvents.length = 0;
+      initialSyncComplete = true;
+      remoteSyncReady = true;
+      redrawCanvas();
+      updateSyncStatus();
+    }
   });
 
   let isConnected = false;
