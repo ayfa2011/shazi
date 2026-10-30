@@ -1030,6 +1030,7 @@ function renderPostFeed(el, user, profile) {
     const mime = post.videoMimeType || post.photoMimeType || post.telegramMimeType || "video/mp4";
     if (!fileId) return;
     frame.dataset.attached = "1";
+    let metadataLoaded = false;
     const waiting = frame.querySelector(".tw-video-waiting");
     const overlay = frame.querySelector(".tw-video-play-overlay");
     const muteBtn = frame.querySelector(".tw-video-mute");
@@ -1043,10 +1044,14 @@ function renderPostFeed(el, user, profile) {
     video.dataset.postVideoEl = postId;
     frame.insertBefore(video, frame.firstChild);
     videoFrames.set(postId, { frame, video });
-    video.addEventListener("loadedmetadata", () => { if (waiting) waiting.remove(); });
+    video.addEventListener("loadedmetadata", () => { metadataLoaded = true; if (waiting) waiting.remove(); });
     video.addEventListener("playing", () => frame.classList.add("playing"));
     video.addEventListener("pause", () => frame.classList.remove("playing"));
     video.addEventListener("waiting", () => frame.classList.remove("playing"));
+    // Android WebView sometimes never fires loadedmetadata on Telegram blob URLs,
+    // which left the video post stuck on the waiting spinner with no thumbnail.
+    // Fall back to hiding the spinner so the video frame is visible instead.
+    setTimeout(() => { if (!metadataLoaded && waiting) waiting.remove(); }, 3000);
     overlay?.addEventListener("click", () => {
       if (video.paused) video.play().catch(() => {});
       else video.pause();

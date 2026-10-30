@@ -19,22 +19,35 @@ function createVideoThumbnail(file) {
     video.preload = "metadata";
     video.muted = true;
     video.playsInline = true;
-    video.onloadeddata = () => {
-      const scale = Math.min(1, 1280 / Math.max(video.videoWidth, video.videoHeight));
+    video.setAttribute("playsinline", "");
+    video.setAttribute("webkit-playsinline", "");
+    let settled = false;
+    let haveMeta = false;
+    let haveData = false;
+    const finish = (blob) => { if (settled) return; settled = true; cleanup(); resolve(blob); };
+    const fail = (err) => { if (settled) return; settled = true; cleanup(); reject(err); };
+    const tryDraw = () => {
+      if (settled || (!haveMeta && !haveData)) return;
+      const width = video.videoWidth || 0;
+      const height = video.videoHeight || 0;
+      if (!width || !height) return;
+      const scale = Math.min(1, 1280 / Math.max(width, height));
       const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+      canvas.width = Math.max(1, Math.round(width * scale));
+      canvas.height = Math.max(1, Math.round(height * scale));
       const context = canvas.getContext("2d");
-      if (!context) { cleanup(); reject(new Error("Could not create a video preview.")); return; }
+      if (!context) { fail(new Error("Could not create a video preview.")); return; }
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob(blob => {
-        cleanup();
-        if (blob) resolve(blob);
-        else reject(new Error("Could not create a video preview."));
-      }, "image/jpeg", 0.68);
+      canvas.toBlob(blob => { if (blob) finish(blob); else fail(new Error("Could not create a video preview.")); }, "image/jpeg", 0.68);
     };
-    video.onerror = () => { cleanup(); reject(new Error("Could not read this video.")); };
+    video.onloadedmetadata = () => { haveMeta = true; tryDraw(); };
+    video.onloadeddata = () => { haveData = true; tryDraw(); };
+    video.onerror = () => fail(new Error("Could not read this video."));
     video.src = objectUrl;
+    // Android WebView can skip / delay loadedmetadata and loadeddata on blob
+    // URLs, which left gallery video thumbnails permanently blank. Retry once
+    // so the thumbnail is generated even when those events never fire.
+    setTimeout(() => { if (!settled) tryDraw(); }, 800);
   });
 }
 
