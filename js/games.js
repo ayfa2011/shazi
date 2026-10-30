@@ -45,6 +45,10 @@ let stopSosPresence = null;
 let stopSosAppPresence = null;
 let stopSosConnection = null;
 let stopGameMatch = null;
+// Unsubscribers for the "Guess the Answer" screen. They live at module scope so
+// disposeGames() can release them when the user signs out or leaves the page.
+let stopGuessTheQuestion = null;
+let stopGtqConnected = null;
 let stopBattleshipBoard = null;
 let memoryTimer = null;
 let disposeFindTheWords = null;
@@ -791,8 +795,6 @@ export function renderGames(el, user, profile) {
   let savedMatchResults = new Set();
   let gameResults = null;
   let trueFalseBankCache = null;
-  let stopGuessTheQuestion = null;
-  let stopGtqConnected = null;
   let guessTheQuestions = [];
   let gtqDetailId = "";
 
