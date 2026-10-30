@@ -59,10 +59,8 @@ service cloud.firestore {
         && data.readAt == null;
     }
 
-    function isValidSpecialDay(data) {
-      return data.keys().hasAll(['type', 'author', 'title', 'category', 'date', 'recurring', 'createdAt'])
-        && data.keys().hasOnly(['type', 'author', 'title', 'category', 'date', 'recurring', 'createdAt', 'updatedAt'])
-        && data.type == 'specialDay'
+    function isSpecialDayData(data) {
+      return data.type == 'specialDay'
         && data.title is string
         && data.title.size() > 0
         && data.title.size() <= 80
@@ -70,8 +68,14 @@ service cloud.firestore {
         && data.date is string
         && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && data.recurring is bool
-        && data.createdAt is timestamp
         && (!data.keys().hasAny(['updatedAt']) || data.updatedAt is timestamp);
+    }
+
+    function isValidSpecialDay(data) {
+      return data.keys().hasAll(['type', 'author', 'title', 'category', 'date', 'recurring', 'createdAt'])
+        && data.keys().hasOnly(['type', 'author', 'title', 'category', 'date', 'recurring', 'createdAt', 'updatedAt', 'clientCreatedAt'])
+        && isSpecialDayData(data)
+        && data.createdAt is timestamp;
     }
 
     function ownsAuthoredFields(data) {
@@ -179,8 +183,8 @@ service cloud.firestore {
             && ownsDiaryPost(collectionName, request.resource.data))
           || (collectionName == 'items'
             && resource.data.get('type', '') == 'specialDay'
-            && isValidSpecialDay(request.resource.data)
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'category', 'date', 'recurring', 'updatedAt']))
+            && isSpecialDayData(request.resource.data)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'category', 'date', 'recurring', 'updatedAt', 'author']))
           || (collectionName == 'items' && isLegacyScheduledLetterBodyMigration())
           || (collectionName == 'items' && resource.data.get('type', '') == 'customChallenge'
             && ((resource.data.get('author', '') == request.auth.uid

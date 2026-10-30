@@ -1,12 +1,12 @@
 import { $, toast, esc } from "./utils.js";
 import { recordGameMatchResult, watchRecentGameResults, notifyPartnerSafely } from "./firestore.js";
-import { firebaseReady, functions, rtdb } from "./firebase.js";
+import { firebaseReady, rtdb } from "./firebase.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { mountFindTheWordsGame } from "./find-the-words.js";
 import { TRUE_FALSE_BANK_VERSION, TRUE_FALSE_QUESTION_BANK, pickTrueFalseQuestions } from "./true-false-question-bank.js";
-import { get, onDisconnect, onValue, push, ref, remove, runTransaction, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
-import { httpsCallable } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-functions.js";
+import { get, onDisconnect, onValue, push, ref, remove, runTransaction, set, update } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
+
 
 const sosGameRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sos`);
 const sosPresenceRef = uid => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sosPresence/${uid}`);
@@ -26,37 +26,7 @@ const emojiQuestions = [
   { emojis: "🌹 💌 💋", options: ["A love note and a kiss", "A flower delivery", "A secret admirer"], answer: 0 },
   { emojis: "🍓 🍫 😋", options: ["A sweet treat to share", "Strawberry shopping", "Chocolate for breakfast"], answer: 0 }
 ];
-const countryPuzzles = [
-  { emojis: "🗼 🥐 🎨", answer: "France" },
-  { emojis: "🍣 🗻 🌸", answer: "Japan" },
-  { emojis: "🦘 🐨 🏄", answer: "Australia" },
-  { emojis: "🌮 🌵 🎺", answer: "Mexico" },
-  { emojis: "🧀 ⌚ 🏔️", answer: "Switzerland" },
-  { emojis: "🐼 🎋 🥢", answer: "China" },
-  { emojis: "🍁 🏒 🫎", answer: "Canada" },
-  { emojis: "🍝 🏛️ 🍕", answer: "Italy" },
-  { emojis: "💃 🎸 🏖️", answer: "Spain" },
-  { emojis: "🐘 🪷 🛺", answer: "India" },
-  { emojis: "🥝 🐑 🏉", answer: "New Zealand" },
-  { emojis: "🎭 ⚽ ☕", answer: "Brazil" },
-  { emojis: "🧇 🍫 🏰", answer: "Belgium" },
-  { emojis: "🐪 🕌 🏜️", answer: "Saudi Arabia" }
-];
-const decoderPuzzles = [
-  { category: "MOVIE", emojis: "🧊 🚢 💔", answer: "Titanic" },
-  { category: "MOVIE", emojis: "🦁 👑 🌅", answer: "The Lion King" },
-  { category: "MOVIE", emojis: "❄️ 👸 ⛄", answer: "Frozen" },
-  { category: "MOVIE", emojis: "🕷️ 👨 🏙️", answer: "Spider-Man" },
-  { category: "PHRASE", emojis: "🐝 💛 🐝", answer: "You are my honey" },
-  { category: "PHRASE", emojis: "🌙 ✈️ ❤️", answer: "Love you to the moon and back" },
-  { category: "PHRASE", emojis: "☕ 🌧️ 🫂", answer: "Rainy-day cuddles and coffee" },
-  { category: "PHRASE", emojis: "🍿 🎬 🛋️", answer: "Movie night at home" }
-];
-const builtInEmojiPuzzles = [
-  ...countryPuzzles.map(question => ({ ...question, category: "COUNTRY" })),
-  ...decoderPuzzles
-];
-const customEmojiPuzzlesRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/emojiDecoder/puzzles`);
+
 const battleshipRoomRef = () => ref(rtdb, "battleshipMatches/our-little-world");
 const battleshipBoardRef = (matchId, uid) => ref(rtdb, `battleshipPrivate/${matchId}/${uid}`);
 const BATTLESHIP_FLEET = [
@@ -66,6 +36,7 @@ const BATTLESHIP_FLEET = [
   { id: "submarine", name: "Submarine", emoji: "🤿", length: 3 },
   { id: "destroyer", name: "Destroyer", emoji: "⛴️", length: 2 }
 ];
+const activeStatuses = ["waiting", "placing", "playing"];
 
 
 let stopGames = null;
@@ -74,7 +45,6 @@ let stopSosPresence = null;
 let stopSosAppPresence = null;
 let stopSosConnection = null;
 let stopGameMatch = null;
-let stopCustomEmojiPuzzles = null;
 let stopBattleshipBoard = null;
 let memoryTimer = null;
 let disposeFindTheWords = null;
@@ -84,14 +54,11 @@ let sosClock = null;
 let sosServerTimeOffset = 0;
 let stopSosServerTime = null;
 let activeSosPresenceUid = "";
-let customEmojiPuzzleBank = [];
 let battleshipBoard = null;
 let battleshipBoardMatchId = "";
 let battleshipDraftShips = [];
 let battleshipOrientation = "horizontal";
 let battleshipSelectedShipId = "carrier";
-const emojiPuzzleStorageKey = `olw-emoji-puzzles:${APP_CONFIG.coupleId}`;
-
 function shuffle(items) {
   const shuffled = [...items];
   for (let index = shuffled.length - 1; index > 0; index--) {
@@ -112,21 +79,10 @@ function makeEmojiQuestions() {
   });
 }
 
-function makeEmojiDecoderState(customPuzzles = []) {
-  const source = [...builtInEmojiPuzzles, ...customPuzzles];
-  return { questions: shuffle(source).slice(0, 5), question: 0, score: 0, revealed: false, wasCorrect: false };
-}
-
-function normalizePuzzleAnswer(answer) {
-  return String(answer || "").normalize("NFKD").toLocaleLowerCase().replace(/[\p{M}\p{P}\p{S}\s]/gu, "");
-}
-
-
-
 const gameTitles = {
   "memory-match": "Memory Match",
   "emoji-quiz": "Emoji Quiz",
-  "emoji-decoder": "Emoji Decoder",
+
   battleship: "Battleship",
   sos: "SOS",
   "true-false": "True or False"
@@ -210,14 +166,12 @@ function gameIsComplete(game, state) {
   if (game === "memory-match") return Array.isArray(state.matched) && Array.isArray(state.cards) &&
     state.cards.length > 0 && state.matched.length === state.cards.length;
   if (game === "emoji-quiz") return state.question >= state.questions.length;
-  if (game === "emoji-decoder") return state.question >= 5;
   return false;
 }
 
 function gameScore(game, state) {
   if (game === "memory-match") return state.moves;
   if (game === "emoji-quiz") return state.score;
-  if (game === "emoji-decoder") return state.score;
   return 0;
 }
 
@@ -266,25 +220,6 @@ function isValidTrueFalseRoom(room) {
   return false;
 }
 
-function isValidEmojiDecoderRoom(room) {
-  const questions = room.emojiDecoderQuestions;
-  const players = room.players || {};
-  if (!Array.isArray(questions) || questions.length !== 5 ||
-      !questions.every(question => question && typeof question.emojis === "string" && question.emojis.length <= 80 &&
-        typeof question.answer === "string" && question.answer.length <= 80 &&
-        typeof question.category === "string" && question.category.length <= 24) ||
-      !Number.isInteger(room.emojiDecoderQuestionIndex) || room.emojiDecoderQuestionIndex < 0 || room.emojiDecoderQuestionIndex > 5 ||
-      room.playerUids.some(uid => !Number.isInteger(players[uid]?.score) || players[uid].score < 0 || players[uid].score > 5) ||
-      typeof room.emojiDecoderLastAnswer !== "string" || room.emojiDecoderLastAnswer.length > 80 ||
-      typeof room.emojiDecoderLastCorrect !== "boolean" ||
-      (room.emojiDecoderLastGuesserUid && !room.playerUids.includes(room.emojiDecoderLastGuesserUid))) return false;
-  if (room.status === "waiting") return room.playerUids.length === 1 && !room.turnUid && room.emojiDecoderQuestionIndex === 0;
-  if (room.status === "playing") return room.playerUids.length === 2 && room.playerUids.includes(room.turnUid) && room.emojiDecoderQuestionIndex < 5;
-  if (room.status === "finished") return room.playerUids.length === 2 && !room.turnUid && room.emojiDecoderQuestionIndex === 5 &&
-    (!room.winnerUid || room.playerUids.includes(room.winnerUid));
-  return room.status === "cancelled";
-}
-
 function isValidBattleshipRoom(room) {
   const players = room.players || {};
   const shots = room.shots || {};
@@ -320,12 +255,6 @@ function isValidActiveGameState(game, state) {
     state.questions.length === emojiQuestions.length &&
     Number.isInteger(state.question) && state.question >= 0 && state.question <= state.questions.length &&
     Number.isInteger(state.score) && state.score >= 0;
-  if (game === "emoji-decoder") return Array.isArray(state.questions) && state.questions.length === 5 &&
-    state.questions.every(question => question && typeof question.emojis === "string" && question.emojis.length <= 80 &&
-      typeof question.answer === "string" && question.answer.length <= 80 &&
-      typeof question.category === "string" && question.category.length <= 24) &&
-    Number.isInteger(state.question) && state.question >= 0 && state.question <= 5 &&
-    Number.isInteger(state.score) && state.score >= 0 && state.score <= 5 &&
     typeof state.revealed === "boolean" && typeof state.wasCorrect === "boolean";
   return false;
 }
@@ -575,7 +504,7 @@ function gamesHome() {
       ${gameCard("memory-match", "🧠", "Memory Match")}
       ${gameCard("find-words", "🔎", "Find the Words")}
       ${gameCard("true-false", "💡", "True or False")}
-      ${gameCard("emoji-decoder", "🧩", "Emoji Decoder")}
+      ${gameCard("guess-the-answer", "💬", "Guess the Answer")}
       ${gameCard("battleship", "🚢", "Battleship")}
       ${gameCard("ludo", "🎲", "Ludo")}
     </div>
@@ -600,9 +529,6 @@ function miniScoreboardMarkup(game, state, user, liveMatch) {
   } else if (game === "emoji-quiz") {
     label = "Points"; value = Number.isFinite(state.score) ? state.score : 0;
     detail = `${Math.min(state.question || 0, state.questions?.length || 0)}/${state.questions?.length || 0} questions`;
-  } else if (game === "emoji-decoder") {
-    label = "Points"; value = Number.isFinite(state.score) ? state.score : 0;
-    detail = `${Math.min(state.question || 0, 5)}/5 puzzles`;
   } else return "";
   return `<aside class="game-mini-scoreboard" aria-label="Current game score" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 10px;padding:9px 12px;border:1px solid #f3d5e2;border-radius:12px;background:#fff8fb;font-size:12px"><span style="font-weight:700;color:#75435a">${esc(label)}</span><strong style="font-size:15px;color:#b64f7b">${esc(String(value))}</strong><span style="margin-left:auto;color:#8c7480;text-align:right">${esc(detail)}</span></aside>`;
 }
@@ -621,32 +547,6 @@ function renderActiveGameBody(el, game, user, profile, state, liveMatch = false)
   if (!content) return;
   if (!isValidActiveGameState(game, state)) {
     content.innerHTML = `<div class="game-panel"><p class="error">This game's saved progress is invalid. Please start a new match.</p></div>`;
-    return;
-  }
-
-  if (game === "emoji-decoder") {
-    if (state.question >= 5) {
-      content.innerHTML = `<div class="game-panel emoji-decoder-panel"><p class="puzzle-meta"><span>ROUND COMPLETE</span><span>5 / 5</span></p><div class="puzzle-complete-heart" aria-hidden="true">♡</div><h2 class="quiz-heading">You scored ${state.score} of 5! 💖</h2><p class="games-instructions">Finish your turn to pass the emoji clues to your partner.</p></div>`;
-      return;
-    }
-    const question = state.questions[state.question];
-    content.innerHTML = `<article class="game-panel emoji-decoder-panel">
-      <div class="puzzle-meta"><span>${esc(question.category || "CUSTOM")}</span><span>${String(state.question + 1).padStart(2, "0")} / 05</span></div>
-      <div class="puzzle-clue" aria-label="Emoji clue">${esc(question.emojis)}</div>
-      ${state.revealed
-        ? `<div class="puzzle-result ${state.wasCorrect ? "correct" : "missed"}" aria-live="polite"><strong>${state.wasCorrect ? "You got it! +1 point 💖" : "A lovely try! ♡"}</strong><span>The answer is <b>${esc(question.answer)}</b></span><button type="button" class="primary puzzle-next" data-next-puzzle>${state.question === 4 ? "Finish your turn" : "Next puzzle"} <span aria-hidden="true">→</span></button></div>`
-        : `<div class="puzzle-guess-form"><label for="emoji-puzzle-guess">What do you think it is?</label><input id="emoji-puzzle-guess" data-puzzle-guess maxlength="80" autocomplete="off" placeholder="Type your guess"><button type="button" class="primary" data-puzzle-submit>Check answer <span aria-hidden="true">♡</span></button></div>`}
-      <details class="puzzle-add-details"><summary>Add your own puzzle <span aria-hidden="true">＋</span></summary>
-        <div class="puzzle-add-fields"><label>Emoji clue<input data-custom-puzzle-emojis maxlength="80" placeholder="e.g. 🧊 🚢 💔" autocomplete="off"></label><label>Answer<input data-custom-puzzle-answer maxlength="80" placeholder="Your answer" autocomplete="off"></label><label>Category<select data-custom-puzzle-category><option>COUNTRY</option><option>MOVIE</option><option>SONG</option><option>PHRASE</option><option>OTHER</option></select></label><button class="secondary" type="button" data-add-emoji-puzzle>Add to our puzzles</button></div>
-        <small class="puzzle-custom-count">${customEmojiPuzzleBank.length} custom ${customEmojiPuzzleBank.length === 1 ? "puzzle" : "puzzles"} shared</small>
-      </details>
-    </article>`;
-    content.querySelector("[data-puzzle-guess]")?.addEventListener("keydown", event => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        content.querySelector("[data-puzzle-submit]")?.click();
-      }
-    });
     return;
   }
 
@@ -671,7 +571,7 @@ function renderActiveGameBody(el, game, user, profile, state, liveMatch = false)
 
 }
 
-function renderSosGame(content, user, gameState, presence, pendingCell) {
+function renderSosGame(content, user, gameState, presence, pendingCell, profile = null) {
   const uid = user.uid;
   const state = gameState || null;
   if (state && !isValidSosState(state)) {
@@ -809,7 +709,6 @@ function resetActiveGame(game) {
   memoryTimer = null;
   if (game === "memory-match") return makeMemoryState();
   if (game === "emoji-quiz") return { questions: makeEmojiQuestions(), question: 0, answered: false, selected: -1, score: 0 };
-  if (game === "emoji-decoder") return makeEmojiDecoderState(customEmojiPuzzleBank);
   return {};
 }
 
@@ -831,7 +730,6 @@ function isValidGameRoom(room, game) {
       !room.playerUids.includes(room.quizCreatorUid) ||
       (room.quizPhase === "guesser" && (!room.quizRound || typeof room.quizRound.emojis !== "string")))) return false;
   if (game === "true-false") return isValidTrueFalseRoom(room);
-  if (game === "emoji-decoder") return isValidEmojiDecoderRoom(room);
   if (game === "battleship") return isValidBattleshipRoom(room);
   if (room.status === "waiting") return !room.turnUid;
   if (room.status === "playing") return room.playerUids.includes(room.turnUid);
@@ -866,9 +764,11 @@ export function renderGames(el, user, profile) {
   stopGames = null;
   stopGameMatch?.();
   stopGameMatch = null;
-  stopCustomEmojiPuzzles?.();
-  stopCustomEmojiPuzzles = null;
   stopSosListeners();
+  stopGuessTheQuestion?.();
+  stopGuessTheQuestion = null;
+  stopGtqConnected?.();
+  stopGtqConnected = null;
   disposeFindTheWords?.();
   disposeFindTheWords = null;
   disposeLudoGame?.();
@@ -891,13 +791,10 @@ export function renderGames(el, user, profile) {
   let savedMatchResults = new Set();
   let gameResults = null;
   let trueFalseBankCache = null;
-  try {
-    const savedPuzzles = JSON.parse(localStorage.getItem(emojiPuzzleStorageKey) || "[]");
-    customEmojiPuzzleBank = Array.isArray(savedPuzzles) ? savedPuzzles.filter(item =>
-      item && typeof item.emojis === "string" && item.emojis.trim() && item.emojis.length <= 80 &&
-      typeof item.answer === "string" && item.answer.trim() && item.answer.length <= 80
-    ).map(item => ({ category: String(item.category || "OTHER").slice(0, 24), emojis: item.emojis, answer: item.answer })) : [];
-  } catch { customEmojiPuzzleBank = []; }
+  let stopGuessTheQuestion = null;
+  let stopGtqConnected = null;
+  let guessTheQuestions = [];
+  let gtqDetailId = "";
 
   el.innerHTML = gamesHome();
 
@@ -1156,10 +1053,6 @@ export function renderGames(el, user, profile) {
       renderTrueFalseRoom(room, statusEl, content);
       return;
     }
-    if (activeGame === "emoji-decoder") {
-      renderEmojiDecoderRoom(room, statusEl, content);
-      return;
-    }
     if (activeGame === "battleship") {
       renderBattleshipRoom(room, statusEl, content);
       return;
@@ -1211,9 +1104,7 @@ export function renderGames(el, user, profile) {
     }
     const opponentState = players[opponentUid]?.state;
     const progress = opponentState
-      ? activeGame === "emoji-decoder"
-        ? `Puzzle ${Math.min(opponentState.question + 1, 5)} of 5`
-        : activeGame === "emoji-quiz"
+      ? activeGame === "emoji-quiz"
         ? `Question ${Math.min(opponentState.question + 1, opponentState.questions.length)} of ${opponentState.questions.length}`
         : activeGame === "memory-match"
           ? isValidActiveGameState(activeGame, opponentState)
@@ -1228,8 +1119,7 @@ export function renderGames(el, user, profile) {
       : `${opponentName} is taking their turn (${progress}). Your turn starts next.`;
     const scoreRule = {
       "memory-match": "Fewest moves wins.",
-      "emoji-quiz": "Most correct answers wins.",
-      "emoji-decoder": "One point per correct clue · most points wins."
+      "emoji-quiz": "Most correct answers wins."
     }[activeGame];
     const scoreValue = uid => activeGame === "memory-match"
       ? players[uid]?.completed ? formatGameScore(activeGame, players[uid].score) : "—"
@@ -1419,67 +1309,194 @@ export function renderGames(el, user, profile) {
     content.innerHTML = `<article class="true-false-card"><div class="true-false-question-meta"><span>${esc(question.category)}</span><span>FACT ${String(questionNumber).padStart(2, "0")} / ${room.trueFalseQuestions.length}</span></div><h2 class="true-false-statement">${esc(question.statement)}</h2>${answerButtons}${reveal}</article>`;
   }
 
-  function renderEmojiDecoderRoom(room, statusEl, content) {
-    const scoreRow = room ? `<div class="emoji-decoder-score-row">${room.playerUids.map(uid => `<div class="emoji-decoder-score-card">${gamePlayerAvatar(uid, room.players[uid]?.name)}<span>${esc(getDisplayName(uid, room.players[uid]?.name || "Partner"))}</span><strong>${room.players[uid]?.score || 0}</strong><small>points</small></div>`).join("")}${room.playerUids.length < 2 ? `<div class="emoji-decoder-score-card waiting"><span class="emoji-decoder-waiting-heart">♡</span><span>Waiting for partner</span><strong>—</strong><small>points</small></div>` : ""}</div>` : "";
-    const customControls = `<details class="puzzle-add-details"><summary>Add your own puzzle <span aria-hidden="true">＋</span></summary>
-      <div class="puzzle-add-fields"><label>Emoji clue<input data-custom-puzzle-emojis maxlength="80" placeholder="e.g. 🧊 🚢 💔" autocomplete="off"></label><label>Answer<input data-custom-puzzle-answer maxlength="80" placeholder="Your answer" autocomplete="off"></label><label>Category<select data-custom-puzzle-category><option>COUNTRY</option><option>MOVIE</option><option>SONG</option><option>PHRASE</option><option>OTHER</option></select></label><button class="secondary" type="button" data-add-emoji-puzzle>Add to our puzzles</button></div>
-      <small class="puzzle-custom-count">${customEmojiPuzzleBank.length} custom ${customEmojiPuzzleBank.length === 1 ? "puzzle" : "puzzles"} shared</small>
-    </details>`;
-
-    if (!room || room.status === "finished" || room.status === "cancelled") {
-      const outcome = room?.status === "cancelled" ? "This match was cancelled." : room?.status === "finished"
-        ? room.winnerUid ? `${esc(getDisplayName(room.winnerUid, room.players[room.winnerUid]?.name || "Your partner"))} won the emoji round! 🎉` : "It’s a tie! You both did great. 💞"
-        : "Decode five emoji clues, earn points, and compare your scores.";
-      statusEl.innerHTML = `<div class="game-panel game-room-panel emoji-decoder-status"><p class="tic-tac-toe-status">${outcome}</p>${scoreRow}${room?.status === "finished" ? `<p class="emoji-decoder-final">${room.playerUids.map(uid => `${esc(getDisplayName(uid, room.players[uid]?.name || "Partner"))}: <b>${room.players[uid]?.score || 0}</b>`).join(" · ")}</p>` : ""}<button type="button" class="primary" data-room-start>${room ? "Play another match" : "Start a match"}</button></div>`;
-      content.innerHTML = `<article class="game-panel emoji-decoder-panel"><p class="puzzle-meta"><span>5 EMOJI CLUES</span><span>1 POINT EACH</span></p><div class="puzzle-clue" aria-hidden="true">🌍 🎬 💌</div><p class="games-instructions">Take turns guessing countries, movies, and sweet phrases. Your custom puzzles are shared between both of you.</p>${customControls}</article>`;
-      return;
+  function validateFleetClientSide(ships) {
+    if (!Array.isArray(ships) || ships.length !== BATTLESHIP_FLEET.length) {
+      throw new Error("Place all five ships before marking ready.");
     }
-
-    if (room.status === "waiting") {
-      const isCreator = room.playerUids[0] === user.uid;
-      statusEl.innerHTML = `<div class="game-panel game-room-panel emoji-decoder-status"><p class="tic-tac-toe-status">${isCreator ? "Your five clues are ready. Waiting for your partner…" : `${esc(getDisplayName(room.playerUids[0], room.players[room.playerUids[0]]?.name || "Your partner"))} is waiting for you to join.`}</p>${scoreRow}${isCreator ? `<button type="button" class="secondary" data-room-cancel>Cancel match</button>` : `<button type="button" class="primary" data-room-start>Join match</button>`}</div>`;
-      content.innerHTML = `<article class="game-panel emoji-decoder-panel"><p class="puzzle-meta"><span>5 EMOJI CLUES</span><span>READY TO PLAY</span></p><div class="puzzle-clue" aria-hidden="true">🧩 💭 💖</div><p class="games-instructions">Guess the clue when it’s your turn. Each correct answer earns one point.</p>${customControls}</article>`;
-      return;
-    }
-
-    if (!room.playerUids.includes(user.uid)) {
-      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">This match is already in progress with your partner.</p>${scoreRow}</div>`;
-      content.replaceChildren();
-      return;
-    }
-
-    const isTurn = room.turnUid === user.uid;
-    const currentQuestion = room.emojiDecoderQuestions[room.emojiDecoderQuestionIndex];
-    const previousGuesser = room.emojiDecoderLastGuesserUid
-      ? getDisplayName(room.emojiDecoderLastGuesserUid, room.players[room.emojiDecoderLastGuesserUid]?.name || "Partner")
-      : "";
-    const lastResult = room.emojiDecoderLastAnswer
-      ? `<p class="puzzle-previous-result"><strong>${esc(previousGuesser)}</strong> ${room.emojiDecoderLastCorrect ? "got it right! +1 point 💖" : "tried their best ♡"}<span>Answer: <b>${esc(room.emojiDecoderLastAnswer)}</b></span></p>`
-      : "";
-    statusEl.innerHTML = `<div class="game-panel game-room-panel emoji-decoder-status"><p class="tic-tac-toe-status">${isTurn ? "Your turn to decode!" : `${esc(getDisplayName(room.turnUid, room.players[room.turnUid]?.name || "Your partner"))} is guessing…`}</p>${scoreRow}<p class="emoji-decoder-rule">One point for each correct answer · ${room.emojiDecoderQuestionIndex + 1} of 5 clues</p><button type="button" class="secondary" data-room-end>End this match</button></div>`;
-    content.innerHTML = isTurn
-      ? `<article class="game-panel emoji-decoder-panel">${lastResult}<div class="puzzle-meta"><span>${esc(currentQuestion.category)}</span><span>${String(room.emojiDecoderQuestionIndex + 1).padStart(2, "0")} / 05</span></div><div class="puzzle-clue" aria-label="Emoji clue">${esc(currentQuestion.emojis)}</div><div class="puzzle-guess-form"><label for="emoji-puzzle-guess">What do you think it is?</label><input id="emoji-puzzle-guess" data-puzzle-guess maxlength="80" autocomplete="off" placeholder="Type your guess"><button type="button" class="primary" data-puzzle-submit>Check answer <span aria-hidden="true">♡</span></button></div>${customControls}</article>`
-      : `<article class="game-panel emoji-decoder-panel">${lastResult}<p class="games-instructions">Your partner is thinking through the emoji clue. Your turn is next!</p>${customControls}</article>`;
-    content.querySelector("[data-puzzle-guess]")?.addEventListener("keydown", event => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        content.querySelector("[data-puzzle-submit]")?.click();
+    const allCells = new Set();
+    const normalized = BATTLESHIP_FLEET.map(spec => {
+      const ship = ships.find(item => item?.id === spec.id);
+      if (!ship || !Array.isArray(ship.cells) || ship.cells.length !== spec.length ||
+          !ship.cells.every(index => Number.isInteger(index) && index >= 0 && index < 100) ||
+          new Set(ship.cells).size !== ship.cells.length) {
+        throw new Error(`Place the ${spec.name} in a straight line.`);
       }
+      const rows = new Set(ship.cells.map(index => Math.floor(index / 10)));
+      const columns = new Set(ship.cells.map(index => index % 10));
+      const horizontal = rows.size === 1 && ship.cells.every((_, i) => i === 0 || Math.abs(ship.cells[i] % 10 - ship.cells[i - 1] % 10) === 1);
+      const vertical = columns.size === 1 && ship.cells.every((_, i) => i === 0 || Math.abs(Math.floor(ship.cells[i] / 10) - Math.floor(ship.cells[i - 1] / 10)) === 1);
+      const contiguous = horizontal || vertical;
+      if (!contiguous || ship.cells.some(index => allCells.has(index))) {
+        throw new Error("Ships must be straight, in bounds, and cannot overlap.");
+      }
+      ship.cells.forEach(index => allCells.add(index));
+      return { id: spec.id, name: spec.name, cells: [...ship.cells].sort((a, b) => a - b), hits: [] };
     });
+    if (new Set(ships.map(ship => ship?.id)).size !== BATTLESHIP_FLEET.length) {
+      throw new Error("Each ship can only be placed once.");
+    }
+    return normalized;
   }
 
-  function callBattleshipAction(payload) {
-    if (!functions) throw new Error("Firebase Functions is not configured.");
+  function playerIsInRoom(room, uid) {
+    return Array.isArray(room?.playerUids) && room.playerUids.includes(uid) && room.players?.[uid];
+  }
+
+  async function callBattleshipAction(payload) {
+    if (!rtdb) throw new Error("Firebase Realtime Database is not configured.");
     if (battleshipActionPending) return Promise.reject(new Error("A Battleship action is already in progress."));
     battleshipActionPending = true;
     updateBattleshipActionUi();
-    return httpsCallable(functions, "battleshipAction")(payload)
-      .then(result => result.data)
-      .finally(() => {
-        battleshipActionPending = false;
-        if (activeGame === "battleship") renderCurrentGame();
-        else updateBattleshipActionUi();
-      });
+    try {
+      const action = payload?.action;
+
+      if (action === "startOrJoin") {
+        const matchRef = battleshipRoomRef();
+        const result = await runTransaction(matchRef, current => {
+          if (current && activeStatuses.includes(current.status)) {
+            if (current.playerUids.includes(user.uid)) {
+              return current;
+            }
+            if (current.status === "waiting" && current.playerUids?.length === 1 && current.playerUids[0] !== user.uid) {
+              return {
+                ...current,
+                playerUids: [...current.playerUids, user.uid],
+                players: { ...current.players, [user.uid]: { name: getDisplayName(user.uid, profile?.name || ""), score: 0, shipsRemaining: 5, ready: false } },
+                status: "placing",
+                updatedAt: Date.now()
+              };
+            }
+            return;
+          }
+          const matchId = `${Date.now()}-${user.uid}`;
+          return {
+            matchId,
+            game: "battleship",
+            status: "waiting",
+            playerUids: [user.uid],
+            players: { [user.uid]: { name: getDisplayName(user.uid, profile?.name || ""), score: 0, shipsRemaining: 5, ready: false } },
+            turnUid: "",
+            winnerUid: "",
+            shots: {},
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          };
+        });
+        if (!result.committed) throw new Error("A Battleship match is already in progress.");
+        return result.snapshot.val();
+      }
+
+      const matchId = payload?.matchId;
+      if (typeof matchId !== "string" || !/^[A-Za-z0-9_-]{8,100}$/.test(matchId)) {
+        throw new Error("The match ID is invalid.");
+      }
+
+      if (action === "placeFleet") {
+        const ships = validateFleetClientSide(payload?.ships);
+        const boardRef = battleshipBoardRef(matchId, user.uid);
+        await set(boardRef, { ships, placedAt: Date.now() });
+
+        const matchRef = battleshipRoomRef();
+        const result = await runTransaction(matchRef, room => {
+          if (room?.matchId !== matchId || room.status !== "placing" || !playerIsInRoom(room, user.uid) || room.players[user.uid].ready) return;
+          const players = { ...room.players, [user.uid]: { ...room.players[user.uid], ready: true } };
+          const bothReady = room.playerUids.every(uid => players[uid]?.ready);
+          return {
+            ...room,
+            players,
+            status: bothReady ? "playing" : "placing",
+            turnUid: bothReady ? room.playerUids[0] : "",
+            updatedAt: Date.now()
+          };
+        });
+        if (!result.committed) {
+          await remove(boardRef);
+          throw new Error("Your match changed while saving the fleet. Please try again.");
+        }
+        return result.snapshot.val();
+      }
+
+      if (action === "fire") {
+        const index = payload?.index;
+        if (!Number.isInteger(index) || index < 0 || index >= 100) throw new Error("Choose a valid grid square.");
+        const operationId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+        const matchRef = battleshipRoomRef();
+        const reserve = await runTransaction(matchRef, room => {
+          if (room?.matchId !== matchId || room.status !== "playing" || room.turnUid !== user.uid || !playerIsInRoom(room, user.uid) ||
+              room.shots?.[user.uid]?.[index]) return;
+          if (room.processingShot && Date.now() - room.processingShot.startedAt < 60_000) return;
+          return { ...room, processingShot: { uid: user.uid, index, operationId, startedAt: Date.now() }, updatedAt: Date.now() };
+        });
+        if (!reserve.committed) throw new Error("It is not your turn, or the previous shot is still being saved.");
+
+        const roomBeforeShot = reserve.snapshot.val();
+        const targetUid = roomBeforeShot.playerUids.find(uid => uid !== user.uid);
+        const targetBoardRef = battleshipBoardRef(matchId, targetUid);
+
+        const boardSnapshot = await get(targetBoardRef);
+        const board = boardSnapshot.val();
+        if (!board || !Array.isArray(board.ships) || !board.ships.every(ship => Array.isArray(ship.cells) && Array.isArray(ship.hits))) {
+          throw new Error("Your partner's fleet is not ready yet.");
+        }
+
+        const hitShip = board.ships.find(ship => ship.cells.includes(index));
+        const hit = Boolean(hitShip);
+        const sunk = Boolean(hitShip && hitShip.hits.length === hitShip.cells.length);
+
+        if (hitShip) {
+          const updatedShips = board.ships.map(ship =>
+            ship.id === hitShip.id ? { ...ship, hits: [...ship.hits, index] } : ship
+          );
+          await set(targetBoardRef, { ...board, ships: updatedShips });
+        }
+
+        const fireResult = await runTransaction(matchRef, room => {
+          if (room?.matchId !== matchId || room.status !== "playing" || room.turnUid !== user.uid ||
+              room.processingShot?.operationId !== operationId || room.shots?.[user.uid]?.[index]) return;
+          const players = { ...room.players };
+          players[user.uid] = { ...players[user.uid], score: players[user.uid].score + (hit ? 1 : 0) };
+          if (sunk) players[targetUid] = { ...players[targetUid], shipsRemaining: Math.max(0, players[targetUid].shipsRemaining - 1) };
+          const shot = { index, by: user.uid, hit, sunkShip: sunk ? hitShip?.name || "" : "", at: Date.now() };
+          const shots = { ...(room.shots || {}), [user.uid]: { ...(room.shots?.[user.uid] || {}), [index]: shot } };
+          const finished = players[targetUid].shipsRemaining === 0;
+          return {
+            ...room,
+            players,
+            shots,
+            processingShot: null,
+            status: finished ? "finished" : "playing",
+            winnerUid: finished ? user.uid : "",
+            turnUid: finished ? "" : targetUid,
+            updatedAt: Date.now()
+          };
+        });
+        if (!fireResult.committed) throw new Error("The match changed while saving your shot.");
+        return fireResult.snapshot.val();
+      }
+
+      if (action === "cancel" || action === "end") {
+        const matchRef = battleshipRoomRef();
+        const result = await runTransaction(matchRef, room => {
+          if (room?.matchId !== matchId || !playerIsInRoom(room, user.uid) || !activeStatuses.includes(room.status)) return;
+          if (action === "cancel" && room.playerUids[0] !== user.uid) return;
+          if (room.processingShot && Date.now() - room.processingShot.startedAt < 60_000) return;
+          return { ...room, status: "cancelled", turnUid: "", updatedAt: Date.now() };
+        });
+        if (!result.committed) throw new Error("This match can no longer be ended.");
+        const roomVal = result.snapshot.val();
+        if (roomVal?.playerUids) {
+          await Promise.all(roomVal.playerUids.map(uid => remove(battleshipBoardRef(matchId, uid))));
+        }
+        return roomVal;
+      }
+
+      throw new Error("Unknown Battleship action.");
+    } finally {
+      battleshipActionPending = false;
+      if (activeGame === "battleship") renderCurrentGame();
+      else updateBattleshipActionUi();
+    }
   }
 
   function updateBattleshipActionUi() {
@@ -1658,7 +1675,7 @@ export function renderGames(el, user, profile) {
         $("#games-active-content", el).innerHTML = `<section class="sos-game-page"><header class="sos-header"><button class="sos-back" type="button" data-back-games>← Games</button><h1>SOS</h1></header><p class="error sos-error">Live SOS is unavailable because Firebase Realtime Database is not configured.</p></section>`;
         return;
       }
-      renderSosGame($("#games-active-content", el), user, sosGameState, { ...appPresence, ...sosPresence }, pendingSosCell);
+      renderSosGame($("#games-active-content", el), user, sosGameState, { ...appPresence, ...sosPresence }, pendingSosCell, profile);
       return;
     }
     document.body.classList.remove("sos-fullscreen");
@@ -1693,13 +1710,18 @@ export function renderGames(el, user, profile) {
     }
     const gameInfo = {
       "memory-match": ["Memory Match", "Flip the cards and find all ten pairs.", "🧠"],
-      "emoji-decoder": ["Emoji Decoder", "Guess five country, movie, and phrase clues.", "🧩"],
+      "guess-the-answer": ["Guess the Answer", "Send each other questions with hints, guess the answers, and compare scores.", "💬"],
       battleship: ["Battleship", "Hide your fleet and find your partner's ships.", "🚢"],
       "true-false": ["True or False", "Guess together, then learn a surprising fact.", "💡"]
     }[activeGame];
     if (renderedShellGame !== activeGame) {
       el.innerHTML = activeShell(activeGame, ...gameInfo);
       renderedShellGame = activeGame;
+    }
+    if (activeGame === "guess-the-answer") {
+      startGuessTheQuestion();
+      renderGuessTheQuestion($("#games-active-content", el));
+      return;
     }
     renderGameRoom();
     if (activeGame === "battleship" && battleshipActionPending) updateBattleshipActionUi();
@@ -1727,6 +1749,420 @@ export function renderGames(el, user, profile) {
     } catch (error) {
       console.error("Game scores could not be loaded:", error);
     }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Guess the Answer — shared answers inbox with Realtime Database */
+  /* ------------------------------------------------------------------ */
+
+  function gtqRef() {
+    return ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/guessTheQuestion/questions`);
+  }
+
+  function gtqStorageKey() {
+    return `olw-gtq:${APP_CONFIG.coupleId}`;
+  }
+
+  function gtqQueueKey() {
+    return `olw-gtq-queue:${APP_CONFIG.coupleId}`;
+  }
+
+  function gtqOrdinal(n) {
+    const suffixes = ["th", "st", "nd", "rd"];
+    const v = n % 100;
+    return String(n) + (suffixes[(v - 20) % 10] || suffixes[v] || suffixes[0]);
+  }
+
+  function gtqNormalize(text) {
+    return String(text || "").normalize("NFKD").toLocaleLowerCase().replace(/[\p{M}\p{P}\p{S}\s]/gu, "");
+  }
+
+  function gtqPartnerUid(question) {
+    const uids = new Set([question.createdBy, ...Object.keys(question.answers || {})]);
+    uids.delete(user.uid);
+    return [...uids][0] || "";
+  }
+
+  function gtqPartnerName(question) {
+    const partnerUid = gtqPartnerUid(question);
+    if (!partnerUid) return "Partner";
+    const players = question.players || {};
+    if (players[partnerUid]?.name) return players[partnerUid].name;
+    return getDisplayName(partnerUid, "Partner");
+  }
+
+  function gtqScoreOf(question, uid) {
+    return Number((question.scores || {})[uid] || 0);
+  }
+
+  function gtqMyAnswer(question) {
+    return (question.answers || {})[user.uid] || null;
+  }
+
+  function gtqStatus(question) {
+    const answers = Object.values(question.answers || {});
+    if (answers.length === 0) return "open";
+    if (answers.some(answer => answer.verdict == null)) return "answered";
+    return "resolved";
+  }
+
+  function gtqCanAnswer(question) {
+    const myAnswer = gtqMyAnswer(question);
+    if (!myAnswer) return true;
+    return myAnswer.verdict === "wrong";
+  }
+
+  function gtqIsCreator(question) {
+    return question.createdBy === user.uid;
+  }
+
+  function guessTheQuestionFromSnapshot(id, value) {
+    if (!value || typeof value !== "object") return null;
+    return {
+      id,
+      question: String(value.question || ""),
+      hint: value.hint || undefined,
+      answer: value.answer || undefined,
+      createdBy: String(value.createdBy || ""),
+      createdAt: Number(value.createdAt) || 0,
+      updatedAt: Number(value.updatedAt) || 0,
+      status: value.status || "open",
+      answers: value.answers && typeof value.answers === "object" && !Array.isArray(value.answers) ? value.answers : {},
+      scores: value.scores && typeof value.scores === "object" && !Array.isArray(value.scores) ? value.scores : {}
+    };
+  }
+
+  function saveGuessTheQuestionsLocal() {
+    try { localStorage.setItem(gtqStorageKey(), JSON.stringify(guessTheQuestions)); } catch { /* Storage unavailable; keep data in memory only. */ }
+  }
+
+  function loadGuessTheQuestionsFromLocal() {
+    try {
+      const raw = localStorage.getItem(gtqStorageKey());
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map(item => guessTheQuestionFromSnapshot(item.id || "", item)).filter(Boolean);
+    } catch { return []; }
+  }
+
+  function pushGtqQueue(op) {
+    let queue = [];
+    try { queue = JSON.parse(localStorage.getItem(gtqQueueKey()) || "[]"); } catch { queue = []; }
+    if (!Array.isArray(queue)) queue = [];
+    queue.push({ ...op, ts: Date.now() });
+    try { localStorage.setItem(gtqQueueKey(), JSON.stringify(queue)); } catch {}
+  }
+
+  async function gtqQueueWrite(op, write) {
+    if (!rtdb) {
+      pushGtqQueue(op);
+      return;
+    }
+    try {
+      await write();
+      void flushGtqQueue();
+    } catch (error) {
+      pushGtqQueue(op);
+      console.error("Guess the Answer write failed, queued for sync:", error);
+    }
+  }
+
+  function flushGtqQueue() {
+    if (!rtdb) return;
+    let queue = [];
+    try { queue = JSON.parse(localStorage.getItem(gtqQueueKey()) || "[]"); } catch { queue = []; }
+    if (!Array.isArray(queue) || queue.length === 0) return;
+    const remaining = [];
+    for (const op of queue) {
+      try {
+        if (op.op === "create") {
+          void set(ref(gtqRef(), op.qId), op.data);
+        } else if (op.op === "update") {
+          void update(ref(gtqRef(), op.qId), op.data);
+        }
+      } catch (error) {
+        remaining.push(op);
+        console.error("Guess the Answer sync failed:", error);
+      }
+    }
+    try { localStorage.setItem(gtqQueueKey(), JSON.stringify(remaining)); } catch {}
+  }
+
+  function startGuessTheQuestion() {
+    stopGuessTheQuestion?.();
+    stopGuessTheQuestion = null;
+    stopGtqConnected?.();
+    stopGtqConnected = null;
+    guessTheQuestions = loadGuessTheQuestionsFromLocal();
+    if (!rtdb) return;
+    stopGuessTheQuestion = onValue(gtqRef(), snapshot => {
+      const raw = snapshot.val() || {};
+      guessTheQuestions = Object.entries(raw)
+        .map(([id, value]) => guessTheQuestionFromSnapshot(id, value))
+        .filter(Boolean)
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      saveGuessTheQuestionsLocal();
+      if (activeGame === "guess-the-answer") renderGuessTheQuestion($("#games-active-content", el));
+    }, error => {
+      console.error("Guess the Answer could not be loaded:", error);
+      if (activeGame === "guess-the-answer") renderGuessTheQuestion($("#games-active-content", el));
+    });
+    stopGtqConnected = onValue(ref(rtdb, ".info/connected"), snapshot => {
+      if (snapshot.val() === true) void flushGtqQueue();
+    });
+  }
+
+  async function createGuessTheQuestion() {
+    const content = $("#games-active-content", el);
+    const input = $("#gtq-question-input", content);
+    const hintInput = $("#gtq-hint-input", content);
+    const answerInput = $("#gtq-answer-input", content);
+    const question = input?.value.trim() || "";
+    const hint = hintInput?.value.trim() || "";
+    const answer = answerInput?.value.trim() || "";
+    if (!question) { toast("Type a question first ♡"); input?.focus(); return; }
+    if (question.length > 200) { toast("Keep the question under 200 characters."); input?.focus(); return; }
+    if (hint.length > 120) { toast("Keep the hint under 120 characters."); hintInput?.focus(); return; }
+    if (answer.length > 200) { toast("Keep the answer under 200 characters."); answerInput?.focus(); return; }
+    const qId = `gtq-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+    const doc = {
+      question,
+      hint: hint || undefined,
+      answer: answer || undefined,
+      createdBy: user.uid,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      status: "open",
+      answers: {},
+      scores: {}
+    };
+    const newQuestion = { ...doc, id: qId };
+    guessTheQuestions = [newQuestion, ...guessTheQuestions];
+    gtqDetailId = "";
+    saveGuessTheQuestionsLocal();
+    renderGuessTheQuestion(content);
+    const write = () => rtdb ? set(ref(gtqRef(), qId), doc) : Promise.reject(new Error("offline"));
+    await gtqQueueWrite({ op: "create", qId, data: doc }, write);
+    toast("Your question was shared ♡");
+  }
+
+  async function submitGuessTheQuestionAnswer(qId, answerText) {
+    if (!qId) return;
+    const text = String(answerText || "").trim();
+    if (!text) { toast("Type your answer first ♡"); return; }
+    if (text.length > 200) { toast("Keep your answer under 200 characters."); return; }
+    const question = guessTheQuestions.find(item => item.id === qId);
+    if (!question || !gtqCanAnswer(question)) return;
+    const myAnswer = gtqMyAnswer(question);
+    const attempts = Number((myAnswer && myAnswer.attempts) || 0) + 1;
+    const autoCorrect = Boolean(question.answer) && gtqNormalize(text) === gtqNormalize(question.answer);
+    const verdict = autoCorrect ? "correct" : null;
+    const answers = { ...(question.answers || {}) };
+    answers[user.uid] = { text, submittedAt: Date.now(), attempts, verdict, reviewedBy: null, reviewedAt: null };
+    const scores = { ...(question.scores || {}) };
+    if (autoCorrect) scores[user.uid] = gtqScoreOf(question, user.uid) + 1;
+    const status = gtqStatus({ ...question, answers, scores });
+    const patch = { answers, scores, status, updatedAt: Date.now() };
+    const questionRef = ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/guessTheQuestion/questions/${qId}`);
+    guessTheQuestions = guessTheQuestions.map(item => item.id === qId ? { ...item, ...patch } : item);
+    saveGuessTheQuestionsLocal();
+    renderGuessTheQuestion($("#games-active-content", el));
+    const write = () => rtdb ? update(questionRef, patch) : Promise.reject(new Error("offline"));
+    await gtqQueueWrite({ op: "update", qId, data: patch }, write);
+    if (autoCorrect) toast("Correct! +1 point 💖");
+  }
+
+  async function markGuessTheQuestionAnswer(qId, answerUid, verdict) {
+    if (!qId || !answerUid || (verdict !== "correct" && verdict !== "wrong")) return;
+    const question = guessTheQuestions.find(item => item.id === qId);
+    if (!question || !gtqIsCreator(question)) return;
+    const answers = { ...(question.answers || {}) };
+    const answer = answers[answerUid];
+    if (!answer || answer.verdict != null) return;
+    answers[answerUid] = { ...answer, verdict, reviewedBy: user.uid, reviewedAt: Date.now() };
+    const scores = { ...(question.scores || {}) };
+    if (verdict === "correct") scores[answerUid] = gtqScoreOf(question, answerUid) + 1;
+    const status = gtqStatus({ ...question, answers, scores });
+    const patch = { answers, scores, status, updatedAt: Date.now() };
+    const questionRef = ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/guessTheQuestion/questions/${qId}`);
+    guessTheQuestions = guessTheQuestions.map(item => item.id === qId ? { ...item, ...patch } : item);
+    saveGuessTheQuestionsLocal();
+    renderGuessTheQuestion($("#games-active-content", el));
+    const write = () => rtdb ? update(questionRef, patch) : Promise.reject(new Error("offline"));
+    await gtqQueueWrite({ op: "update", qId, data: patch }, write);
+    toast(`Answer marked ${verdict} ♡`);
+  }
+
+  function renderGuessTheQuestionNewForm(container) {
+    if (!container) return;
+    container.innerHTML = `
+      <button type="button" class="gtq-back" data-gtq-back>← Questions List</button>
+      <article class="gtq-panel">
+        <h2>Send a new question</h2>
+        <p class="games-instructions">Ask your partner anything — an emoji guess, a word puzzle, or a riddle. Add a hint and the answer so it can be checked automatically.</p>
+        <div class="gtq-form">
+          <label>Question<textarea id="gtq-question-input" maxlength="200" placeholder="e.g. What am I thinking of right now?"></textarea></label>
+          <label>Hint (optional)<input id="gtq-hint-input" maxlength="120" placeholder="A gentle clue…"></label>
+          <label>Answer (optional)<input id="gtq-answer-input" maxlength="200" placeholder="The correct answer (auto-marked)"></label>
+          <p class="gtq-hint-text">Leave the answer blank if you want to review your partner's answer yourself.</p>
+          <div class="gtq-form-actions">
+            <button type="button" class="secondary" data-gtq-back>Cancel</button>
+            <button type="button" class="primary" data-gtq-submit>Send question</button>
+          </div>
+        </div>
+      </article>`;
+  }
+
+  function renderGuessTheQuestionList(container) {
+    if (!container) return;
+    const questions = guessTheQuestions;
+    if (questions.length === 0) {
+      container.innerHTML = `<div class="gtq-empty"><p>No questions yet. Send your partner the first question!</p></div>`;
+      return;
+    }
+    container.innerHTML = questions.map(question => {
+      const myAnswer = gtqMyAnswer(question);
+      const partnerUid = gtqPartnerUid(question);
+      const status = gtqStatus(question);
+      const isCreator = gtqIsCreator(question);
+      let statusLabel, statusClass;
+      if (status === "open") { statusLabel = "Open"; statusClass = "gtq-status-open"; }
+      else if (status === "answered") { statusLabel = isCreator ? "Awaiting your review" : "Pending review"; statusClass = "gtq-status-answered"; }
+      else { statusLabel = "Resolved"; statusClass = "gtq-status-resolved"; }
+      let attemptHtml = "";
+      if (myAnswer && myAnswer.verdict === "wrong" && myAnswer.attempts >= 2) {
+        attemptHtml = `<span class="gtq-attempts">${gtqOrdinal(myAnswer.attempts)} try</span>`;
+      }
+      const myScore = gtqScoreOf(question, user.uid);
+      const partnerScore = gtqScoreOf(question, partnerUid);
+      const answeredByMe = !!myAnswer;
+      const canAnswer = gtqCanAnswer(question);
+      let actionLabel = "View", actionClass = "secondary";
+      if (!answeredByMe) actionLabel = "Answer";
+      else if (canAnswer) actionLabel = "Try again";
+      else if (isCreator && status === "answered") actionLabel = "Review answers";
+      else if (isCreator) actionLabel = "View";
+      return `<article class="gtq-card">
+        <div class="gtq-card-head">
+          <span class="gtq-from">${isCreator ? "From you" : `From ${esc(gtqPartnerName(question))}`}</span>
+          <span class="gtq-status ${statusClass}">${esc(statusLabel)}</span>
+        </div>
+        <div class="gtq-question">${esc(question.question)}</div>
+        ${question.hint ? `<div class="gtq-hint">Hint · ${esc(question.hint)}</div>` : ""}
+        <div class="gtq-meta">
+          <span class="gtq-score">You <strong>${myScore}</strong></span>
+          <span class="gtq-score">Partner <strong>${partnerScore}</strong></span>
+          ${attemptHtml}
+        </div>
+        <button type="button" class="gtq-action ${actionClass}" data-gtq-open="${esc(question.id)}">${esc(actionLabel)}</button>
+      </article>`;
+    }).join("");
+  }
+
+  function renderGuessTheQuestionDetail(container, qId) {
+    if (!container) return;
+    const question = guessTheQuestions.find(item => item.id === qId);
+    if (!question) {
+      container.innerHTML = `<p class="error">Question not found.</p>`;
+      return;
+    }
+    const myAnswer = gtqMyAnswer(question);
+    const isCreator = gtqIsCreator(question);
+    const partnerUid = gtqPartnerUid(question);
+    const status = gtqStatus(question);
+    const attempts = myAnswer ? myAnswer.attempts : 0;
+    const attemptHtml = (myAnswer && myAnswer.verdict === "wrong" && attempts >= 2)
+      ? `<p class="gtq-attempts">${gtqOrdinal(attempts)} try</p>` : "";
+
+    let answerForm = "";
+    if (gtqCanAnswer(question)) {
+      answerForm = `
+        <div class="gtq-answer-form">
+          <label>Your answer</label>
+          <input id="gtq-answer-input" data-gtq-answer maxlength="200" placeholder="Type your answer" autocomplete="off">
+          <button type="button" class="primary" data-gtq-answer="${esc(qId)}">Submit answer</button>
+        </div>
+        ${attemptHtml}`;
+    } else if (myAnswer) {
+      const verdictLabel = myAnswer.verdict === "correct" ? "Correct 💖" : myAnswer.verdict === "wrong" ? "Wrong ♡" : "Awaiting review";
+      answerForm = `<p class="gtq-my-answer">Your answer: <strong>${esc(myAnswer.text)}</strong> · ${esc(verdictLabel)}${myAnswer.verdict === "wrong" && attempts >= 2 ? ` (${gtqOrdinal(attempts)} try)` : ""}</p>`;
+    }
+
+    const answersHtml = Object.entries(question.answers || {}).map(([answerUid, answer]) => {
+      const isMe = answerUid === user.uid;
+      const name = isMe ? "You" : gtqPartnerName(question);
+      let verdictHtml = "";
+      if (answer.verdict === "correct") verdictHtml = `<span class="gtq-verdict correct">Correct +1</span>`;
+      else if (answer.verdict === "wrong") verdictHtml = `<span class="gtq-verdict wrong">Wrong</span>`;
+      else verdictHtml = `<span class="gtq-verdict pending">Pending</span>`;
+      let markButtons = "";
+      if (isCreator && answer.verdict == null) {
+        markButtons = `
+          <button type="button" class="secondary" data-gtq-mark="${esc(qId)}" data-gtq-answer-uid="${esc(answerUid)}" data-gtq-verdict="correct">Mark Correct</button>
+          <button type="button" class="secondary" data-gtq-mark="${esc(qId)}" data-gtq-answer-uid="${esc(answerUid)}" data-gtq-verdict="wrong">Mark Wrong</button>`;
+      }
+      const answerAttemptsHtml = answer.attempts >= 2 ? `<span class="gtq-attempts">${gtqOrdinal(answer.attempts)} try</span>` : "";
+      return `<div class="gtq-answer">
+        <span class="gtq-answer-who">${esc(name)}</span>
+        <span class="gtq-answer-text">${esc(answer.text)}</span>
+        ${verdictHtml}${answerAttemptsHtml}
+        ${markButtons}
+      </div>`;
+    }).join("") || `<p class="gtq-empty-answers">No answers yet.</p>`;
+
+    const statusLabel = status === "open" ? "Open" : status === "answered" ? "Awaiting review" : "Resolved";
+    container.innerHTML = `
+      <button type="button" class="gtq-back" data-gtq-back>← Questions List</button>
+      <article class="gtq-panel gtq-detail-panel">
+        <div class="gtq-detail-head">
+          <span class="gtq-from">${isCreator ? "Your question" : `From ${esc(gtqPartnerName(question))}`}</span>
+          <span class="gtq-status ${status === "resolved" ? "gtq-status-resolved" : status === "answered" ? "gtq-status-answered" : "gtq-status-open"}">${esc(statusLabel)}</span>
+        </div>
+        <div class="gtq-question">${esc(question.question)}</div>
+        ${question.hint ? `<div class="gtq-hint">Hint · ${esc(question.hint)}</div>` : ""}
+        ${answerForm}
+        <div class="gtq-score-row">
+          <span class="gtq-score">You <strong>${gtqScoreOf(question, user.uid)}</strong></span>
+          <span class="gtq-score">Partner <strong>${gtqScoreOf(question, partnerUid)}</strong></span>
+        </div>
+        <h3 style="margin:10px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)">Answers</h3>
+        <div class="gtq-answers">${answersHtml}</div>
+      </article>`;
+  }
+
+  function renderGuessTheQuestion(content) {
+    if (!content) return;
+    content.innerHTML = "";
+    if (!rtdb) {
+      content.innerHTML = `<section class="gtq-page"><button class="games-back-button" type="button" data-back-games>← All games</button><h1>Questions List</h1><p class="games-instructions">Guess the Answer needs Firebase Realtime Database.</p></section>`;
+      return;
+    }
+    if (gtqDetailId === "new") {
+      const formContainer = document.createElement("div");
+      formContainer.id = "gtq-new";
+      content.appendChild(formContainer);
+      renderGuessTheQuestionNewForm(formContainer);
+      return;
+    }
+    const header = document.createElement("div");
+    header.className = "gtq-toolbar";
+    header.innerHTML = `
+      <button class="games-back-button" type="button" data-back-games>← All games</button>
+      <h1>Questions List</h1>
+      <button type="button" class="primary" data-gtq-new>＋ New Question</button>`;
+    content.appendChild(header);
+
+    const listContainer = document.createElement("div");
+    listContainer.id = "gtq-list";
+    content.appendChild(listContainer);
+
+    const detailContainer = document.createElement("div");
+    detailContainer.id = "gtq-detail";
+    content.appendChild(detailContainer);
+
+    renderGuessTheQuestionList(listContainer);
+    if (gtqDetailId) renderGuessTheQuestionDetail(detailContainer, gtqDetailId);
   }
 
   listenForGameResults();
@@ -1758,8 +2194,6 @@ export function renderGames(el, user, profile) {
       battleshipDraftShips = [];
       battleshipOrientation = "horizontal";
       battleshipSelectedShipId = BATTLESHIP_FLEET[0].id;
-      stopCustomEmojiPuzzles?.();
-      stopCustomEmojiPuzzles = null;
       disposeFindTheWords?.();
       disposeFindTheWords = null;
       disposeLudoGame?.();
@@ -1770,23 +2204,13 @@ export function renderGames(el, user, profile) {
       sosPresence = {};
       pendingSosCell = -1;
       gameRoomState = null;
+      gtqDetailId = "";
       if (activeGame === "sos") {
         startSosSession();
-      } else if (rtdb && activeGame === "emoji-decoder") {
-        stopCustomEmojiPuzzles = onValue(customEmojiPuzzlesRef(), snapshot => {
-          const entries = Object.values(snapshot.val() || {}).filter(item =>
-            item && typeof item.emojis === "string" && item.emojis.trim() && item.emojis.length <= 80 &&
-            typeof item.answer === "string" && item.answer.trim() && item.answer.length <= 80
-          ).slice(-100);
-          customEmojiPuzzleBank = entries.map(item => ({ category: String(item.category || "OTHER").slice(0, 24), emojis: item.emojis, answer: item.answer }));
-          try { localStorage.setItem(emojiPuzzleStorageKey, JSON.stringify(customEmojiPuzzleBank)); } catch { /* Shared puzzles remain available from Firebase. */ }
-          if (activeGame === "emoji-decoder") renderCurrentGame();
-        }, error => {
-          console.error("Custom emoji puzzles could not be loaded:", error);
-          toast("Your shared emoji puzzles could not be loaded.");
-        });
+      } else if (activeGame === "guess-the-answer") {
+        renderCurrentGame();
       }
-      if (rtdb && activeGame !== "find-words" && activeGame !== "ludo") {
+      if (rtdb && activeGame !== "find-words" && activeGame !== "ludo" && activeGame !== "guess-the-answer") {
         const currentMatchRef = activeGame === "battleship" ? battleshipRoomRef() : gameMatchRef(activeGame);
         stopGameMatch = onValue(currentMatchRef, snapshot => {
           gameRoomState = normalizeRoom(snapshot.val());
@@ -1826,7 +2250,7 @@ export function renderGames(el, user, profile) {
 
     if (activeGame === "battleship" && target.hasAttribute("data-room-start")) {
       try {
-        await callBattleshipAction({ action: "startOrJoin", playerName: getDisplayName(user.uid, profile?.name || "") });
+        await callBattleshipAction({ action: "startOrJoin" });
       } catch (error) {
         console.error("Could not start or join Battleship:", error);
         toast(error.message || "Could not start the match. Please try again.");
@@ -1895,9 +2319,6 @@ export function renderGames(el, user, profile) {
         const trueFalseQuestions = activeGame === "true-false"
           ? pickTrueFalseQuestions(await loadTrueFalseQuestionBank(), 12)
           : [];
-        const emojiDecoderQuestions = activeGame === "emoji-decoder"
-          ? makeEmojiDecoderState(customEmojiPuzzleBank).questions
-          : [];
         const transaction = await runTransaction(gameMatchRef(activeGame), current => {
           if (!isValidGameRoom(current, activeGame) || current.status === "finished" || current.status === "cancelled") {
             const matchId = `${Date.now()}-${user.uid}`;
@@ -1912,11 +2333,6 @@ export function renderGames(el, user, profile) {
               trueFalseQuestionIndex: 0,
               trueFalseAnswers: null,
               trueFalsePhase: "answering",
-              emojiDecoderQuestions,
-              emojiDecoderQuestionIndex: 0,
-              emojiDecoderLastAnswer: "",
-              emojiDecoderLastCorrect: false,
-              emojiDecoderLastGuesserUid: "",
               players: {
                 [user.uid]: { name: getDisplayName(user.uid, profile?.name), score: 0, completed: false, state: null }
               },
@@ -2008,6 +2424,38 @@ export function renderGames(el, user, profile) {
       return;
     }
 
+    if (activeGame === "guess-the-answer") {
+      if (target.hasAttribute("data-gtq-back")) {
+        gtqDetailId = "";
+        renderGuessTheQuestion($("#games-active-content", el));
+        return;
+      }
+      if (target.hasAttribute("data-gtq-new")) {
+        gtqDetailId = "new";
+        renderGuessTheQuestion($("#games-active-content", el));
+        return;
+      }
+      if (target.hasAttribute("data-gtq-open")) {
+        gtqDetailId = target.dataset.gtqOpen || "";
+        renderGuessTheQuestion($("#games-active-content", el));
+        return;
+      }
+      if (target.hasAttribute("data-gtq-submit")) {
+        await createGuessTheQuestion();
+        return;
+      }
+      if (target.hasAttribute("data-gtq-answer")) {
+        const content = $("#games-active-content", el);
+        const input = $("#gtq-answer-input", content);
+        await submitGuessTheQuestionAnswer(target.dataset.gtqAnswer, input?.value);
+        return;
+      }
+      if (target.hasAttribute("data-gtq-mark")) {
+        await markGuessTheQuestionAnswer(target.dataset.gtqMark, target.dataset.gtqAnswerUid, target.dataset.gtqVerdict);
+        return;
+      }
+    }
+
     if (target.hasAttribute("data-back-games") || target.hasAttribute("data-sos-leave")) {
       if (memoryTimer) clearTimeout(memoryTimer);
       memoryTimer = null;
@@ -2020,12 +2468,15 @@ export function renderGames(el, user, profile) {
       stopBattleshipBoard = null;
       battleshipBoardMatchId = "";
       battleshipBoard = null;
-      stopCustomEmojiPuzzles?.();
-      stopCustomEmojiPuzzles = null;
+      stopGuessTheQuestion?.();
+      stopGuessTheQuestion = null;
+      stopGtqConnected?.();
+      stopGtqConnected = null;
       activeGame = "";
       activeState = null;
       sosGameState = null;
       gameRoomState = null;
+      gtqDetailId = "";
       renderCurrentGame();
       return;
     }
@@ -2079,91 +2530,6 @@ export function renderGames(el, user, profile) {
       activeState.answered = false;
       activeState.selected = -1;
       renderAndSavePlayerProgress();
-      return;
-    }
-
-    if (target.hasAttribute("data-puzzle-submit") && activeGame === "emoji-decoder") {
-      const input = $("[data-puzzle-guess]", el);
-      const guess = input?.value.trim() || "";
-      if (!guess) { toast("Type your guess first ♡"); input?.focus(); return; }
-      if (!normalizePuzzleAnswer(guess)) { toast("Use letters or numbers for your guess."); input?.focus(); return; }
-      const room = gameRoomState;
-      const questionIndex = room?.emojiDecoderQuestionIndex;
-      if (!room || room.status !== "playing" || room.turnUid !== user.uid ||
-          !Number.isInteger(questionIndex) || questionIndex < 0 || questionIndex >= 5) {
-        toast("Your turn has changed. Please check the match status.");
-        renderCurrentGame();
-        return;
-      }
-      try {
-        const transaction = await runTransaction(gameMatchRef(activeGame), current => {
-          if (!current || current.game !== "emoji-decoder" || current.status !== "playing" ||
-              current.matchId !== room.matchId || current.turnUid !== user.uid ||
-              current.emojiDecoderQuestionIndex !== questionIndex) return;
-          const question = current.emojiDecoderQuestions?.[questionIndex];
-          if (!question) return;
-          const correct = normalizePuzzleAnswer(guess) === normalizePuzzleAnswer(question.answer);
-          const players = {
-            ...current.players,
-            [user.uid]: {
-              ...current.players[user.uid],
-              score: (current.players[user.uid]?.score || 0) + (correct ? 1 : 0)
-            }
-          };
-          const nextIndex = questionIndex + 1;
-          const finished = nextIndex >= 5;
-          const updated = {
-            ...current,
-            players,
-            emojiDecoderQuestionIndex: nextIndex,
-            emojiDecoderLastAnswer: question.answer,
-            emojiDecoderLastCorrect: correct,
-            emojiDecoderLastGuesserUid: user.uid,
-            turnUid: finished ? "" : current.playerUids.find(uid => uid !== user.uid),
-            updatedAt: Date.now()
-          };
-          if (finished) {
-            updated.status = "finished";
-            updated.winnerUid = gameWinner("emoji-decoder", current.playerUids, players);
-          }
-          return updated;
-        });
-        if (!transaction.committed) toast("Your answer was not saved because the turn changed.");
-      } catch (error) {
-        console.error("Could not save emoji decoder answer:", error);
-        toast("Your answer could not be saved. Please try again.");
-      }
-      return;
-    }
-
-    if (target.hasAttribute("data-add-emoji-puzzle") && activeGame === "emoji-decoder") {
-      const emojisInput = $("[data-custom-puzzle-emojis]", el);
-      const answerInput = $("[data-custom-puzzle-answer]", el);
-      const categoryInput = $("[data-custom-puzzle-category]", el);
-      const emojis = emojisInput?.value.trim() || "";
-      const answer = answerInput?.value.trim() || "";
-      const category = categoryInput?.value || "OTHER";
-      if (!emojis || !answer) { toast("Add both an emoji clue and its answer."); return; }
-      if (!normalizePuzzleAnswer(answer)) { toast("Add a written answer using letters or numbers."); return; }
-      if (emojis.length > 80 || answer.length > 80) { toast("Keep the clue and answer under 80 characters."); return; }
-      if (customEmojiPuzzleBank.some(item => item.emojis === emojis && normalizePuzzleAnswer(item.answer) === normalizePuzzleAnswer(answer))) {
-        toast("That puzzle is already in your shared collection.");
-        return;
-      }
-      const puzzle = { category, emojis, answer, authorUid: user.uid, createdAt: Date.now() };
-      try {
-        if (rtdb) {
-          await set(push(customEmojiPuzzlesRef()), puzzle);
-        } else {
-          customEmojiPuzzleBank.push({ category, emojis, answer });
-          localStorage.setItem(emojiPuzzleStorageKey, JSON.stringify(customEmojiPuzzleBank));
-          renderCurrentGame();
-        }
-        toast("Your puzzle was added for both of you ♡");
-      } catch (error) {
-        console.error("Could not add custom emoji puzzle:", error);
-        toast("Your puzzle could not be saved. Please try again.");
-      }
       return;
     }
 
@@ -2253,8 +2619,10 @@ export function disposeGames() {
   stopBattleshipBoard = null;
   battleshipBoardMatchId = "";
   battleshipBoard = null;
-  stopCustomEmojiPuzzles?.();
-  stopCustomEmojiPuzzles = null;
+  stopGuessTheQuestion?.();
+  stopGuessTheQuestion = null;
+  stopGtqConnected?.();
+  stopGtqConnected = null;
   if (memoryTimer) clearTimeout(memoryTimer);
   memoryTimer = null;
   disposeFindTheWords?.();
