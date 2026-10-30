@@ -8,6 +8,21 @@ const mimeTypesByExtension = {
   mp3: "audio/mpeg", m4a: "audio/mp4", aac: "audio/aac", wav: "audio/wav", ogg: "audio/ogg", opus: "audio/ogg", flac: "audio/flac"
 };
 const mediaUrlCache = new Map();
+const MAX_MEDIA_URL_CACHE = 64;
+
+/** Store a media-URL promise in the bounded cache, evicting the oldest entry
+ *  (revoking its resolved blob URL) so memory never grows unboundedly while
+ *  scrolling the feed on Android. */
+function cacheMediaUrl(cacheKey, request) {
+  if (mediaUrlCache.has(cacheKey)) mediaUrlCache.delete(cacheKey);
+  mediaUrlCache.set(cacheKey, request);
+  while (mediaUrlCache.size > MAX_MEDIA_URL_CACHE) {
+    const [oldestKey, oldestRequest] = mediaUrlCache.entries().next().value;
+    mediaUrlCache.delete(oldestKey);
+    oldestRequest.then(url => URL.revokeObjectURL(url)).catch(() => {});
+  }
+  return mediaUrlCache.get(cacheKey);
+}
 
 // ── Offline-First media cache (IndexedDB) ─────────────────────────────
 // Photo/video/audio bytes proxied from Telegram are stored here so
@@ -233,7 +248,7 @@ export function getTelegramMediaUrl(fileId, mimeType = "application/octet-stream
         if (mediaUrlCache.get(cacheKey) === request) mediaUrlCache.delete(cacheKey);
         throw error;
       });
-    mediaUrlCache.set(cacheKey, request);
+    cacheMediaUrl(cacheKey, request);
   }
   return mediaUrlCache.get(cacheKey);
 }
@@ -244,7 +259,7 @@ export async function getCachedTelegramMediaUrl(fileId, mimeType = "application/
   const key = mediaCacheKey(fileId, mimeType);
   const cached = await idbGet(key).catch(() => null);
   if (!cached?.blob) return null;
-  if (!mediaUrlCache.has(key)) mediaUrlCache.set(key, Promise.resolve(URL.createObjectURL(cached.blob)));
+  if (!mediaUrlCache.has(key)) cacheMediaUrl(key, Promise.resolve(URL.createObjectURL(cached.blob)));
   return mediaUrlCache.get(key);
 }
 

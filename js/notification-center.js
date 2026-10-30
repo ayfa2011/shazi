@@ -22,6 +22,7 @@ const notificationRoutes = new Set(["home", "questions", "challenges", "letters"
 let stopNotifications = null;
 let stopLetters = null;
 let notificationRoot = null;
+let rootClickHandler = null;
 let outsideClickHandler = null;
 let letterTimer = null;
 let currentRouteHandler = null;
@@ -251,7 +252,7 @@ export function initNotificationCenter(user, profile, navigate) {
     console.error("Received letter notifications could not be synced:", error);
   });
 
-  root.onclick = async event => {
+  rootClickHandler = async event => {
     const button = event.target.closest("button");
     if (!button || !root.contains(button)) return;
     if (button.id === "notification-toggle") {
@@ -314,6 +315,7 @@ export function initNotificationCenter(user, profile, navigate) {
       navigate(route);
     }
   };
+  root.addEventListener("click", rootClickHandler);
 
   outsideClickHandler = event => {
     if (!root.contains(event.target)) {
@@ -334,7 +336,8 @@ export function disposeNotificationCenter() {
   if (outsideClickHandler) document.removeEventListener("click", outsideClickHandler);
   outsideClickHandler = null;
   if (notificationRoot) {
-    notificationRoot.onclick = null;
+    notificationRoot.removeEventListener("click", rootClickHandler);
+    rootClickHandler = null;
     notificationRoot.replaceChildren();
   }
   notificationRoot = null;

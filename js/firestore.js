@@ -176,9 +176,11 @@ export async function deletePost(postId) {
 }
 
 // Optimized backend listener filter
-export function watchItems(type, cb, onError, limitVal = null, options = {}) {
+export function watchItems(type, cb, onError, limitVal = 100, options = {}) {
   let q = query(root(), where("type", "==", type), orderBy("createdAt", "desc"));
-  if (limitVal) {
+  // A default bound keeps a fast-growing collection from loading every document
+  // into memory on each snapshot. Omit (or pass null) for an uncapped watch.
+  if (limitVal !== null && limitVal !== undefined) {
       q = query(q, limit(limitVal));
   }
   const handleSnapshot = snapshot => cb(

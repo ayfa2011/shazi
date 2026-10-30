@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f06a9b">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Nunito:wght@800;900;1000&family=Playfair+Display:wght@500;600&display=swap" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Nunito:wght@800;900;1000&family=Playfair+Display:wght@500;600&display=swap">
   <title>Keby &amp; Shazy — Our Little World</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/app-icon.svg" type="image/svg+xml">
@@ -16,8 +16,10 @@
   <meta name="apple-mobile-web-app-title" content="Our Little World">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-touch-fullscreen" content="yes">
-  <link rel="stylesheet" href="css/styles.css?v=16">
-  <link rel="stylesheet" href="css/challenges.css?v=16">
+  <link rel="preload" as="style" href="css/styles.css?v=16" onload="this.rel='stylesheet'">
+  <link rel="preload" as="style" href="css/challenges.css?v=16" onload="this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="css/styles.css?v=16"></noscript>
+  <noscript><link rel="stylesheet" href="css/challenges.css?v=16"></noscript>
 </head>
 <body>
   <div id="toast" class="toast"></div>

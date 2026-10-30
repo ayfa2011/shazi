@@ -612,6 +612,11 @@ function renderPostFeed(el, user, profile) {
   }
 
   function closePostDetail() {
+    const post = posts.find(item => item.id === detailPostId);
+    if (post) {
+      const fileId = post.telegramVideoFileId || post.telegramFileId;
+      if (fileId) revokeTelegramMediaUrl(fileId);
+    }
     detailPostId = "";
     stopActivePostComments?.();
     stopActivePostComments = null;
@@ -648,7 +653,13 @@ function renderPostFeed(el, user, profile) {
   function closePostVideoViewer() {
     videoViewer.classList.remove("open");
     videoViewer.setAttribute("aria-hidden", "true");
-    try { viewerVideo.pause(); viewerVideo.removeAttribute("src"); viewerVideo.load(); } catch { /* ignore */ }
+    try {
+      const currentSrc = viewerVideo.src;
+      viewerVideo.pause();
+      viewerVideo.removeAttribute("src");
+      viewerVideo.load();
+      if (currentSrc && currentSrc.startsWith("blob:")) URL.revokeObjectURL(currentSrc);
+    } catch { /* ignore */ }
   }
   videoViewer.querySelector(".tw-video-close")?.addEventListener("click", () => closePostVideoViewer());
   videoViewer.addEventListener("click", event => { if (event.target === videoViewer) closePostVideoViewer(); });
@@ -890,6 +901,12 @@ function renderPostFeed(el, user, profile) {
     }
   }
 
+  function toElement(html) {
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    return template.content.firstElementChild;
+  }
+
   function render() {
     const visiblePosts = selectedProfile === "all"
       ? posts
@@ -921,7 +938,12 @@ function renderPostFeed(el, user, profile) {
       return;
     }
 
-    feed.innerHTML = visiblePosts.map((post) => {
+    // ── Build missing post cards incrementally ─────────────────────────────
+    // Wiping the feed with innerHTML on every snapshot destroys video/image
+    // nodes, resets scroll and forces every card to re-render. Instead, reuse
+    // existing DOM nodes and only insert cards for posts that aren't rendered
+    // yet (new posts prepended to keep newest-first order).
+    function buildPostCardElement(post) {
       const isLiked = (post.likedBy || []).includes(user.uid);
       const likeCount = (post.likedBy || []).length;
       const isAuthor = getPostAuthorKey(post) === getProfileKey(profile);
@@ -932,29 +954,10 @@ function renderPostFeed(el, user, profile) {
       const timeStr = createdAt && !Number.isNaN(createdAt.getTime())
         ? createdAt.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
         : "Just now";
-
       const knownCommentCount = commentsByPost.has(post.id) ? commentsByPost.get(post.id).length : null;
-      return postCardComponent(post, isLiked, likeCount, isAuthor, authorName, authorProfile, handle, timeStr, voiceMarkup, knownCommentCount, cropPositionStyle);
-    }).join("");
+      const card = toElement(postCardComponent(post, isLiked, likeCount, isAuthor, authorName, authorProfile, handle, timeStr, voiceMarkup, knownCommentCount, cropPositionStyle));
 
-    feed.querySelectorAll("img[data-telegram-file-id]").forEach(image => {
-      image.loading = "lazy";
-      image.decoding = "async";
-      const fileId = image.dataset.telegramFileId;
-      const mime = image.dataset.telegramMime || "image/jpeg";
-      // Paint cached post photos immediately; only uncached/nearby photos
-      // should start an authenticated media request.
-      void getCachedTelegramMediaUrl(fileId, mime).then(cachedUrl => {
-        if (cachedUrl && image.isConnected) image.src = cachedUrl;
-      }).catch(() => {});
-    });
-    hydratePostImages(feed);
-    hydrateVoicePlayers(feed);
-    hydratePostVideos(feed, true);
-    mountFeedSentinel(postHasMore);
-
-    visiblePosts.forEach((post) => {
-      const likeBtn = feed.querySelector(`.tw-like-btn[data-id="${post.id}"]`);
+      const likeBtn = card.querySelector(`.tw-like-btn[data-id="${post.id}"]`);
       if (likeBtn) {
         likeBtn.onclick = async () => {
           const liked = (post.likedBy || []).includes(user.uid);
@@ -971,20 +974,20 @@ function renderPostFeed(el, user, profile) {
           }
         };
       }
-      feed.querySelector(`.tw-reply-btn[data-id="${post.id}"]`)?.addEventListener("click", () => {
+      card.querySelector(`.tw-reply-btn[data-id="${post.id}"]`)?.addEventListener("click", () => {
         openPostDetail(post.id);
       });
-      feed.querySelector(`#post-${post.id} .tw-post-content`)?.addEventListener("click", event => {
+      card.querySelector(`#post-${post.id} .tw-post-content`)?.addEventListener("click", event => {
         if (event.target.closest("button")) return;
         if (event.target.matches("[data-post-image]")) return;
         openPostDetail(post.id);
       });
 
-      const menuBtn = feed.querySelector(`.tw-post-menu-btn[data-menu-post="${post.id}"]`);
+      const menuBtn = card.querySelector(`.tw-post-menu-btn[data-menu-post="${post.id}"]`);
       if (menuBtn) {
         menuBtn.onclick = event => {
           event.stopPropagation();
-          const menu = feed.querySelector(`.tw-post-menu[data-menu-list="${post.id}"]`);
+          const menu = card.querySelector(`.tw-post-menu[data-menu-list="${post.id}"]`);
           const isOpen = menu?.classList.contains("open");
           feed.querySelectorAll(".tw-post-menu.open").forEach(m => m.classList.remove("open"));
           feed.querySelectorAll(".tw-post-menu-btn[aria-expanded='true']").forEach(b => b.setAttribute("aria-expanded", "false"));
@@ -995,11 +998,11 @@ function renderPostFeed(el, user, profile) {
         };
       }
       const closeMenu = () => {
-        const menu = feed.querySelector(`.tw-post-menu[data-menu-list="${post.id}"]`);
+        const menu = card.querySelector(`.tw-post-menu[data-menu-list="${post.id}"]`);
         menu?.classList.remove("open");
         menuBtn?.setAttribute("aria-expanded", "false");
       };
-      const editBtn = feed.querySelector(`.tw-edit-btn[data-edit-post="${post.id}"]`);
+      const editBtn = card.querySelector(`.tw-edit-btn[data-edit-post="${post.id}"]`);
       if (editBtn) {
         editBtn.onclick = async () => {
           closeMenu();
@@ -1016,7 +1019,7 @@ function renderPostFeed(el, user, profile) {
           }
         };
       }
-      const deleteBtn = feed.querySelector(`.tw-del-btn[data-delete-post="${post.id}"]`);
+      const deleteBtn = card.querySelector(`.tw-del-btn[data-delete-post="${post.id}"]`);
       if (deleteBtn) {
         deleteBtn.onclick = async () => {
           closeMenu();
@@ -1033,7 +1036,39 @@ function renderPostFeed(el, user, profile) {
           }
         };
       }
+      return card;
+    }
+
+    const newIdSet = new Set(visiblePosts.map(post => post.id));
+    feed.querySelectorAll(".tw-post-card").forEach(card => {
+      if (!newIdSet.has(card.id.replace(/^post-/, ""))) card.remove();
     });
+
+    const existingIds = new Set([...feed.querySelectorAll(".tw-post-card")]
+      .map(card => card.id.replace(/^post-/, "")));
+    const missingPosts = visiblePosts.filter(post => !existingIds.has(post.id));
+
+    if (missingPosts.length) {
+      const fragment = document.createDocumentFragment();
+      missingPosts.forEach(post => fragment.append(buildPostCardElement(post)));
+      // Hydrate newly inserted images/media before they join the DOM so
+      // IntersectionObserver targets are ready once prepended.
+      fragment.querySelectorAll("img[data-telegram-file-id]").forEach(image => {
+        image.loading = "lazy";
+        image.decoding = "async";
+        const fileId = image.dataset.telegramFileId;
+        const mime = image.dataset.telegramMime || "image/jpeg";
+        void getCachedTelegramMediaUrl(fileId, mime).then(cachedUrl => {
+          if (image.isConnected) image.src = cachedUrl;
+        }).catch(() => {});
+      });
+      hydratePostImages(fragment);
+      hydrateVoicePlayers(fragment);
+      hydratePostVideos(fragment, true);
+      feed.prepend(fragment);
+    }
+
+    mountFeedSentinel(postHasMore);
     if (detailPostId) renderPostDetail();
   }
 
@@ -1083,7 +1118,7 @@ function renderPostFeed(el, user, profile) {
     video.setAttribute("webkit-playsinline", "");
     video.dataset.postVideoEl = postId;
     frame.insertBefore(video, frame.firstChild);
-    videoFrames.set(postId, { frame, video });
+    videoFrames.set(postId, { frame, video, fileId });
     video.addEventListener("loadedmetadata", () => { metadataLoaded = true; if (waiting) waiting.remove(); });
     video.addEventListener("playing", () => frame.classList.add("playing"));
     video.addEventListener("pause", () => frame.classList.remove("playing"));
@@ -1142,7 +1177,10 @@ function renderPostFeed(el, user, profile) {
     });
   }
   function releasePostVideos() {
-    videoFrames.forEach(({ video }) => { try { video.pause(); video.removeAttribute("src"); video.load(); } catch { /* ignore */ } });
+    videoFrames.forEach(({ video, fileId }) => {
+      try { video.pause(); video.removeAttribute("src"); video.load(); } catch { /* ignore */ }
+      if (fileId) revokeTelegramMediaUrl(fileId);
+    });
     videoFrames.clear();
     visibleVideoId = "";
   }

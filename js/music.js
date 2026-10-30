@@ -834,6 +834,10 @@ export function initMusic(user) {
           patchOwnedSession({}).catch(error => console.warn("Upload session heartbeat failed:", error));
         }, UPLOAD_HEARTBEAT_MS);
       }
+      if (isVideo && !window.confirm("Extracting audio from a video decodes the whole file on this device and can take a while. Continue?")) {
+        uploadInput.value = "";
+        return;
+      }
       setStatus(isVideo ? "Extracting the audio from your video…" : "Uploading your song to Telegram…");
       // Video clips are decoded on-device and re-wrapped as lossless WAV, so only
       // the original audio ever reaches Telegram. Audio files forward untouched.
