@@ -111,7 +111,8 @@ export function renderSharedGallery(el, user, profile) {
 
   el.innerHTML = `
     <style>
-      .shared-gallery { max-width:760px; margin:0 auto; color:#513544; }
+      .shared-gallery { box-sizing:border-box; max-width:760px; margin:0 auto; padding:6px 14px 0; color:#513544; }
+      .shared-gallery *,.shared-gallery *::before,.shared-gallery *::after { box-sizing:border-box; }
       .gallery-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
       .gallery-heading-copy { min-width:0; }
       .gallery-back { margin:0 0 8px; padding:0; background:none; color:#a85475; font-size:12px; font-weight:700; cursor:pointer; }
@@ -133,11 +134,11 @@ export function renderSharedGallery(el, user, profile) {
       .gallery-folder-copy { display:block; min-height:34px; padding:9px 2px 0; }
       .gallery-folder-copy strong { display:block; overflow:hidden; color:#2b2430; font-size:13px; font-weight:700; line-height:1.3; text-overflow:ellipsis; white-space:nowrap; }
       .gallery-folder-copy small { display:block; margin-top:3px; color:#8e8593; font-size:11px; font-weight:500; line-height:1.3; }
-      .gallery-folder-page { padding:14px; border:1px solid #f1dce5; border-radius:22px; background:linear-gradient(160deg,#fff,#fff8fb); box-shadow:0 8px 24px #78395010; }
-      .gallery-folder-toolbar { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:13px; }
-      .gallery-folder-toolbar h2 { min-width:0; margin:0; color:#75445b; font-size:19px; overflow-wrap:anywhere; }
+      .gallery-folder-page { min-width:0; padding:14px; border:1px solid #f1dce5; border-radius:22px; background:linear-gradient(160deg,#fff,#fff8fb); box-shadow:0 8px 24px #78395010; }
+      .gallery-folder-toolbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; margin-bottom:13px; }
+      .gallery-folder-toolbar h2 { flex:1 1 auto; min-width:0; margin:0; color:#75445b; font-size:19px; line-height:1.25; overflow-wrap:anywhere; }
       .gallery-media-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
-      .gallery-media-card { position:relative; display:block; width:100%; aspect-ratio:1; padding:0; overflow:hidden; border:1px solid #f0d7e1; border-radius:16px; background:#f9e7ef; cursor:pointer; }
+      .gallery-media-card { position:relative; display:block; width:100%; min-width:0; aspect-ratio:1; padding:0; overflow:hidden; border:1px solid #f0d7e1; border-radius:16px; background:#f9e7ef; cursor:pointer; }
       .gallery-media-card img { display:block; width:100%; height:100%; object-fit:cover; transition:transform .3s ease; }
       .gallery-media-card:hover img { transform:scale(1.04); }
       .gallery-media-video { position:absolute; top:10px; right:10px; display:grid; width:32px; height:32px; place-items:center; border:1px solid #ffffff90; border-radius:50%; background:#26141dbd; color:#fff; font-size:12px; }
@@ -156,7 +157,7 @@ export function renderSharedGallery(el, user, profile) {
       .gallery-viewer-nav.prev { left:6px; }
       .gallery-viewer-nav.next { right:6px; }
       .gallery-viewer-foot { min-height:38px; display:flex; align-items:center; justify-content:center; color:#ffffffb8; font-size:11px; }
-      @media(max-width:420px) { .gallery-heading { align-items:flex-end; } .gallery-primary-btn { min-height:39px; padding:8px 11px; font-size:11px; } .gallery-folder-list { gap:16px 10px; } .gallery-folder-thumb { border-radius:13px; } .gallery-folder-copy { padding-top:7px; } .gallery-folder-copy strong { font-size:12px; } .gallery-folder-copy small { font-size:10px; } .gallery-folder-page { padding:10px; } .gallery-media-grid { gap:7px; } .gallery-media-card { border-radius:12px; } }
+      @media(max-width:420px) { .shared-gallery { padding:4px 10px 0; } .gallery-heading { align-items:flex-end; } .gallery-primary-btn { min-height:39px; padding:8px 11px; font-size:11px; } .gallery-folder-list { gap:16px 10px; } .gallery-folder-thumb { border-radius:13px; } .gallery-folder-copy { padding-top:7px; } .gallery-folder-copy strong { font-size:12px; } .gallery-folder-copy small { font-size:10px; } .gallery-folder-page { padding:10px; } .gallery-media-grid { gap:7px; } .gallery-media-card { border-radius:12px; } }
     </style>
     <section class="shared-gallery">
       <header class="gallery-heading">
@@ -211,10 +212,24 @@ export function renderSharedGallery(el, user, profile) {
     try { return decodeURIComponent(match[1]); } catch { return ""; }
   }
 
+  // Keep a "folder list" history entry behind the open folder, so the Android
+  // back button / iOS back gesture (and the ‹ Folders button) walk folder →
+  // folder list → More instead of being undone by app.js restoring the hash.
+  let folderHistoryPushed = false;
+
   function syncFolderHash(folderId) {
     const next = folderId ? `#gallery-library/${encodeURIComponent(folderId)}` : "#gallery-library";
-    if (window.location.hash === next) return;
-    window.history.replaceState({ route: "gallery-library", folderId }, "", `${window.location.pathname}${window.location.search}${next}`);
+    const url = `${window.location.pathname}${window.location.search}${next}`;
+    if (folderId && !folderHistoryPushed) {
+      folderHistoryPushed = true;
+      window.history.pushState({ route: "gallery-library", folderId, galleryFolder: true }, "", url);
+    } else if (!folderId && folderHistoryPushed) {
+      folderHistoryPushed = false;
+      if (window.history.state?.galleryFolder) window.history.back();
+      else window.history.replaceState({ route: "gallery-library", folderId: "" }, "", url);
+    } else {
+      window.history.replaceState({ route: "gallery-library", folderId }, "", url);
+    }
   }
 
   function openFolder(folderId) {
@@ -225,7 +240,7 @@ export function renderSharedGallery(el, user, profile) {
     closeViewer();
     syncFolderHash(folder.id);
     render();
-    window.scrollTo({ top: 0, behavior: "instant" });
+    window.scrollTo(0, 0);
     return true;
   }
 
@@ -235,7 +250,7 @@ export function renderSharedGallery(el, user, profile) {
     folderForm.hidden = true;
     syncFolderHash("");
     render();
-    window.scrollTo({ top: 0, behavior: "instant" });
+    window.scrollTo(0, 0);
   }
 
   function render() {
@@ -513,9 +528,23 @@ export function renderSharedGallery(el, user, profile) {
   // A back gesture/history entry that leaves a folder goes back to the folder
   // list. app.js restores the hash afterwards, so the router stays in sync.
   const onPopState = () => {
-    if (!activeGallery || !selectedFolderId) return;
-    if (folderFromHash() === selectedFolderId) return;
-    if (!folderFromHash()) closeFolder();
+    if (!activeGallery) return;
+    const hashFolderId = folderFromHash();
+    folderHistoryPushed = Boolean(hashFolderId);
+    if (hashFolderId) {
+      if (hashFolderId !== selectedFolderId && folders.some(folder => folder.id === hashFolderId)) {
+        selectedFolderId = hashFolderId;
+        render();
+      }
+      return;
+    }
+    // Backing out of a folder: show the folder list (the URL already updated).
+    if (selectedFolderId) {
+      closeViewer();
+      selectedFolderId = "";
+      folderForm.hidden = true;
+      render();
+    }
   };
   window.addEventListener("popstate", onPopState);
   el.galleryMediaCleanup = () => {

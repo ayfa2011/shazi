@@ -17,7 +17,9 @@
       "firebase-debug.log",
       "**/firebase-debug.log",
       "ui-debug.log",
-      "**/ui-debug.log"
+      "**/ui-debug.log",
+      ".kilo/**",
+      "**/.kilo/**"
     ],
     "headers": [
       {

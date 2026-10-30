@@ -350,13 +350,12 @@ function renderPostFeed(el, user, profile) {
       .tw-load-older { display:none; }
       .tw-feed-sentinel { min-height:8px; }
       @keyframes tw-record-pulse { to { opacity:.65; } }
-      .tw-detail-backdrop,.tw-image-backdrop { position:fixed; inset:0; z-index:1400; display:none; align-items:center; justify-content:center; padding:16px; background:#21131bc9; }
-      .tw-detail-backdrop.open,.tw-image-backdrop.open { display:flex; }
-      .tw-detail-modal { width:min(100%,650px); max-height:min(88dvh,900px); overflow:auto; border-radius:22px; background:#fffafd; box-shadow:0 20px 70px #16071155; }
-      .tw-detail-head { position:sticky; top:0; z-index:2; display:flex; align-items:center; justify-content:space-between; padding:13px 16px; border-bottom:1px solid #f4e2e9; background:#fffafd; }
+      .tw-detail-page,.tw-image-backdrop { position:fixed; inset:0; z-index:1400; display:none; background:#fffafd; overflow:auto; }
+      .tw-detail-page.open,.tw-image-backdrop.open { display:block; }
+      .tw-detail-page .tw-detail-head { position:sticky; top:0; z-index:2; display:flex; align-items:center; justify-content:space-between; padding:13px 16px; border-bottom:1px solid #f4e2e9; background:#fffafd; }
       .tw-detail-head strong { color:#793752; }
       .tw-detail-close { width:36px; height:36px; border-radius:50%; background:#fff0f6; color:#8f315d; font-size:21px; cursor:pointer; }
-      .tw-detail-body { padding:16px; }
+      .tw-detail-body { padding:16px; max-width:650px; margin:0 auto; }
       .tw-detail-comments { display:grid; gap:10px; margin-top:15px; }
       .tw-detail-comment { padding:11px 12px; border:1px solid #f2e1e8; border-radius:15px; background:white; color:#483640; font-size:13px; line-height:1.45; overflow-wrap:anywhere; }
       .tw-detail-comment strong { color:#8f315d; }
@@ -449,7 +448,7 @@ function renderPostFeed(el, user, profile) {
       <div id="tw-posts-feed">
         <p style="padding:20px; text-align:center; color:#8b7180;">Loading posts...</p>
       </div>
-      <div class="tw-detail-backdrop" id="tw-post-detail" aria-hidden="true"><section class="tw-detail-modal" role="dialog" aria-modal="true" aria-label="Post details"><header class="tw-detail-head"><strong>Post & replies</strong><button type="button" class="tw-detail-close" id="tw-detail-close" aria-label="Close">×</button></header><div class="tw-detail-body" id="tw-detail-body"></div></section></div>
+      <div class="tw-detail-page" id="tw-post-detail" aria-hidden="true"><header class="tw-detail-head"><button type="button" class="tw-detail-close" id="tw-detail-close" aria-label="Back">← Back</button><strong>Post & replies</strong><span></span></header><div class="tw-detail-body" id="tw-detail-body"></div></div>
       <div class="tw-image-backdrop" id="tw-post-image-viewer" aria-hidden="true"><img alt="Full size post photo"></div>
     </div>
   `;
@@ -1098,7 +1097,7 @@ function renderPostFeed(el, user, profile) {
     visibleVideoId = "";
   }
 
-  detailModal.addEventListener("click", event => { if (event.target === detailModal) closePostDetail(); });
+   // detail page no longer closes on backdrop click
   el.addEventListener("click", event => {
     if (event.target.closest?.(".tw-post-actions,[data-voice-record]")) return;
     feed.querySelectorAll(".tw-post-menu.open").forEach(m => m.classList.remove("open"));
@@ -1235,7 +1234,7 @@ function closeTransientUi() {
     drawer.classList.add("hidden");
     return true;
   }
-  const openModal = document.querySelector(".tw-detail-backdrop.open, .tw-image-backdrop.open, .mem-modal-overlay[style*='display: flex'], .letter-modal-overlay.is-open, .drawing-history-overlay:not(.hidden), .drawing-preview-overlay:not(.hidden), .question-edit-modal.open, .gallery-viewer.open, .special-days-modal:not(.hidden)");
+  const openModal = document.querySelector(".tw-detail-page.open, .tw-image-backdrop.open, .mem-modal-overlay[style*='display: flex'], .letter-modal-overlay.is-open, .drawing-history-overlay:not(.hidden), .drawing-preview-overlay:not(.hidden), .question-edit-modal.open, .gallery-viewer.open, .special-days-modal:not(.hidden)");
   if (openModal) {
     const close = openModal.querySelector("[aria-label='Close'], [aria-label^='Close'], .tw-detail-close, .memory-view-close, .mem-modal-close, .drawing-close, .letter-close-btn, #gallery-viewer-close, #question-edit-cancel");
     if (close) close.click();
