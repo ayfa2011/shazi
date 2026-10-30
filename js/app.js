@@ -21,7 +21,7 @@ import { renderDrawing, disposeDrawing } from "./drawing.js";
 import { renderChallenges, disposeChallenges } from "./challenges.js";
 import { initMusic } from "./music.js";
 import { firebaseReady } from "./firebase.js";
-import { getTelegramMediaUrl, getCachedTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
+import { getTelegramMediaUrl, getCachedTelegramMediaUrl, revokeTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
 import { saveCoupleProfile, watchCoupleProfiles } from "./firestore.js";
 import { applyCoupleProfiles, findProfileForAuthor, getDisplayName, getProfileKey, hydrateCoupleProfileAvatars } from "./profile-data.js";
 
