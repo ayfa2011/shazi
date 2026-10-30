@@ -3,9 +3,9 @@ import { rtdb } from "./firebase.js";
 import { addDrawingMessage, watchDrawingMessages, deleteDrawingMessage, notifyPartnerSafely } from "./firestore.js";
 import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences } from "../src/services/telegramService.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
-import { createDrawingHistory, createOfflineQueue } from "./drawing-fixes.js";
+import { createDrawingHistory, createOfflineQueue, simplifyPoints } from "./drawing-fixes.js";
 import { warmDrawing, drawingWarm } from "./drawing-preload.js";
-import { ref, push, get, onChildAdded, onValue, onDisconnect, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
+import { ref, push, get, update, onChildAdded, onValue, onDisconnect, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
 const root = "couples/our-little-world/drawing";
 let activeDrawingCleanup = null;
@@ -590,6 +590,32 @@ export function renderDrawing(el, user, profile) {
     if (outgoingQueue.length) toast("Some strokes are still waiting to sync.");
   }
 
+  /**
+   * Compact the strokes log: remove every operation whose key sorts before
+   * `keepKey` (i.e. older than the given clear/save operation). The saved
+   * drawing is already exported as an image + Firestore message, so the live
+   * log only needs to represent the current canvas. Runs in small batches
+   * via multi-path update() so a long log never blocks the main thread.
+   */
+  async function compactStrokesLog(keepKey) {
+    if (!keepKey) return;
+    try {
+      const snap = await get(strokeRef);
+      const data = snap.val() || {};
+      const keys = Object.keys(data);
+      const toRemove = keys.filter(k => k < keepKey);
+      if (!toRemove.length) return;
+      for (let i = 0; i < toRemove.length; i += 500) {
+        const batch = toRemove.slice(i, i + 500);
+        const updates = {};
+        for (const k of batch) updates[k] = null;
+        await update(ref(rtdb, `${root}/strokes`), updates);
+      }
+    } catch (error) {
+      console.error("Drawing log compaction failed:", error);
+    }
+  }
+
   // ═════════════════════════════════════════════════════
   //  Pointer handlers — drawing works immediately; sync happens in background.
   // ═════════════════════════════════════════════════════
@@ -643,8 +669,8 @@ export function renderDrawing(el, user, profile) {
     cancelAnimationFrame(moveFrame);
     moveFrame = null; movePoint = null;
     if (drawing && activeStroke && activeStroke.points && activeStroke.points.length > 0) {
-      history.add(activeStroke);
-      const committedStroke = activeStroke;
+      const committedStroke = { ...activeStroke, points: simplifyPoints([...activeStroke.points]) };
+      history.add(committedStroke);
       strokeIds.set(committedStroke.id, null);
       enqueueWrite({ type: "stroke", ...committedStroke }).then(value => { if (value?.key) strokeIds.set(committedStroke.id, value.key); });
       refreshHistoryControls();
@@ -945,7 +971,8 @@ export function renderDrawing(el, user, profile) {
     strokeIds.clear();
     for (const operation of outgoingQueue.getAll()) { if (["stroke", "redo", "undo"].includes(operation.type)) outgoingQueue.remove(operation.id); }
     redrawCanvas();
-    await enqueueWrite({ type: "clear" });
+    const clearResult = await enqueueWrite({ type: "clear" });
+    if (clearResult?.key) await compactStrokesLog(clearResult.key);
     toast("Canvas cleared. Undo can restore it.");
   };
 
@@ -1041,7 +1068,8 @@ export function renderDrawing(el, user, profile) {
       strokeIds.clear();
       redrawCanvas();
       outgoingQueue.clear();
-      await enqueueWrite({ type: "clear" });
+      const clearResult = await enqueueWrite({ type: "clear" });
+      if (clearResult?.key) await compactStrokesLog(clearResult.key);
       toast("Drawing saved to your shared gallery ♡");
     } catch (e) {
       toast(e.message || "Save failed.");

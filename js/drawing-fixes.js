@@ -109,3 +109,54 @@ export function operationsSinceKnown(snapshot, knownKeys = new Set()) {
     .filter(([key]) => !knownKeys.has(key))
     .map(([key, value]) => ({ key, ...value }));
 }
+
+/**
+ * Simplify a stroke's points so the stored log stays small while the visible
+ * result is unchanged.
+ *
+ * 1) Drop points closer than `minDist` to the last kept point.
+ * 2) Ramer-Douglas-Peucker with `rdpTolerance`.
+ *
+ * Always keeps the first and last point so stroke endpoints are preserved.
+ */
+export function simplifyPoints(points, minDist = 1.5, rdpTolerance = 0.6) {
+  if (!points || points.length === 0) return [];
+  // Distance filter: keep first point, drop points too close to the last kept.
+  const filtered = [];
+  for (const p of points) {
+    const last = filtered[filtered.length - 1];
+    if (!last) { filtered.push(p); continue; }
+    const dx = p.x - last.x;
+    const dy = p.y - last.y;
+    if (dx * dx + dy * dy < minDist * minDist) continue;
+    filtered.push(p);
+  }
+  if (filtered.length <= 2) return filtered;
+  return rdp(filtered, rdpTolerance);
+}
+
+function perpendicularDistance(pt, lineStart, lineEnd) {
+  const dx = lineEnd.x - lineStart.x;
+  const dy = lineEnd.y - lineStart.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.hypot(pt.x - lineStart.x, pt.y - lineStart.y);
+  const t = ((pt.x - lineStart.x) * dx + (pt.y - lineStart.y) * dy) / len2;
+  const closest = { x: lineStart.x + t * dx, y: lineStart.y + t * dy };
+  return Math.hypot(pt.x - closest.x, pt.y - closest.y);
+}
+
+function rdp(points, tolerance) {
+  if (points.length <= 2) return points.slice();
+  let maxDist = 0;
+  let maxIdx = 0;
+  for (let i = 1; i < points.length - 1; i++) {
+    const d = perpendicularDistance(points[i], points[0], points[points.length - 1]);
+    if (d > maxDist) { maxDist = d; maxIdx = i; }
+  }
+  if (maxDist > tolerance) {
+    const left = rdp(points.slice(0, maxIdx + 1), tolerance);
+    const right = rdp(points.slice(maxIdx), tolerance);
+    return left.slice(0, -1).concat(right);
+  }
+  return [points[0], points[points.length - 1]];
+}
