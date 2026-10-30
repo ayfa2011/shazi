@@ -4,6 +4,7 @@ import { addDrawingMessage, watchDrawingMessages, deleteDrawingMessage, notifyPa
 import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences } from "../src/services/telegramService.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { createDrawingHistory, createOfflineQueue, simplifyPoints } from "./drawing-fixes.js";
+import { roundPoint, clientToCanvasPoint, coalescedClientPoints, filterPointsByMinDist } from "./drawing-helpers.js";
 import { warmDrawing, drawingWarm } from "./drawing-preload.js";
 import { ref, push, get, update, onChildAdded, onValue, onDisconnect, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
@@ -44,6 +45,7 @@ export function renderDrawing(el, user, profile) {
       <div id="canvas-zoom-spacer" class="canvas-zoom-spacer">
         <div id="canvas-zoom-layer" class="canvas-zoom-layer">
           <canvas class="draw-canvas" id="draw-canvas" width="1200" height="900" aria-label="Shared drawing canvas" role="img" tabindex="0"></canvas>
+          <canvas id="draw-overlay" width="1200" height="900" aria-hidden="true"></canvas>
           <div class="canvas-watermark">K &amp; S ♡</div>
         </div>
       </div>
@@ -296,12 +298,39 @@ export function renderDrawing(el, user, profile) {
   let currentPreviewMessage = null;
   let cachedMessages = [];
 
-  const liveBuffer = drawingWarm.ctx ? drawingWarm.ctx.canvas : document.createElement("canvas");
-  if (!drawingWarm.ctx) {
-    liveBuffer.width = canvas.width;
-    liveBuffer.height = canvas.height;
+  const liveOverlay = $("#draw-overlay", el);
+  const liveOverlayCtx = liveOverlay.getContext("2d");
+  liveOverlay.width = canvas.width;
+  liveOverlay.height = canvas.height;
+
+  // Offscreen snapshot cache for undo/redo. Holds a copy of the last fully
+  // rendered committed state so repeated undo/redo can avoid replaying the
+  // whole history every step. Invalidated whenever the committed state changes
+  // in a way the cache cannot represent incrementally.
+  let snapshotCanvas = null;
+  let snapshotCtx = null;
+  let snapshotValid = false;
+
+  function ensureSnapshot() {
+    if (!snapshotCanvas) {
+      snapshotCanvas = document.createElement("canvas");
+      snapshotCanvas.width = canvas.width;
+      snapshotCanvas.height = canvas.height;
+      snapshotCtx = snapshotCanvas.getContext("2d");
+    }
   }
-  const liveBufferCtx = drawingWarm.ctx || liveBuffer.getContext("2d");
+
+  function captureSnapshot() {
+    ensureSnapshot();
+    snapshotCtx.drawImage(canvas, 0, 0);
+    snapshotValid = true;
+  }
+
+  function invalidateSnapshot() {
+    snapshotValid = false;
+    snapshotCanvas = null;
+    snapshotCtx = null;
+  }
 
   const boardResizeObserver = new ResizeObserver(() => { if (active) { refreshCanvasRect(); applyZoom(zoom); } });
   boardResizeObserver.observe(drawBoard);
@@ -434,13 +463,14 @@ export function renderDrawing(el, user, profile) {
     targetCtx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
   }
 
-  function renderSingleStroke(targetCtx, stroke) {
+  function renderSingleStroke(targetCtx, stroke, alphaOverride) {
     if (!targetCtx || !stroke || !stroke.points || stroke.points.length === 0) return;
     const pts = stroke.points;
     const strokeTool = stroke.tool || "pen";
     const strokeColor = stroke.color || "#dc4d88";
     const strokeSize = stroke.size || 5;
-    const strokeOpacity = typeof stroke.opacity === "number" ? stroke.opacity : (strokeTool === "marker" ? 0.8 : (strokeTool === "pencil" ? 0.75 : 1.0));
+    const defaultOpacity = strokeTool === "marker" ? 0.8 : (strokeTool === "pencil" ? 0.75 : 1.0);
+    const strokeOpacity = typeof alphaOverride === "number" ? alphaOverride : (typeof stroke.opacity === "number" ? stroke.opacity : defaultOpacity);
     targetCtx.save();
 
     if (strokeTool === "eraser") {
@@ -500,8 +530,41 @@ export function renderDrawing(el, user, profile) {
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     for (const stroke of history.strokes) renderSingleStroke(ctx, stroke);
+    // Cache the committed state so undo/redo can skip a full replay when only
+    // the last stroke changes. Captured before activeStroke is drawn so the
+    // snapshot never contains a transient in-progress stroke.
+    captureSnapshot();
     if (activeStroke) renderSingleStroke(ctx, activeStroke);
     refreshHistoryControls();
+  }
+
+  /**
+   * Draw a single live segment (from -> to) for the in-progress stroke onto
+   * the overlay (translucent tools) or main canvas (eraser). Only the new
+   * segment is drawn, so cost is O(1) per frame regardless of stroke length.
+   */
+  function drawLiveSegment(from, to) {
+    const stroke = activeStroke;
+    const isEraser = stroke.tool === "eraser";
+    const targetCtx = isEraser ? ctx : liveOverlayCtx;
+    targetCtx.save();
+    if (isEraser) {
+      targetCtx.globalCompositeOperation = "destination-out";
+      targetCtx.globalAlpha = 1.0;
+      targetCtx.lineWidth = stroke.size;
+    } else {
+      targetCtx.globalCompositeOperation = "source-over";
+      targetCtx.globalAlpha = 1.0; // full alpha on overlay; CSS opacity applies tool opacity
+      targetCtx.strokeStyle = stroke.color;
+      targetCtx.lineWidth = stroke.size;
+    }
+    targetCtx.lineCap = "round";
+    targetCtx.lineJoin = "round";
+    targetCtx.beginPath();
+    targetCtx.moveTo(from.x, from.y);
+    targetCtx.lineTo(to.x, to.y);
+    targetCtx.stroke();
+    targetCtx.restore();
   }
 
   function refreshHistoryControls() {
@@ -640,38 +703,85 @@ export function renderDrawing(el, user, profile) {
       opacity: toolConfigs[tool].opacity,
       points: [last]
     };
-    liveBufferCtx.clearRect(0, 0, canvas.width, canvas.height);
-    liveBufferCtx.drawImage(canvas, 0, 0);
-    renderSingleStroke(ctx, activeStroke);
+    // Clear the live overlay so only the current in-progress stroke shows.
+    liveOverlayCtx.clearRect(0, 0, canvas.width, canvas.height);
+    // Apply the stroke opacity via the overlay's CSS opacity; the overlay is
+    // painted at full alpha so joints don't darken. The final committed frame
+    // is rendered with renderSingleStroke (pixel-identical output) at endStroke.
+    liveOverlay.style.opacity = String(activeStroke.opacity);
+    if (activeStroke.tool === "eraser") {
+      // Eraser erases directly on the main canvas so destination-out behaves
+      // identically in-progress and at commit time.
+      renderSingleStroke(ctx, activeStroke);
+    } else {
+      renderSingleStroke(liveOverlayCtx, activeStroke, 1.0);
+    }
   });
 
-  let moveFrame = null, movePoint = null;
+  let moveFrame = null;
+  let movePoints = [];
   canvas.addEventListener("pointermove", e => {
     if (!drawing || !activeStroke || !last) return;
     if (e.cancelable) e.preventDefault();
-    movePoint = point(e);
+    refreshCanvasRect();
+    const rect = canvasRect;
+    // Coalesced events keep fast movement curvy; fall back to the single event.
+    const rawPoints = coalescedClientPoints(e).map(p => clientToCanvasPoint(p.x, p.y, rect));
+    const filtered = filterPointsByMinDist(rawPoints, last, 1.5 * 1.5);
+    movePoints = [...movePoints, ...filtered.points];
     if (moveFrame) return;
     moveFrame = requestAnimationFrame(() => {
       moveFrame = null;
-      const p = movePoint;
-      movePoint = null;
-      const dx = p.x - last.x;
-      const dy = p.y - last.y;
-      if (dx * dx + dy * dy < 1.5) return;
-      activeStroke.points.push(p);
-      last = p;
-      ctx.drawImage(liveBuffer, 0, 0);
-      renderSingleStroke(ctx, activeStroke);
+      const pts = movePoints;
+      movePoints = [];
+      if (!pts.length) return;
+      let prev = last;
+      const isEraser = activeStroke.tool === "eraser";
+      const targetCtx = isEraser ? ctx : liveOverlayCtx;
+      targetCtx.save();
+      if (isEraser) {
+        targetCtx.globalCompositeOperation = "destination-out";
+        targetCtx.globalAlpha = 1.0;
+        targetCtx.lineWidth = activeStroke.size;
+      } else {
+        targetCtx.globalCompositeOperation = "source-over";
+        targetCtx.globalAlpha = 1.0;
+        targetCtx.strokeStyle = activeStroke.color;
+        targetCtx.lineWidth = activeStroke.size;
+      }
+      targetCtx.lineCap = "round";
+      targetCtx.lineJoin = "round";
+      let drawn = false;
+      for (const p of pts) {
+        targetCtx.beginPath();
+        targetCtx.moveTo(prev.x, prev.y);
+        targetCtx.lineTo(p.x, p.y);
+        targetCtx.stroke();
+        activeStroke.points.push(p);
+        prev = p;
+        drawn = true;
+      }
+      targetCtx.restore();
+      if (drawn) last = prev;
     });
   });
 
   function endStroke() {
     cancelAnimationFrame(moveFrame);
-    moveFrame = null; movePoint = null;
+    moveFrame = null;
+    movePoints = [];
     if (drawing && activeStroke && activeStroke.points && activeStroke.points.length > 0) {
       const committedStroke = { ...activeStroke, points: simplifyPoints([...activeStroke.points]) };
       history.add(committedStroke);
       strokeIds.set(committedStroke.id, null);
+      // Commit the final stroke to the main canvas using the existing renderer
+      // so the result is pixel-identical to the previous output.
+      renderSingleStroke(ctx, committedStroke);
+      // Keep the undo/redo snapshot in sync.
+      if (snapshotValid) { renderSingleStroke(snapshotCtx, committedStroke); } else { captureSnapshot(); }
+      // Clear the live overlay; the stroke now lives on the main canvas.
+      liveOverlayCtx.clearRect(0, 0, canvas.width, canvas.height);
+      liveOverlay.style.opacity = "1";
       enqueueWrite({ type: "stroke", ...committedStroke }).then(value => { if (value?.key) strokeIds.set(committedStroke.id, value.key); });
       refreshHistoryControls();
     }
@@ -730,14 +840,16 @@ export function renderDrawing(el, user, profile) {
       history.add(v);
       strokeIds.set(v.id, s.key);
       // A partner stroke arriving while the local user is drawing is painted
-      // directly onto both the visible canvas and the live buffer so it stays
-      // visible when pointermove redraws the buffer. No full redraw mid-stroke.
+      // directly onto the visible canvas so it stays visible under the local
+      // overlay. No full redraw mid-stroke. The snapshot is invalidated and
+      // rebuilt on the next full redraw (or at endStroke).
       if (drawing) {
         renderSingleStroke(ctx, v);
-        renderSingleStroke(liveBufferCtx, v);
+        invalidateSnapshot();
         refreshHistoryControls();
       } else {
         renderSingleStroke(ctx, v);
+        if (snapshotValid) { renderSingleStroke(snapshotCtx, v); } else { invalidateSnapshot(); }
         refreshHistoryControls();
       }
     }
@@ -768,7 +880,6 @@ export function renderDrawing(el, user, profile) {
     initialLoading = false;
     initialEvents.length = 0;
     redrawCanvas();
-    if (drawing) liveBufferCtx.drawImage(canvas, 0, 0);
     updateSyncStatus();
   }).catch(error => {
     if (!active) return;
@@ -778,7 +889,6 @@ export function renderDrawing(el, user, profile) {
     initialLoading = false;
     initialEvents.length = 0;
     redrawCanvas();
-    if (drawing) liveBufferCtx.drawImage(canvas, 0, 0);
     updateSyncStatus();
   });
 
@@ -958,7 +1068,16 @@ export function renderDrawing(el, user, profile) {
     closePopovers();
     const stroke = history.redo();
     if (!stroke) return;
-    redrawCanvas();
+    // Redo only appends the last removed stroke: draw it on top of the cached
+    // snapshot instead of replaying the whole history. Falls back to a full
+    // redraw when the cache is invalid.
+    if (snapshotValid && snapshotCtx) {
+      renderSingleStroke(snapshotCtx, stroke);
+      ctx.drawImage(snapshotCanvas, 0, 0);
+    } else {
+      redrawCanvas();
+    }
+    refreshHistoryControls();
     enqueueWrite({ type: "redo", stroke });
   };
 
@@ -1196,6 +1315,7 @@ export function renderDrawing(el, user, profile) {
       latestRemoteClearKey = null;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      captureSnapshot();
       refreshHistoryControls();
       historyOverlay.classList.add("hidden");
     };
@@ -1214,6 +1334,7 @@ export function renderDrawing(el, user, profile) {
     window.removeEventListener("online", handleOnline);
     window.removeEventListener("offline", handleOffline);
     window.removeEventListener("beforeunload", outgoingQueue.persist);
+    invalidateSnapshot();
     onDisconnect(presenceRef).cancel();
     set(presenceRef, { name: profile.name, uid: user.uid, state: "offline", lastSeen: Date.now() });
   };
