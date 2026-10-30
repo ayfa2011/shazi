@@ -14,13 +14,25 @@ export function distanceSquared(a, b) {
 }
 
 /**
- * Map a raw client coordinate to a canvas-space point using a bounding rect.
- * Pure: all inputs are passed in, no DOM state is read.
+ * Map a raw client coordinate to a canvas-space point using a bounding rect
+ * and the canvas's intrinsic dimensions. Pure: all inputs are passed in.
  */
-export function clientToCanvasPoint(clientX, clientY, rect) {
-  const x = ((clientX - rect.left) / rect.width) * 1200;
-  const y = ((clientY - rect.top) / rect.height) * 900;
+export function clientToCanvasPoint(clientX, clientY, rect, canvasW, canvasH) {
+  const x = ((clientX - rect.left) / rect.width) * canvasW;
+  const y = ((clientY - rect.top) / rect.height) * canvasH;
   return roundPoint(x, y);
+}
+
+/**
+ * Clamp a point to the canvas bounds so out-of-range pointer events (e.g.
+ * dragging past the edge while zoomed) never produce off-canvas coordinates
+ * that can look like wrapping or offset under CSS transforms.
+ */
+export function clampPoint(p, canvasW, canvasH) {
+  return {
+    x: Math.max(0, Math.min(canvasW, p.x)),
+    y: Math.max(0, Math.min(canvasH, p.y)),
+  };
 }
 
 /**

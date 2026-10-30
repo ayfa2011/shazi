@@ -4,7 +4,7 @@ import { addDrawingMessage, watchDrawingMessages, deleteDrawingMessage, notifyPa
 import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences } from "../src/services/telegramService.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { createDrawingHistory, createOfflineQueue, simplifyPoints } from "./drawing-fixes.js";
-import { roundPoint, clientToCanvasPoint, coalescedClientPoints, filterPointsByMinDist } from "./drawing-helpers.js";
+import { roundPoint, clientToCanvasPoint, coalescedClientPoints, filterPointsByMinDist, clampPoint } from "./drawing-helpers.js";
 import { warmDrawing, drawingWarm } from "./drawing-preload.js";
 import { ref, push, get, update, onChildAdded, onValue, onDisconnect, set } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
@@ -44,8 +44,8 @@ export function renderDrawing(el, user, profile) {
     <div class="draw-board" id="draw-board">
       <div id="canvas-zoom-spacer" class="canvas-zoom-spacer">
         <div id="canvas-zoom-layer" class="canvas-zoom-layer">
-          <canvas class="draw-canvas" id="draw-canvas" width="1200" height="900" aria-label="Shared drawing canvas" role="img" tabindex="0"></canvas>
-          <canvas id="draw-overlay" width="1200" height="900" aria-hidden="true"></canvas>
+          <canvas class="draw-canvas" id="draw-canvas" width="1600" height="1200" aria-label="Shared drawing canvas" role="img" tabindex="0"></canvas>
+          <canvas id="draw-overlay" width="1600" height="1200" aria-hidden="true"></canvas>
           <div class="canvas-watermark">K &amp; S ♡</div>
         </div>
       </div>
@@ -446,8 +446,8 @@ export function renderDrawing(el, user, profile) {
   function refreshCanvasRect() { canvasRect = canvas.getBoundingClientRect(); }
   function point(e) {
     const r = canvasRect || refreshCanvasRect();
-    const x = ((e.clientX - r.left) / r.width) * 1200;
-    const y = ((e.clientY - r.top) / r.height) * 900;
+    const x = ((e.clientX - r.left) / r.width) * canvas.width;
+    const y = ((e.clientY - r.top) / r.height) * canvas.height;
     return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
   }
 
@@ -725,8 +725,11 @@ export function renderDrawing(el, user, profile) {
     if (e.cancelable) e.preventDefault();
     refreshCanvasRect();
     const rect = canvasRect;
+    if (!rect) return;
     // Coalesced events keep fast movement curvy; fall back to the single event.
-    const rawPoints = coalescedClientPoints(e).map(p => clientToCanvasPoint(p.x, p.y, rect));
+    const rawPoints = coalescedClientPoints(e)
+      .map(p => clientToCanvasPoint(p.x, p.y, rect, canvas.width, canvas.height))
+      .map(p => clampPoint(p, canvas.width, canvas.height));
     const filtered = filterPointsByMinDist(rawPoints, last, 1.5 * 1.5);
     movePoints = [...movePoints, ...filtered.points];
     if (moveFrame) return;

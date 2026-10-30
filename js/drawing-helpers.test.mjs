@@ -5,6 +5,7 @@ import {
   clientToCanvasPoint,
   coalescedClientPoints,
   filterPointsByMinDist,
+  clampPoint,
 } from "./drawing-helpers.js";
 
 const pt = (x, y) => ({ x, y });
@@ -19,8 +20,15 @@ assert.equal(distanceSquared(pt(1, 1), pt(1, 1)), 0);
 
 // clientToCanvasPoint
 const rect = { left: 100, top: 100, width: 200, height: 150 };
-// client at left+100 (half width) -> 600 (half of 1200)
-assert.deepEqual(clientToCanvasPoint(200, 175, rect), { x: 600, y: 450 });
+// client at left+100 (half width) -> 800 (half of 1600), y: 175 -> 600 (half of 1200)
+assert.deepEqual(clientToCanvasPoint(200, 175, rect, 1600, 1200), { x: 800, y: 600 });
+
+// clampPoint keeps in-range points unchanged
+assert.deepEqual(clampPoint({ x: 400, y: 300 }, 1600, 1200), { x: 400, y: 300 });
+// clampPoint clamps negative values to 0
+assert.deepEqual(clampPoint({ x: -50, y: -10 }, 1600, 1200), { x: 0, y: 0 });
+// clampPoint clamps values above canvas size
+assert.deepEqual(clampPoint({ x: 2000, y: 1500 }, 1600, 1200), { x: 1600, y: 1200 });
 
 // coalescedClientPoints falls back to single event when getCoalescedEvents absent
 const single = { clientX: 10, clientY: 20 };
