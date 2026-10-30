@@ -282,7 +282,6 @@ export function renderDrawing(el, user, profile) {
   let lastNonEraserTool = "pen";
   let drawing = false;
   let active = true;
-  let remoteSyncReady = false;
   let last = null;
   let activeStroke = null;
   let strokeIds = new Map();
@@ -347,10 +346,10 @@ export function renderDrawing(el, user, profile) {
   canvas.addEventListener("touchend", e => { if (e.touches.length < 2) { pinchInfo = null; previousPinchCenter = null; } });
 
   $("#drawing-close", el).onclick = () => window.App?.navigate("home");
-  $("#drawing-history-open", el).onclick = () => { closePopovers(); historyOverlay.classList.remove("hidden"); $("#drawing-history-close", el).focus(); };
+  $("#drawing-history-open", el).onclick = () => { closePopovers(); loadDrawingMessages(); historyOverlay.classList.remove("hidden"); $("#drawing-history-close", el).focus(); };
   $("#drawing-history-close", el).onclick = closeHistory;
   historyOverlay.onclick = event => { if (event.target === historyOverlay) closeHistory(); };
-  function closeHistory() { historyOverlay.classList.add("hidden"); $("#drawing-history-open", el).focus(); }
+  function closeHistory() { stopDrawingMessageWatcher(); historyOverlay.classList.add("hidden"); $("#drawing-history-open", el).focus(); }
 
   function openPreviewModal(message) {
     if (!message) return;
@@ -562,6 +561,13 @@ export function renderDrawing(el, user, profile) {
     if (!queuedOperations.length) return;
     syncLabel?.classList.add("syncing");
     updateSyncStatus("Syncing saved strokes…");
+    let knownOperations = [];
+    try {
+      const currentSnapshot = await get(strokeRef);
+      knownOperations = Object.values(currentSnapshot.val() || {});
+    } catch (error) {
+      console.error("Offline drawing sync could not read prior strokes:", error);
+    }
     for (const operation of queuedOperations) {
       if (!navigator.onLine || !active) break;
       pendingWrites++;
@@ -585,15 +591,9 @@ export function renderDrawing(el, user, profile) {
   }
 
   // ═════════════════════════════════════════════════════
-  //  Pointer handlers — FIXED: no more remoteSyncReady block
-  //  Drawing works immediately, sync happens in background.
+  //  Pointer handlers — drawing works immediately; sync happens in background.
   // ═════════════════════════════════════════════════════
   canvas.addEventListener("pointerdown", e => {
-    if (!remoteSyncReady) {
-      e.preventDefault();
-      updateSyncStatus("Loading shared canvas… drawing will be ready in a moment.");
-      return;
-    }
     if (e.pointerType === "touch" && e.isPrimary === false) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
     if (drawing) return;
@@ -647,7 +647,7 @@ export function renderDrawing(el, user, profile) {
       const committedStroke = activeStroke;
       strokeIds.set(committedStroke.id, null);
       enqueueWrite({ type: "stroke", ...committedStroke }).then(value => { if (value?.key) strokeIds.set(committedStroke.id, value.key); });
-      redrawCanvas();
+      refreshHistoryControls();
     }
     drawing = false;
     last = null;
@@ -665,6 +665,8 @@ export function renderDrawing(el, user, profile) {
     const v = s.val();
     if (!v) return;
 
+    const redrawWhenIdle = () => { if (!initialLoading) redrawCanvas(); };
+
     if (v.type === "clear") {
       if (v.uid === user.uid) { latestRemoteClearKey = null; history.reset(); outgoingQueue.clear(); }
       else {
@@ -677,91 +679,81 @@ export function renderDrawing(el, user, profile) {
           latestRemoteClearKey = null;
         }
       }
-      strokeIds.clear(); redrawCanvas(); return;
+      strokeIds.clear(); redrawWhenIdle(); return;
     }
     if (v.type === "restore") {
       history.replace(v.strokes || []);
       strokeIds = new Map(history.strokes.map(stroke => [stroke.id, null]));
       latestRemoteClearKey = null;
       outgoingQueue.clear();
-      redrawCanvas(); return;
+      redrawWhenIdle(); return;
     }
     if (v.type === "undo") {
       history.applyUndo(v.strokeId);
       if (v.uid !== user.uid) { for (const operation of outgoingQueue.getAll()) { if (operation.type === "redo" && operation.stroke?.id === v.strokeId) outgoingQueue.remove(operation.id); } }
       else if (outgoingQueue.length && navigator.onLine) flushOfflineQueue();
-      strokeIds.delete(v.strokeId); redrawCanvas(); return;
+      strokeIds.delete(v.strokeId); redrawWhenIdle(); return;
     }
     if (v.type === "redo") {
       history.applyRedo(v.stroke);
       strokeIds.set(v.stroke.id, s.key);
-      redrawCanvas(); return;
+      redrawWhenIdle(); return;
     }
     if (v.type === "stroke") {
       if (history.strokes.some(stroke => stroke.id === v.id)) return;
       history.add(v);
       strokeIds.set(v.id, s.key);
-      if (drawing) redrawCanvas();
-      else { renderSingleStroke(ctx, v); refreshHistoryControls(); }
+      // A partner stroke arriving while the local user is drawing is painted
+      // directly onto both the visible canvas and the live buffer so it stays
+      // visible when pointermove redraws the buffer. No full redraw mid-stroke.
+      if (drawing) {
+        renderSingleStroke(ctx, v);
+        renderSingleStroke(liveBufferCtx, v);
+        refreshHistoryControls();
+      } else {
+        renderSingleStroke(ctx, v);
+        refreshHistoryControls();
+      }
     }
   }
 
-  let initialSyncComplete = false;
+  let initialLoading = true;
   const initialEvents = [];
   updateSyncStatus("Loading shared canvas…");
   unsubs.push(onChildAdded(strokeRef, snapshot => {
     if (!active) return;
-    if (!initialSyncComplete) { initialEvents.push(snapshot); return; }
+    if (initialLoading) { initialEvents.push(snapshot); return; }
     applyRemoteOperation(snapshot, true);
   }));
 
-  // Fast path: render from the pre-warmed strokes snapshot so the canvas is
-  // interactive immediately without waiting on the network (this is what
-  // removes the 15–30s hang when opening the Drawing Page).
-  function applySnapshot(snapshot) {
-    if (!snapshot) return;
-    const ops = Object.entries(snapshot);
-    ops.sort((a, b) => a[0].localeCompare(b[0]));
-    for (const [key, value] of ops) {
-      applyRemoteOperation({ key, val: () => value }, false);
-    }
-  }
-
-  if (drawingWarm.strokesSnapshot) {
-    applySnapshot(drawingWarm.strokesSnapshot);
-    initialSyncComplete = true;
-    remoteSyncReady = true;
-    redrawCanvas();
-    updateSyncStatus();
-  }
-
-  // Background refresh — never blocks opening the canvas; keeps the cache fresh.
+  // Download the strokes log exactly once per drawing-page open: one get()
+  // for the initial state (merged with any events that arrived while it was
+  // in flight), then onChildAdded handles live updates. Operations are
+  // applied to in-memory state (history, strokeIds, knownOperationKeys)
+  // sorted by key WITHOUT drawing; the canvas is redrawn exactly once at
+  // the end, so initial load is O(n) instead of O(n^2).
   get(strokeRef).then(snapshot => {
     if (!active) return;
-    const fresh = snapshot.val() || null;
-    drawingWarm.strokesSnapshot = fresh;
-    if (!initialSyncComplete) {
-      snapshot.forEach(operation => applyRemoteOperation(operation, false));
-      initialEvents.sort((a, b) => a.key.localeCompare(b.key));
-      initialEvents.forEach(operation => applyRemoteOperation(operation, false));
-      initialEvents.length = 0;
-      initialSyncComplete = true;
-      remoteSyncReady = true;
-      redrawCanvas();
-      updateSyncStatus();
-    }
+    const all = new Map();
+    snapshot.forEach(operation => all.set(operation.key, operation));
+    initialEvents.forEach(operation => { if (!all.has(operation.key)) all.set(operation.key, operation); });
+    const ops = [...all.values()].sort((a, b) => a.key.localeCompare(b.key));
+    for (const operation of ops) applyRemoteOperation(operation, false);
+    initialLoading = false;
+    initialEvents.length = 0;
+    redrawCanvas();
+    if (drawing) liveBufferCtx.drawImage(canvas, 0, 0);
+    updateSyncStatus();
   }).catch(error => {
     if (!active) return;
     console.warn("Could not load the initial shared canvas snapshot; applying available updates.", error);
-    if (!initialSyncComplete) {
-      initialEvents.sort((a, b) => a.key.localeCompare(b.key));
-      initialEvents.forEach(operation => applyRemoteOperation(operation, false));
-      initialEvents.length = 0;
-      initialSyncComplete = true;
-      remoteSyncReady = true;
-      redrawCanvas();
-      updateSyncStatus();
-    }
+    initialEvents.sort((a, b) => a.key.localeCompare(b.key));
+    for (const operation of initialEvents) applyRemoteOperation(operation, false);
+    initialLoading = false;
+    initialEvents.length = 0;
+    redrawCanvas();
+    if (drawing) liveBufferCtx.drawImage(canvas, 0, 0);
+    updateSyncStatus();
   });
 
   let isConnected = false;
@@ -1066,7 +1058,7 @@ export function renderDrawing(el, user, profile) {
     return new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   }
 
-  function renderHistoryCards(messages) {
+  function renderHistoryCards(messages, limit) {
     const historyList = $("#drawing-history-list", el);
     const countBadge = $("#drawing-history-count", el);
     const restoreSelectedBtn = $("#history-restore-selected", el);
@@ -1095,14 +1087,19 @@ export function renderDrawing(el, user, profile) {
         </article>`;
     }).join("");
 
-    historyList.querySelectorAll("img[data-drawing-file-id]").forEach(image => {
-      getTelegramMediaUrl(image.dataset.drawingFileId, image.dataset.drawingMime)
-        .then(url => { if (image.isConnected) image.src = url; })
-        .catch(error => console.error("Drawing preview could not load from Telegram:", error));
-    });
+    if (messages.length && limit && messages.length >= limit) {
+      const loadMoreBtn = document.createElement("button");
+      loadMoreBtn.type = "button";
+      loadMoreBtn.className = "tool-button";
+      loadMoreBtn.textContent = "Load more";
+      loadMoreBtn.onclick = () => loadDrawingMessages(true);
+      historyList.appendChild(loadMoreBtn);
+    }
+
+    observeLazyImages(historyList);
 
     el.querySelectorAll("[data-open-preview]").forEach(btn => { btn.onclick = () => { const id = btn.dataset.openPreview; const msg = messages.find(m => m.id === id); if (msg) openPreviewModal(msg); }; });
-    el.querySelectorAll("[data-select-id]").forEach(btn => { btn.onclick = e => { e.stopPropagation(); const id = btn.dataset.selectId; selectedDrawingId = (selectedDrawingId === id) ? null : id; renderHistoryCards(messages); }; });
+    el.querySelectorAll("[data-select-id]").forEach(btn => { btn.onclick = e => { e.stopPropagation(); const id = btn.dataset.selectId; selectedDrawingId = (selectedDrawingId === id) ? null : id; renderHistoryCards(messages, limit); }; });
     el.querySelectorAll("[data-delete-id]").forEach(btn => {
       btn.onclick = async e => {
         e.stopPropagation();
@@ -1114,12 +1111,49 @@ export function renderDrawing(el, user, profile) {
     });
   }
 
-  unsubs.push(watchDrawingMessages(messages => {
+  let stopDrawingMessages = null;
+  let imageObserver = null;
+
+  function stopDrawingMessageWatcher() {
+    if (stopDrawingMessages) { stopDrawingMessages(); stopDrawingMessages = null; }
+    if (imageObserver) { imageObserver.disconnect(); imageObserver = null; }
+  }
+
+  function observeLazyImages(container) {
+    if (!container || !("IntersectionObserver" in window)) return;
+    imageObserver?.disconnect();
+    imageObserver = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        const img = entry.target;
+        imageObserver.unobserve(img);
+        const fileId = img.dataset.drawingFileId;
+        if (!fileId || img.src) return;
+        getTelegramMediaUrl(fileId, img.dataset.drawingMime || "image/jpeg")
+          .then(url => { if (img.isConnected) img.src = url; })
+          .catch(error => console.error("Drawing preview could not load from Telegram:", error));
+      });
+    }, { rootMargin: "200px 0px" });
+    container.querySelectorAll("img[data-drawing-file-id]").forEach(img => imageObserver.observe(img));
+  }
+
+  async function loadDrawingMessages(loadMore = false) {
     if (!active || !el.isConnected) return;
-    const sortedMessages = [...messages].sort((a, b) => drawingTimestamp(b) - drawingTimestamp(a));
-    cachedMessages = sortedMessages;
-    renderHistoryCards(sortedMessages);
-  }));
+    const historyList = $("#drawing-history-list", el);
+    if (!historyList) return;
+    if (!loadMore) {
+      cachedMessages = [];
+      historyList.innerHTML = `<p class="muted">Loading saved drawings…</p>`;
+    }
+    stopDrawingMessageWatcher();
+    const limit = 20 + (loadMore ? cachedMessages.length : 0);
+    stopDrawingMessages = watchDrawingMessages(messages => {
+      if (!active || !el.isConnected) return;
+      const sortedMessages = [...messages].sort((a, b) => drawingTimestamp(b) - drawingTimestamp(a));
+      cachedMessages = sortedMessages;
+      renderHistoryCards(cachedMessages, limit);
+    }, limit);
+  }
 
   function drawingTimestamp(message) {
     if (message.createdAt?.toDate) return message.createdAt.toDate().getTime();
@@ -1143,6 +1177,7 @@ export function renderDrawing(el, user, profile) {
 
   activeDrawingCleanup = () => {
     active = false;
+    stopDrawingMessageWatcher();
     outgoingQueue.persist();
     boardResizeObserver.disconnect();
     unsubs.forEach(stop => stop());

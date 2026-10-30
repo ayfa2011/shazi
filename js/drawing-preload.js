@@ -3,22 +3,17 @@
 // instantly instead of hanging while the network/Firebase RTDB connects.
 //
 // Warmed in the background (fire-and-forget, never blocks app launch):
-//   * establishes the Firebase Realtime Database connection early
-//   * pre-fetches and caches the latest strokes snapshot
 //   * pre-creates the offscreen canvas + 2D context used while drawing
 //
-// renderDrawing.js reuses the cached snapshot/context so it never has to
-// wait on the network to become interactive.
-import { ref, get } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
-import { rtdb } from "./firebase.js";
-
-const ROOT = "couples/our-little-world/drawing";
+// renderDrawing.js reuses the cached context so it never has to allocate a
+// fresh canvas+context on every drawing-page open. Strokes are downloaded
+// only when the Drawing Page is opened (see js/drawing.js), never at app
+// start, so warmDrawing() never performs network requests.
 const CANVAS_W = 1200;
 const CANVAS_H = 900;
 
 export const drawingWarm = {
-  ctx: null,              // offscreen 2D context (reused as the live buffer)
-  strokesSnapshot: null,  // cached RTDB strokes object { [key]: {...} }
+  ctx: null,  // offscreen 2D context (reused as the live buffer)
   ready: false,
   readyPromise: null,
 };
@@ -34,22 +29,14 @@ export function warmDrawing() {
   if (_started) return drawingWarm.readyPromise;
   _started = true;
   drawingWarm.readyPromise = (async () => {
-    if (!rtdb) { drawingWarm.ready = true; return; }
     try {
-      // 1) Pre-create the offscreen canvas + 2D context (the live buffer used
+      // Pre-create the offscreen canvas + 2D context (the live buffer used
       //    while a stroke is in progress). Reused by renderDrawing instead of
       //    allocating a fresh canvas+context on every drawing-page open.
       const buffer = document.createElement("canvas");
       buffer.width = CANVAS_W;
       buffer.height = CANVAS_H;
       drawingWarm.ctx = buffer.getContext("2d");
-
-      // 2) Force the RTDB connection to establish now (not on first draw) and
-      //    cache the initial strokes snapshot so the drawing page can render
-      //    immediately without waiting on the network.
-      const strokeRef = ref(rtdb, `${ROOT}/strokes`);
-      const snap = await get(strokeRef);
-      drawingWarm.strokesSnapshot = snap.val() || null;
       drawingWarm.ready = true;
     } catch (error) {
       // Never block the app: drawing still works, it just warms up lazily.
