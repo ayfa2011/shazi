@@ -2621,10 +2621,16 @@ export function disposeGames() {
   stopBattleshipBoard = null;
   battleshipBoardMatchId = "";
   battleshipBoard = null;
-  stopGuessTheQuestion?.();
-  stopGuessTheQuestion = null;
-  stopGtqConnected?.();
-  stopGtqConnected = null;
+  // Keep teardown resilient when an older cached Games module is paired with
+  // this newer route/auth module during a rolling static-site update.
+  if (typeof stopGuessTheQuestion !== "undefined") {
+    stopGuessTheQuestion?.();
+    stopGuessTheQuestion = null;
+  }
+  if (typeof stopGtqConnected !== "undefined") {
+    stopGtqConnected?.();
+    stopGtqConnected = null;
+  }
   if (memoryTimer) clearTimeout(memoryTimer);
   memoryTimer = null;
   disposeFindTheWords?.();
