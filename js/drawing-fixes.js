@@ -21,7 +21,7 @@ export function createOfflineQueue(uid, storage = globalThis.localStorage) {
   };
 }
 
-export function createDrawingHistory(maxUndo = 30) {
+export function createDrawingHistory(maxUndo = 5) {
   let strokes = [];
   let undone = [];
   let cleared = null;
