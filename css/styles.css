@@ -2027,10 +2027,17 @@ body.home-dashboard .home-canvas-action {
 .canvas-zoom-layer .draw-canvas {
   width: auto;
   height: auto;
-  max-width: 100%;
-  max-height: 100%;
+  max-width: none;
+  max-height: none;
   aspect-ratio: 4 / 3;
   object-fit: contain;
+}
+/* Keep the full drawing surface inside the available board on phones. */
+@media (max-width: 759px) {
+  .canvas-zoom-layer .draw-canvas {
+    width: min(100vw - 32px, (100dvh - 250px) * 4 / 3);
+    height: min((100vw - 32px) * 3 / 4, 100dvh - 250px);
+  }
 }
 
 /* Mobile tuning */

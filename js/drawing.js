@@ -723,6 +723,8 @@ export function renderDrawing(el, user, profile) {
   canvas.addEventListener("pointermove", e => {
     if (!drawing || !activeStroke || !last) return;
     if (e.cancelable) e.preventDefault();
+    // The zoom layer can move while the board scrolls. Read its rect per event
+    // so pointer coordinates remain in the same displayed location.
     refreshCanvasRect();
     const rect = canvasRect;
     if (!rect) return;
@@ -772,7 +774,25 @@ export function renderDrawing(el, user, profile) {
   function endStroke() {
     cancelAnimationFrame(moveFrame);
     moveFrame = null;
+    // Pointer-up may arrive before the queued animation frame. Commit those
+    // final coalesced points synchronously instead of dropping them.
+    const pending = movePoints;
     movePoints = [];
+    if (drawing && activeStroke && pending.length) {
+      const targetCtx = activeStroke.tool === "eraser" ? ctx : liveOverlayCtx;
+      targetCtx.save();
+      targetCtx.globalCompositeOperation = activeStroke.tool === "eraser" ? "destination-out" : "source-over";
+      targetCtx.globalAlpha = 1;
+      targetCtx.strokeStyle = activeStroke.color;
+      targetCtx.lineWidth = activeStroke.size;
+      targetCtx.lineCap = "round";
+      targetCtx.lineJoin = "round";
+      for (const p of pending) {
+        targetCtx.beginPath(); targetCtx.moveTo(last.x, last.y); targetCtx.lineTo(p.x, p.y); targetCtx.stroke();
+        activeStroke.points.push(p); last = p;
+      }
+      targetCtx.restore();
+    }
     if (drawing && activeStroke && activeStroke.points && activeStroke.points.length > 0) {
       const committedStroke = { ...activeStroke, points: simplifyPoints([...activeStroke.points]) };
       history.add(committedStroke);
@@ -1176,10 +1196,18 @@ export function renderDrawing(el, user, profile) {
       const imageBlob = await new Promise((resolve, reject) => exportCanvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not prepare drawing image.")), "image/jpeg", 0.96));
       const telegramFile = new File([imageBlob], `canvas-drawing-${createdAtMs}.jpg`, { type: "image/jpeg" });
       const telegramResult = await sendToTelegram(telegramFile, `New Canvas Drawing 🎨 · ${artistName} · ${timestamp}`);
+      // Keep a small local preview for history cards. Telegram remains the
+      // source of the full image, loaded only when a drawing is opened.
+      const thumbnailCanvas = document.createElement("canvas");
+      thumbnailCanvas.width = 360;
+      thumbnailCanvas.height = Math.round(thumbnailCanvas.width * exportCanvas.height / exportCanvas.width);
+      thumbnailCanvas.getContext("2d").drawImage(exportCanvas, 0, 0, thumbnailCanvas.width, thumbnailCanvas.height);
+      const thumbnailUrl = thumbnailCanvas.toDataURL("image/jpeg", 0.72);
       const drawingRef = await addDrawingMessage({
         authorId: user.uid,
         authorName: artistName,
         ...telegramMediaReferences(telegramResult),
+        thumbnailUrl,
         mimeType: "image/jpeg",
         createdAtMs
       });
