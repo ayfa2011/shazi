@@ -1692,7 +1692,7 @@ export function renderGames(el, user, profile) {
       return;
     }
     if (activeGame === "ludo") {
-      const gameInfo = ["Ludo", "Race your four photo coins home — capture a coin and complete a lap to unlock your home lane.", "🎲"];
+      const gameInfo = ["Ludo", "Roll a six to start, race around the board, capture coins on unsafe squares, and reach home with an exact roll.", "🎲"];
       if (renderedShellGame !== activeGame) {
         el.innerHTML = activeShell(activeGame, ...gameInfo, "LIVE 2 PLAYERS");
         renderedShellGame = activeGame;

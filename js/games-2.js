@@ -7,10 +7,10 @@ import { $, esc, toast } from "./utils.js";
 
 const matchRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/matches/ludo`);
 const colorInfo = {
-  red: { name: "Red", local: "ಕೆಂಪು", css: "red", start: 40, emoji: "❤️" },
-  blue: { name: "Blue", local: "ನೀಲಿ", css: "blue", start: 23, emoji: "💙" },
-  green: { name: "Green", local: "ಹಸಿರು", css: "green", start: 1, emoji: "💚" },
-  yellow: { name: "Yellow", local: "ಹಳದಿ", css: "yellow", start: 10, emoji: "💛" }
+  red: { name: "Red", local: "ಕೆಂಪು", css: "red", start: 39, emoji: "❤️" },
+  blue: { name: "Blue", local: "ನೀಲಿ", css: "blue", start: 26, emoji: "💙" },
+  green: { name: "Green", local: "ಹಸಿರು", css: "green", start: 0, emoji: "💚" },
+  yellow: { name: "Yellow", local: "ಹಳದಿ", css: "yellow", start: 13, emoji: "💛" }
 };
 const colorOrder = ["red", "blue", "green", "yellow"];
 // The supplied board is a 15×15 Ludo cross; the 52-cell route wraps around its four arms.
@@ -21,7 +21,8 @@ const track = [
   [13, 6], [12, 6], [11, 6], [10, 6], [9, 6], [8, 5], [8, 4], [8, 3], [8, 2], [8, 1], [8, 0], [7, 0], [6, 0]
 ];
 const trackIndex = new Map(track.map(([row, column], index) => [`${row},${column}`, index]));
-const safeTrackCells = new Set([8, 11, 21, 24, 34, 37, 47, 50]);
+// Standard Ludo safe spaces: the four stars and each color's entry square.
+const safeTrackCells = new Set([0, 8, 13, 21, 26, 34, 39, 47]);
 const yardSpots = {
   green: [[2, 2], [2, 4], [4, 2], [4, 4]],
   yellow: [[2, 10], [2, 12], [4, 10], [4, 12]],
@@ -63,22 +64,75 @@ function getTrackPosition(color, progress) {
   return (colorInfo[color].start + progress) % track.length;
 }
 
-function targetForMove(player, position, dice) {
+function targetForMove(position, dice) {
+  if (!Number.isInteger(dice) || dice < 1 || dice > 6 || !Number.isInteger(position) || position < -1 || position > 57) return null;
   if (position === -1) return dice === 6 ? 0 : null;
   if (position >= 52) return position + dice <= 57 ? position + dice : null;
   const next = position + dice;
-  if (next <= 51) return next;
-  const homeUnlocked = player.hasCaptured;
-  if (homeUnlocked && next <= 57) return next;
-  return next - 52;
+  // Complete the lap into the home lane, and require an exact roll to finish.
+  return next <= 57 ? next : null;
 }
 
 function legalPieces(player, dice) {
-  return (player?.pieces || []).flatMap((position, index) => targetForMove(player, position, dice) == null ? [] : [index]);
+  return (player?.pieces || []).flatMap((position, index) => targetForMove(position, dice) == null ? [] : [index]);
 }
 
 function appendHistory(room, entry) {
   return [...(Array.isArray(room.history) ? room.history : []), { ...entry, at: Date.now() }].slice(-40);
+}
+
+function completeMoveState(room, move) {
+  const player = room.players?.[move.uid];
+  const opponentUid = room.playerUids.find(uid => uid !== move.uid);
+  if (!player || !opponentUid || !Number.isInteger(move.pieceIndex) || move.pieceIndex < 0 || move.pieceIndex > 3 ||
+      !Number.isInteger(move.to) || move.to < 0 || move.to > 57) return null;
+
+  const pieces = [...player.pieces];
+  pieces[move.pieceIndex] = move.to;
+  const players = { ...room.players, [move.uid]: { ...player, pieces } };
+  let captured = [];
+  if (move.to < 52) {
+    const landingSquare = getTrackPosition(player.color, move.to);
+    if (!safeTrackCells.has(landingSquare)) {
+      const opponent = players[opponentUid];
+      const opponentPieces = [...(opponent.pieces || [])];
+      captured = opponentPieces.flatMap((position, index) =>
+        position >= 0 && position < 52 && getTrackPosition(opponent.color, position) === landingSquare ? [index] : []
+      );
+      if (captured.length) {
+        captured.forEach(index => { opponentPieces[index] = -1; });
+        players[opponentUid] = { ...opponent, pieces: opponentPieces };
+        players[move.uid] = { ...players[move.uid], captures: (player.captures || 0) + captured.length };
+      }
+    }
+  }
+
+  const finished = pieces.every(position => position === 57);
+  const extraTurn = room.dice === 6 || captured.length > 0 || move.to === 57;
+  const description = captured.length
+    ? `${player.name} captured ${captured.length} ${captured.length === 1 ? "coin" : "coins"}! 🎉`
+    : move.to === 57 ? `${player.name} brought a coin home! 🏠` : `${player.name} moved a coin.`;
+  return {
+    ...room,
+    players,
+    activeMove: null,
+    lastMove: {
+      id: move.id,
+      uid: move.uid,
+      pieceIndex: move.pieceIndex,
+      from: move.from,
+      to: move.to,
+      captured: captured.map(pieceIndex => ({ uid: opponentUid, pieceIndex })),
+      message: description
+    },
+    history: appendHistory(room, { text: description }),
+    status: finished ? "finished" : "playing",
+    winnerUid: finished ? move.uid : "",
+    turnUid: finished ? "" : extraTurn ? move.uid : opponentUid,
+    phase: "roll",
+    dice: null,
+    updatedAt: Date.now()
+  };
 }
 
 function ensurePlayer(room, uid) {
@@ -141,7 +195,7 @@ function makeRoom(uid, name, color) {
     game: "ludo",
     status: "waiting",
     playerUids: [uid],
-    players: { [uid]: { name, color, ready: false, pieces: [-1, -1, -1, -1], captures: 0, hasCaptured: false, completedLap: false, sixStreak: 0 } },
+    players: { [uid]: { name, color, ready: false, pieces: [-1, -1, -1, -1], captures: 0, sixStreak: 0 } },
     turnUid: "",
     phase: "roll",
     dice: null,
@@ -160,7 +214,7 @@ export function mountLudoGame(el, user, profile) {
   let room = null;
   let lastAnimatedMoveId = "";
   let lastAnimatedRollId = "";
-  let activeMoveRunId = "";
+  let finishingMoveId = "";
   let lastAutoMoveKey = "";
   let autoMoveTimer = null;
   let selectedColor = "red";
@@ -187,7 +241,7 @@ export function mountLudoGame(el, user, profile) {
         ? room.winnerUid === user.uid ? "You brought all four coins home! 🎉" : `${esc(playerName(room, room.winnerUid))} won this round. Play again? ♡`
         : room?.status === "cancelled" ? "This Ludo match ended." : "Choose your color, roll the dice, and bring all four coins home.";
       statusEl.innerHTML = `<div class="game-panel game-room-panel ludo-status"><p class="tic-tac-toe-status">${summary}</p>${playerCards}<button type="button" class="primary" data-ludo-start>${room ? "Play again" : "Start a private match"}</button></div>`;
-      content.innerHTML = `<article class="game-panel ludo-panel"><div class="ludo-intro-icon" aria-hidden="true">🎲</div><p class="ludo-overline">OUR LITTLE GAMES · 2 PLAYERS</p><h2>${room?.status === "finished" ? "A sweet match together" : "Choose your color"}</h2><p class="games-instructions">Your four coins each carry your profile photo. Pick different colors before the match begins.</p>${room?.status === "finished" ? `<h3 class="ludo-final-score">${esc(playerName(room, room.winnerUid))} wins · ${room.playerUids.map(uid => `${esc(playerName(room, uid))}: ${room.players[uid].captures || 0} captures`).join(" · ")}</h3>` : colorPicker}<p class="ludo-special-rule"><strong>Our home-path rule</strong><span>Capture an opponent coin to unlock your home lane. Each coin must complete a full lap before it can enter.</span></p></article>`;
+      content.innerHTML = `<article class="game-panel ludo-panel"><div class="ludo-intro-icon" aria-hidden="true">🎲</div><p class="ludo-overline">OUR LITTLE GAMES · 2 PLAYERS</p><h2>${room?.status === "finished" ? "A sweet match together" : "Choose your color"}</h2><p class="games-instructions">Roll a six to bring a coin out, race around the board, capture coins on unsafe squares, and reach home with an exact roll. A six earns another turn.</p>${room?.status === "finished" ? `<h3 class="ludo-final-score">${esc(playerName(room, room.winnerUid))} wins · ${room.playerUids.map(uid => `${esc(playerName(room, uid))}: ${room.players[uid].captures || 0} captures`).join(" · ")}</h3>` : colorPicker}</article>`;
       return;
     }
 
@@ -209,7 +263,6 @@ export function mountLudoGame(el, user, profile) {
     const player = room.players[user.uid];
     const isTurn = room.turnUid === user.uid;
     const available = room.phase === "move" && isTurn ? legalPieces(player, room.dice) : [];
-    const unlocked = player.hasCaptured;
     const turnName = room.turnUid ? playerName(room, room.turnUid) : "";
     const lastMove = room.lastMove;
     const message = room.phase === "moving"
@@ -225,16 +278,14 @@ export function mountLudoGame(el, user, profile) {
     const diceAction = isTurn && room.phase === "roll"
       ? `<button type="button" class="ludo-roll-button" data-ludo-roll aria-label="Roll dice"><span class="ludo-die-face">${dice}</span><span>Roll dice</span></button>`
       : `<div class="ludo-dice-display ${diceValue ? "rolled" : ""}" aria-label="Dice showing ${diceValue || "waiting"}"><span class="ludo-die-face">${dice}</span></div>`;
-    const lockNotice = !unlocked
-      ? `<p class="ludo-lock-note"><span>🔒</span> Home lane locked — capture an opponent coin to unlock it.</p>`
-      : `<p class="ludo-lock-note unlocked"><span>🏁</span> Home lane unlocked! Complete each coin’s lap, then roll the exact number to finish.</p>`;
+    const rulesNote = `<p class="ludo-lock-note unlocked"><span>🏁</span> Roll a 6 to start a coin. Complete the lap, then roll the exact number to reach home.</p>`;
     const lastMoveMessage = lastMove
       ? `<p class="ludo-last-move ${lastMove.captured?.length ? "captured" : ""}" aria-live="polite">${esc(lastMove.message || "A coin moved.")}</p>`
       : "";
     statusEl.innerHTML = `<div class="game-panel game-room-panel ludo-status"><p class="tic-tac-toe-status">${esc(message)}</p>${statusPlayers}<button type="button" class="secondary ludo-end-button" data-ludo-end>End match</button></div>`;
-    content.innerHTML = `<div class="ludo-game-layout"><div class="ludo-main-column">${renderBoard(room, user.uid, available)}<div class="ludo-controls"><div class="ludo-turn-tools">${diceAction}<span class="ludo-roll-count">${room.phase === "move" ? `${available.length} coin${available.length === 1 ? "" : "s"} can move` : isTurn ? "Roll to begin your turn" : "Waiting for your turn"}</span></div>${lockNotice}${lastMoveMessage}</div></div></div>`;
-    if (room.phase === "moving" && room.activeMove?.uid === user.uid) {
-      resumeMoveAnimation(room.activeMove.id);
+    content.innerHTML = `<div class="ludo-game-layout"><div class="ludo-main-column">${renderBoard(room, user.uid, available)}<div class="ludo-controls"><div class="ludo-turn-tools">${diceAction}<span class="ludo-roll-count">${room.phase === "move" ? `${available.length} coin${available.length === 1 ? "" : "s"} can move` : isTurn ? "Roll to begin your turn" : "Waiting for your turn"}</span></div>${rulesNote}${lastMoveMessage}</div></div></div>`;
+    if (room.phase === "moving" && room.activeMove) {
+      finishInterruptedMove(room.activeMove.id);
     } else if (room.phase !== "move") {
       clearTimeout(autoMoveTimer);
       autoMoveTimer = null;
@@ -310,7 +361,7 @@ export function mountLudoGame(el, user, profile) {
               ...current,
               status: "setup",
               playerUids: [...current.playerUids, user.uid],
-              players: { ...current.players, [user.uid]: { name: profile?.name || getDisplayName(user.uid, "Player 2"), color: available, ready: false, pieces: [-1, -1, -1, -1], captures: 0, hasCaptured: false, completedLap: false, sixStreak: 0 } },
+              players: { ...current.players, [user.uid]: { name: profile?.name || getDisplayName(user.uid, "Player 2"), color: available, ready: false, pieces: [-1, -1, -1, -1], captures: 0, sixStreak: 0 } },
               updatedAt: Date.now()
             };
           }
@@ -423,111 +474,35 @@ export function mountLudoGame(el, user, profile) {
     }
   }
 
-  function resumeMoveAnimation(moveId) {
-    if (!moveId || activeMoveRunId === moveId || disposed) return;
-    activeMoveRunId = moveId;
-    void animateMove(moveId);
-  }
-
-  async function animateMove(moveId) {
-    try {
-      while (!disposed && room?.phase === "moving" && room.activeMove?.id === moveId) {
-        await new Promise(resolve => setTimeout(resolve, 180));
-        const transaction = await runTransaction(matchRef(), current => {
-          const move = current?.activeMove;
-          if (current?.game !== "ludo" || current.status !== "playing" || current.phase !== "moving" || move?.id !== moveId) return;
-          const player = current.players[move.uid];
-          const oldPosition = move.from;
-          const currentPosition = player.pieces[move.pieceIndex];
-          const nextPosition = currentPosition < 0 ? 0 : Math.min(currentPosition + 1, move.to);
-          const pieces = [...player.pieces];
-          pieces[move.pieceIndex] = nextPosition;
-          if (nextPosition < move.to) {
-            return {
-              ...current,
-              players: { ...current.players, [move.uid]: { ...player, pieces } },
-              updatedAt: Date.now()
-            };
-          }
-
-          const completedLap = player.completedLap || (oldPosition >= 0 && oldPosition < 52 && oldPosition + (move.to - oldPosition) > 51);
-          const updatedPlayer = { ...player, pieces, completedLap };
-          const players = { ...current.players, [move.uid]: updatedPlayer };
-          let captured = [];
-          if (nextPosition < 52) {
-            const globalPosition = getTrackPosition(player.color, nextPosition);
-            if (!safeTrackCells.has(globalPosition)) {
-              const opponentUid = current.playerUids.find(uid => uid !== move.uid);
-              const opponent = players[opponentUid];
-              const opponentPieces = [...opponent.pieces];
-              captured = opponentPieces.flatMap((position, index) => position >= 0 && position < 52 && getTrackPosition(opponent.color, position) === globalPosition ? [index] : []);
-              if (captured.length) {
-                captured.forEach(index => { opponentPieces[index] = -1; });
-                players[opponentUid] = { ...opponent, pieces: opponentPieces };
-                players[move.uid] = { ...updatedPlayer, captures: (updatedPlayer.captures || 0) + captured.length, hasCaptured: true };
-              }
-            }
-          }
-          const finished = pieces.every(position => position === 57);
-          const extraTurn = current.dice === 6 || captured.length > 0 || nextPosition === 57;
-          const nextUid = current.playerUids.find(uid => uid !== move.uid);
-          const playerNameText = players[move.uid].name;
-          const destinationName = nextPosition === 57 ? "home" : nextPosition >= 52 ? "the home lane" : "the track";
-          const moveDescription = captured.length
-            ? `${playerNameText} captured ${captured.length} ${captured.length === 1 ? "coin" : "coins"}! 🎉`
-            : nextPosition === 57 ? `${playerNameText} brought a coin home! 🏠` : `${playerNameText} moved a coin to ${destinationName}.`;
-          const lastMove = { id: moveId, uid: move.uid, pieceIndex: move.pieceIndex, from: oldPosition, to: nextPosition, captured: captured.map(index => ({ uid: nextUid, pieceIndex: index })), message: moveDescription };
-          return {
-            ...current,
-            players,
-            activeMove: null,
-            lastMove,
-            history: appendHistory(current, { text: moveDescription }),
-            status: finished ? "finished" : "playing",
-            winnerUid: finished ? move.uid : "",
-            turnUid: finished ? "" : extraTurn ? move.uid : nextUid,
-            phase: "roll",
-            dice: null,
-            updatedAt: Date.now()
-          };
-        });
-        if (!transaction.committed) break;
-      }
-    } catch (error) {
-      console.error("Could not animate Ludo coin movement:", error);
-      showError("The coin movement paused. Please reconnect to continue.");
-    } finally {
-      if (activeMoveRunId === moveId) activeMoveRunId = "";
-    }
+  function finishInterruptedMove(moveId) {
+    if (!moveId || finishingMoveId === moveId || disposed) return;
+    finishingMoveId = moveId;
+    void runTransaction(matchRef(), current => {
+      const move = current?.activeMove;
+      if (current?.game !== "ludo" || current.status !== "playing" || current.phase !== "moving" || move?.id !== moveId) return;
+      return completeMoveState(current, move);
+    }).catch(error => {
+      console.error("Could not finish the pending Ludo move:", error);
+      showError("The coin move could not be saved. Please reconnect.");
+    }).finally(() => {
+      if (finishingMoveId === moveId) finishingMoveId = "";
+    });
   }
 
   async function movePiece(pieceIndex) {
     const moveId = `${Date.now()}-${user.uid}-${pieceIndex}`;
-    activeMoveRunId = moveId;
     try {
       const transaction = await runTransaction(matchRef(), current => {
         if (current?.game !== "ludo" || current.status !== "playing" || current.turnUid !== user.uid || current.phase !== "move" ||
             !Number.isInteger(pieceIndex) || pieceIndex < 0 || pieceIndex > 3) return;
         const player = current.players[user.uid];
         const oldPosition = player.pieces[pieceIndex];
-        const targetPosition = targetForMove(player, oldPosition, current.dice);
+        const targetPosition = targetForMove(oldPosition, current.dice);
         if (targetPosition == null) return;
-        const updated = {
-          ...current,
-          phase: "moving",
-          activeMove: { id: moveId, uid: user.uid, pieceIndex, from: oldPosition, to: targetPosition },
-          updatedAt: Date.now()
-        };
-        return updated;
+        return completeMoveState(current, { id: moveId, uid: user.uid, pieceIndex, from: oldPosition, to: targetPosition });
       });
-      if (transaction.committed) {
-        void animateMove(moveId);
-      } else {
-        activeMoveRunId = "";
-        showError("That coin cannot move with this roll.");
-      }
+      if (!transaction.committed) showError("That coin cannot move with this roll.");
     } catch (error) {
-      activeMoveRunId = "";
       console.error("Could not move Ludo coin:", error);
       showError("Your coin could not be moved. Please try again.");
     }
