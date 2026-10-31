@@ -1,6 +1,6 @@
 import { $, esc, toast } from "./utils.js";
 import { rtdb } from "./firebase.js";
-import { addDrawingMessage, watchDrawingMessages, deleteDrawingMessage, notifyPartnerSafely } from "./firestore.js";
+import { addDrawingMessage, watchDrawingMessages, pruneDrawingPreviews, deleteDrawingMessage, notifyPartnerSafely } from "./firestore.js";
 import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences } from "../src/services/telegramService.js";
 import { getDisplayName, getProfileKey } from "./profile-data.js";
 import { createDrawingHistory, createOfflineQueue, simplifyPoints } from "./drawing-fixes.js";
@@ -45,7 +45,7 @@ export function renderDrawing(el, user, profile) {
       <div id="canvas-zoom-spacer" class="canvas-zoom-spacer">
         <div id="canvas-zoom-layer" class="canvas-zoom-layer">
           <canvas class="draw-canvas" id="draw-canvas" width="1600" height="1200" aria-label="Shared drawing canvas" role="img" tabindex="0"></canvas>
-          <canvas id="draw-overlay" width="1600" height="1200" aria-hidden="true"></canvas>
+          <canvas class="draw-canvas draw-live-overlay" id="draw-overlay" width="1600" height="1200" aria-hidden="true"></canvas>
           <div class="canvas-watermark">K &amp; S ♡</div>
         </div>
       </div>
@@ -859,9 +859,13 @@ export function renderDrawing(el, user, profile) {
       redrawWhenIdle(); return;
     }
     if (v.type === "stroke") {
-      if (history.strokes.some(stroke => stroke.id === v.id)) return;
+      if (strokeIds.has(v.id)) return;
       history.add(v);
       strokeIds.set(v.id, s.key);
+      // During first load, collect the state only. Painting each stroke here
+      // and replaying the full history at the end made opening slow and
+      // briefly painted through the misaligned live buffer.
+      if (initialLoading) { refreshHistoryControls(); return; }
       // A partner stroke arriving while the local user is drawing is painted
       // directly onto the visible canvas so it stays visible under the local
       // overlay. No full redraw mid-stroke. The snapshot is invalidated and
@@ -893,22 +897,45 @@ export function renderDrawing(el, user, profile) {
   // applied to in-memory state (history, strokeIds, knownOperationKeys)
   // sorted by key WITHOUT drawing; the canvas is redrawn exactly once at
   // the end, so initial load is O(n) instead of O(n^2).
-  get(strokeRef).then(snapshot => {
+  const yieldToBrowser = () => new Promise(resolve => setTimeout(resolve, 0));
+  get(strokeRef).then(async snapshot => {
     if (!active) return;
     const all = new Map();
     snapshot.forEach(operation => all.set(operation.key, operation));
     initialEvents.forEach(operation => { if (!all.has(operation.key)) all.set(operation.key, operation); });
+    const initialEventCount = initialEvents.length;
     const ops = [...all.values()].sort((a, b) => a.key.localeCompare(b.key));
-    for (const operation of ops) applyRemoteOperation(operation, false);
+    for (let i = 0; i < ops.length; i += 160) {
+      for (const operation of ops.slice(i, i + 160)) applyRemoteOperation(operation, false);
+      if (i + 160 < ops.length) await yieldToBrowser();
+      if (!active) return;
+    }
+    // Live children can arrive while the initial snapshot is being applied.
+    // Include those before switching the listener to live mode.
+    let eventIndex = initialEventCount;
+    while (eventIndex < initialEvents.length) {
+      const batch = initialEvents.slice(eventIndex, eventIndex + 160);
+      eventIndex += batch.length;
+      for (const operation of batch) applyRemoteOperation(operation, false);
+      if (eventIndex < initialEvents.length) await yieldToBrowser();
+      if (!active) return;
+    }
     initialLoading = false;
     initialEvents.length = 0;
     redrawCanvas();
     updateSyncStatus();
-  }).catch(error => {
+  }).catch(async error => {
     if (!active) return;
     console.warn("Could not load the initial shared canvas snapshot; applying available updates.", error);
     initialEvents.sort((a, b) => a.key.localeCompare(b.key));
-    for (const operation of initialEvents) applyRemoteOperation(operation, false);
+    let eventIndex = 0;
+    while (eventIndex < initialEvents.length) {
+      const batch = initialEvents.slice(eventIndex, eventIndex + 160);
+      eventIndex += batch.length;
+      for (const operation of batch) applyRemoteOperation(operation, false);
+      if (eventIndex < initialEvents.length) await yieldToBrowser();
+      if (!active) return;
+    }
     initialLoading = false;
     initialEvents.length = 0;
     redrawCanvas();
@@ -1196,18 +1223,10 @@ export function renderDrawing(el, user, profile) {
       const imageBlob = await new Promise((resolve, reject) => exportCanvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not prepare drawing image.")), "image/jpeg", 0.96));
       const telegramFile = new File([imageBlob], `canvas-drawing-${createdAtMs}.jpg`, { type: "image/jpeg" });
       const telegramResult = await sendToTelegram(telegramFile, `New Canvas Drawing 🎨 · ${artistName} · ${timestamp}`);
-      // Keep a small local preview for history cards. Telegram remains the
-      // source of the full image, loaded only when a drawing is opened.
-      const thumbnailCanvas = document.createElement("canvas");
-      thumbnailCanvas.width = 360;
-      thumbnailCanvas.height = Math.round(thumbnailCanvas.width * exportCanvas.height / exportCanvas.width);
-      thumbnailCanvas.getContext("2d").drawImage(exportCanvas, 0, 0, thumbnailCanvas.width, thumbnailCanvas.height);
-      const thumbnailUrl = thumbnailCanvas.toDataURL("image/jpeg", 0.72);
       const drawingRef = await addDrawingMessage({
         authorId: user.uid,
         authorName: artistName,
         ...telegramMediaReferences(telegramResult),
-        thumbnailUrl,
         mimeType: "image/jpeg",
         createdAtMs
       });
@@ -1252,7 +1271,8 @@ export function renderDrawing(el, user, profile) {
       const isSelected = selectedDrawingId === m.id;
       const authorName = getDisplayName(m.authorId, m.authorName || "Us");
       const shortDate = formatShortDate(drawingTimestamp(m));
-      const photoUrl = m.photoUrl || (m.driveFileId ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(m.driveFileId)}&sz=w512` : m.thumbnailUrl || "");
+      const storedPreview = [m.photoUrl, m.thumbnailUrl].find(url => typeof url === "string" && !/^data:(image|video)\//i.test(url) && url.length < 200_000);
+      const photoUrl = storedPreview || (m.driveFileId ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(m.driveFileId)}&sz=w512` : "");
       const telegramImage = !photoUrl && m.telegramFileId;
       return `
         <article class="drawing-grid-card ${isSelected ? "selected" : ""}" style="--card-bg: ${cardBg};" data-card-id="${esc(m.id)}">
@@ -1311,7 +1331,7 @@ export function renderDrawing(el, user, profile) {
           .then(url => { if (img.isConnected) img.src = url; })
           .catch(error => console.error("Drawing preview could not load from Telegram:", error));
       });
-    }, { rootMargin: "200px 0px" });
+    }, { root: container, rootMargin: "160px 0px" });
     container.querySelectorAll("img[data-drawing-file-id]").forEach(img => imageObserver.observe(img));
   }
 
@@ -1329,6 +1349,7 @@ export function renderDrawing(el, user, profile) {
       if (!active || !el.isConnected) return;
       const sortedMessages = [...messages].sort((a, b) => drawingTimestamp(b) - drawingTimestamp(a));
       cachedMessages = sortedMessages;
+      void pruneDrawingPreviews(sortedMessages).catch(error => console.warn("Could not clean old embedded drawing previews:", error));
       renderHistoryCards(cachedMessages, limit);
     }, limit);
   }

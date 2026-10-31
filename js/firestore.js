@@ -363,7 +363,38 @@ export function watchDiaryComments(postId, cb, onError) {
 const drawingCollection = () => collection(db, ...couplePath(), "drawingMessages");
 
 export async function addDrawingMessage(data) {
-  return addDoc(drawingCollection(), { ...data, createdAt: serverTimestamp() });
+  // Drawing media lives in Telegram. Keep Firestore documents lightweight so
+  // opening the gallery never downloads an embedded copy of every image.
+  const { thumbnailUrl, thumbnail, previewDataUrl, dataUrl, ...metadata } = data || {};
+  return addDoc(drawingCollection(), { ...metadata, createdAt: serverTimestamp() });
+}
+
+const prunedDrawingPreviewIds = new Set();
+export async function pruneDrawingPreviews(messages = []) {
+  if (!firebaseReady) return;
+  const stale = messages.filter(message => {
+    const hasEmbeddedPreview = [message.photoUrl, message.thumbnailUrl, message.thumbnail, message.previewDataUrl, message.dataUrl]
+      .some(value => typeof value === "string" && (/^data:(image|video)\//i.test(value) || value.length > 200_000));
+    return hasEmbeddedPreview && !prunedDrawingPreviewIds.has(message.id);
+  });
+  for (let offset = 0; offset < stale.length; offset += 400) {
+    const group = stale.slice(offset, offset + 400);
+    const batch = writeBatch(db);
+    for (const message of group) {
+      prunedDrawingPreviewIds.add(message.id);
+      const fields = {};
+      for (const key of ["photoUrl", "thumbnailUrl", "thumbnail", "previewDataUrl", "dataUrl"]) {
+        const value = message[key];
+        if (typeof value === "string" && (/^data:(image|video)\//i.test(value) || value.length > 200_000)) fields[key] = deleteField();
+      }
+      batch.update(doc(db, ...couplePath(), "drawingMessages", message.id), fields);
+    }
+    try { await batch.commit(); }
+    catch (error) {
+      group.forEach(message => prunedDrawingPreviewIds.delete(message.id));
+      throw error;
+    }
+  }
 }
 
 export function watchDrawingMessages(cb, maxItems) {
