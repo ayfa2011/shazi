@@ -26,17 +26,18 @@ export function renderProfile(el, user, profile) {
       /* Reserve the part of the circle that hangs below the cover so the form never sits under it. */
       .profile-edit-card { position:relative; padding:86px 20px 18px; }
       .profile-edit-card > .profile-photo-preview { position:absolute; top:-86px; left:22px; z-index:1; margin:0; }
-      .profile-photo-preview { position:relative; width:172px; height:172px; padding:0; display:grid; place-items:center; overflow:visible; border:5px solid #fff; border-radius:50%; background:linear-gradient(145deg,#ffe9f1,#ffd4e4); color:#8f315d; font:700 54px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin-top:-86px; box-shadow:0 0 0 3px #f8c9db,0 12px 30px #a43f6c2b; cursor:pointer; transition:transform .25s ease,box-shadow .25s ease; -webkit-tap-highlight-color:transparent; isolation:isolate; }
+      .profile-photo-preview { position:relative; box-sizing:border-box; flex:0 0 auto; width:172px; height:172px; min-width:172px; min-height:172px; aspect-ratio:1/1; padding:0; display:grid; place-items:center; overflow:visible; border:5px solid #fff; border-radius:50%; background:linear-gradient(145deg,#ffe9f1,#ffd4e4); color:#8f315d; font:700 54px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin-top:-86px; box-shadow:0 0 0 3px #f8c9db,0 12px 30px #a43f6c2b; cursor:pointer; transition:transform .25s ease,box-shadow .25s ease; -webkit-tap-highlight-color:transparent; isolation:isolate; }
       .profile-photo-preview::before { content:""; position:absolute; inset:0; z-index:-1; border-radius:50%; overflow:hidden; }
+      .profile-photo-frame { position:absolute; inset:0; display:grid; place-items:center; overflow:hidden; border-radius:50%; aspect-ratio:1/1; }
       .profile-photo-preview:hover { transform:translateY(-2px); box-shadow:0 0 0 4px #f4b8d0,0 16px 36px #a43f6c35; }
       .profile-photo-preview:focus-visible { outline:3px solid #d94f8a; outline-offset:5px; }
-      .profile-photo-preview img { width:100%; height:100%; display:block; object-fit:cover; border-radius:50%; transition:transform .35s ease; object-position:var(--profile-avatar-pos,50% 50%); transform:scale(var(--profile-avatar-scale,1)); }
+      .profile-photo-frame img { width:100%; height:100%; min-width:0; min-height:0; display:block; object-fit:cover; border-radius:50%; transition:transform .35s ease; object-position:var(--profile-avatar-pos,50% 50%); transform:scale(var(--profile-avatar-scale,1)); }
+      .profile-photo-frame .profile-photo-initial { line-height:1; }
       .profile-photo-preview .profile-photo-initial { line-height:1; }
       .profile-photo-preview .verified-badge { right:-4px; bottom:1px; width:46px; height:46px; z-index:2; }
       /* The avatar is pulled up over the cover (margin-top:-86px), so the form below
          only needs the gap for the half of the circle that hangs into the card. */
       .profile-edit-card > .profile-form-fields { align-self:stretch; padding-top:8px; }
-      .profile-photo-preview:hover img { transform:scale(1.04); }
       .profile-photo-picker { display:none !important; }
       .profile-photo-crop-hint { display:block; margin:8px 0 0; color:#8c6c7c; font-size:11px; text-align:center; }
       .profile-photo-crop-dialog { position:fixed; inset:0; z-index:10001; display:flex; align-items:center; justify-content:center; padding:20px; background:#29151f8c; backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); opacity:0; visibility:hidden; transition:opacity .2s ease,visibility .2s ease; }
@@ -76,7 +77,7 @@ export function renderProfile(el, user, profile) {
       .profile-photo-picker input { padding:7px; font-size:11px; }
       .profile-handle { margin:5px 0 14px; color:#8c737d; font-size:13px; }
       .profile-save { justify-self:end; padding:9px 16px; border-radius:999px; }
-      @media(max-width:420px) { .profile-cover { height:116px; } .profile-edit-card { padding:76px 16px 18px; } .profile-photo-preview { width:152px; height:152px; left:18px; top:-76px; font-size:48px; } .profile-photo-preview .verified-badge { width:42px;height:42px;right:-4px;bottom:1px; } .profile-photo-crop-card { padding:16px 14px 14px; } }
+      @media(max-width:420px) { .profile-cover { height:116px; } .profile-edit-card { padding:76px 16px 18px; } .profile-photo-preview { width:152px; height:152px; min-width:152px; min-height:152px; left:18px; top:-76px; font-size:48px; } .profile-photo-preview .verified-badge { width:42px;height:42px;right:-4px;bottom:1px; } .profile-photo-crop-card { padding:16px 14px 14px; } }
       .profile-loading-skeleton { display:grid; gap:14px; padding:18px 20px 22px; }
       .profile-loading-skeleton-avatar { width:152px; height:152px; margin:-76px 0 0 2px; border-radius:50%; border:5px solid #fff; box-shadow:0 0 0 3px #f8c9db; }
       @media(max-width:420px) { .profile-loading-skeleton-avatar { width:132px; height:132px; margin-top:-66px; } }
@@ -92,7 +93,7 @@ export function renderProfile(el, user, profile) {
       </div>`}
       <article class="profile-edit-card" ${person.bioConfigured === true ? "" : "hidden"}>
         <button type="button" class="profile-photo-preview" data-preview="${esc(ownProfileKey)}" aria-label="Change profile photo" aria-haspopup="dialog">
-          ${avatar ? `<img src="${esc(avatar)}" alt="">` : `<span class="profile-photo-initial">${esc((person.name || "♡")[0])}</span>`}
+          <span class="profile-photo-frame">${avatar ? `<img src="${esc(avatar)}" alt="">` : `<span class="profile-photo-initial">${esc((person.name || "♡")[0])}</span>`}</span>
           <span class="verified-badge" role="img" aria-label="Verified profile"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 10.2 3.1 3.1L15.3 6"/></svg></span>
         </button>
         <div class="profile-form-fields">
@@ -156,20 +157,21 @@ export function renderProfile(el, user, profile) {
     const target = $(`[data-preview="${ownProfileKey}"]`, el);
     if (!target) return;
     const pos = data?.avatarPosition || "50% 50%";
-    target.querySelectorAll("img").forEach(img => img.remove());
-    target.querySelector(".profile-photo-initial")?.remove();
+    const frame = target.querySelector(".profile-photo-frame");
+    if (!frame) return;
+    frame.replaceChildren();
     target.style.setProperty("--profile-avatar-pos", pos);
     if (data?.avatar) {
       const image = new Image();
       image.alt = `${data.name || ""} profile`;
       image.style.objectPosition = pos;
       image.src = data.avatar;
-      target.prepend(image);
+      frame.append(image);
     } else {
       const initial = document.createElement("span");
       initial.className = "profile-photo-initial";
       initial.textContent = (data?.name || "♡")[0] || "♡";
-      target.prepend(initial);
+      frame.append(initial);
     }
     const badge = target.querySelector(".verified-badge");
     if (badge) target.append(badge);
@@ -343,12 +345,11 @@ export function renderProfile(el, user, profile) {
       applyCrop();
       const reader = new FileReader();
       reader.onload = () => {
-        preview.replaceChildren();
         const image = new Image();
         image.alt = `${form.elements.name.value} profile preview`;
         image.src = reader.result;
         image.style.objectPosition = "50% 50%";
-        preview.append(image);
+        preview.querySelector(".profile-photo-frame")?.replaceChildren(image);
         preview.style.setProperty("--profile-avatar-pos", "50% 50%");
         preview.style.setProperty("--profile-avatar-scale", "1");
       };
@@ -369,11 +370,13 @@ export function renderProfile(el, user, profile) {
         const box = cropWrap?.getBoundingClientRect();
         const cropSize = box && box.width > 0 ? box.width : 280;
         const outputSize = Math.min(1200, Math.max(640, Math.round(cropSize * 2)));
-        const large = Math.max(image.naturalWidth || 1, image.naturalHeight || 1);
-        const square = Math.min(large, 1440);
-        const scale = square / large;
-        const width = Math.max(1, Math.round((image.naturalWidth || 1) * scale));
-        const height = Math.max(1, Math.round((image.naturalHeight || 1) * scale));
+        const naturalWidth = image.naturalWidth || 1;
+        const naturalHeight = image.naturalHeight || 1;
+        // Match object-fit:cover in the square crop window. Scaling by the
+        // longest side used to leave blank bands for portrait/landscape photos.
+        const coverScale = outputSize / Math.min(naturalWidth, naturalHeight);
+        const width = naturalWidth * coverScale;
+        const height = naturalHeight * coverScale;
         const canvas = document.createElement("canvas");
         canvas.width = outputSize;
         canvas.height = outputSize;
@@ -386,7 +389,7 @@ export function renderProfile(el, user, profile) {
         ctx.translate(outputSize / 2 + offset.x * ratio, outputSize / 2 + offset.y * ratio);
         ctx.scale(zoom, zoom);
         ctx.translate(-outputSize / 2, -outputSize / 2);
-        ctx.translate(-(position.x / 100) * (width - outputSize), -(position.y / 100) * (height - outputSize));
+        ctx.translate((outputSize - width) * (position.x / 100), (outputSize - height) * (position.y / 100));
         ctx.drawImage(image, 0, 0, width, height);
         ctx.restore();
         const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.9));

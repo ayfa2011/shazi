@@ -9,7 +9,7 @@
  *    (Firestore IndexedDB, olw-media-cache) own offline behavior.
  */
 const CACHE_PREFIX = "our-little-world-";
-const CACHE_VERSION = "v21";
+const CACHE_VERSION = "v22";
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${new URL(self.registration.scope).pathname}-${CACHE_VERSION}`;
 const STATIC_CACHE = `${CACHE_PREFIX}static-${new URL(self.registration.scope).pathname}-${CACHE_VERSION}`;
 let forceNetworkUntil = 0;
@@ -24,6 +24,7 @@ const SHELL_FILES = [
   "icons/app-icon.svg",
   "icons/app-icon-192.png",
   "icons/app-icon-512.png",
+  "icons/app-icon-maskable-512.png",
   "Asset/Header.png",
   "Asset/Question.png",
   "Asset/Challenge.png",
