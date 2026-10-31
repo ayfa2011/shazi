@@ -2030,12 +2030,12 @@ body.home-dashboard .home-canvas-action {
 /* Keep the full drawing surface inside the available board on phones. */
 @media (max-width: 759px) {
   .canvas-zoom-layer .draw-canvas {
-    width: 100%;
-    height: min(70dvh, 100%);
+    width: min(100%, calc(70dvh * 4 / 3));
+    height: auto;
     max-width: 100%;
-    max-height: 100%;
-    aspect-ratio: auto;
-    object-fit: fill;
+    max-height: 70dvh;
+    aspect-ratio: 4 / 3;
+    object-fit: contain;
   }
 }
 
