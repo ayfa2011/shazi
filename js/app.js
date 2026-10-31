@@ -1480,28 +1480,6 @@ initAuth(
 
 // Event Listeners setup
 document.addEventListener("DOMContentLoaded", () => {
-  const hardRefreshButton = $("#hard-refresh-btn");
-  hardRefreshButton?.addEventListener("click", async () => {
-    hardRefreshButton.disabled = true;
-    hardRefreshButton.title = "Updating app files…";
-    hardRefreshButton.setAttribute("aria-label", "Updating app files");
-    toast("Updating app files and reloading…");
-    const controller = navigator.serviceWorker?.controller;
-    if (controller && "MessageChannel" in window) {
-      await new Promise(resolve => {
-        const channel = new MessageChannel();
-        const timeout = setTimeout(resolve, 1500);
-        channel.port1.onmessage = () => { clearTimeout(timeout); resolve(); };
-        controller.postMessage({ type: "REFRESH_ASSETS" }, [channel.port2]);
-      });
-    } else {
-      await navigator.serviceWorker?.getRegistration().then(registration => registration?.update()).catch(() => {});
-    }
-    // This action refreshes the application shell and code. Live Firestore
-    // listeners independently refresh app data when the page starts/reconnects.
-    window.location.reload();
-  });
-
   let assetUpdateNoticeShown = false;
   navigator.serviceWorker?.addEventListener("message", event => {
     if (event.data?.type !== "APP_ASSET_UPDATED" || assetUpdateNoticeShown) return;

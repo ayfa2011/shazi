@@ -45,7 +45,6 @@ export function renderDrawing(el, user, profile) {
       <div id="canvas-zoom-spacer" class="canvas-zoom-spacer">
         <div id="canvas-zoom-layer" class="canvas-zoom-layer">
           <canvas class="draw-canvas" id="draw-canvas" width="1600" height="1200" aria-label="Shared drawing canvas" role="img" tabindex="0"></canvas>
-          <canvas class="draw-canvas draw-live-overlay" id="draw-overlay" width="1600" height="1200" aria-hidden="true"></canvas>
           <div class="canvas-watermark">K &amp; S ♡</div>
         </div>
       </div>
@@ -298,11 +297,6 @@ export function renderDrawing(el, user, profile) {
   let currentPreviewMessage = null;
   let cachedMessages = [];
 
-  const liveOverlay = $("#draw-overlay", el);
-  const liveOverlayCtx = liveOverlay.getContext("2d");
-  liveOverlay.width = canvas.width;
-  liveOverlay.height = canvas.height;
-
   // Offscreen snapshot cache for undo/redo. Holds a copy of the last fully
   // rendered committed state so repeated undo/redo can avoid replaying the
   // whole history every step. Invalidated whenever the committed state changes
@@ -538,35 +532,6 @@ export function renderDrawing(el, user, profile) {
     refreshHistoryControls();
   }
 
-  /**
-   * Draw a single live segment (from -> to) for the in-progress stroke onto
-   * the overlay (translucent tools) or main canvas (eraser). Only the new
-   * segment is drawn, so cost is O(1) per frame regardless of stroke length.
-   */
-  function drawLiveSegment(from, to) {
-    const stroke = activeStroke;
-    const isEraser = stroke.tool === "eraser";
-    const targetCtx = isEraser ? ctx : liveOverlayCtx;
-    targetCtx.save();
-    if (isEraser) {
-      targetCtx.globalCompositeOperation = "destination-out";
-      targetCtx.globalAlpha = 1.0;
-      targetCtx.lineWidth = stroke.size;
-    } else {
-      targetCtx.globalCompositeOperation = "source-over";
-      targetCtx.globalAlpha = 1.0; // full alpha on overlay; CSS opacity applies tool opacity
-      targetCtx.strokeStyle = stroke.color;
-      targetCtx.lineWidth = stroke.size;
-    }
-    targetCtx.lineCap = "round";
-    targetCtx.lineJoin = "round";
-    targetCtx.beginPath();
-    targetCtx.moveTo(from.x, from.y);
-    targetCtx.lineTo(to.x, to.y);
-    targetCtx.stroke();
-    targetCtx.restore();
-  }
-
   function refreshHistoryControls() {
     const undoBtn = $("#drawing-undo", el);
     const redoBtn = $("#drawing-redo", el);
@@ -703,10 +668,8 @@ export function renderDrawing(el, user, profile) {
       opacity: toolConfigs[tool].opacity,
       points: [last]
     };
-    // Draw the live stroke directly on the visible canvas. This removes the
-    // fragile overlay-to-canvas handoff that made strokes vanish on release.
-    liveOverlayCtx.clearRect(0, 0, canvas.width, canvas.height);
-    liveOverlay.style.opacity = "1";
+    // Draw the live stroke directly on the visible canvas so it is visible
+    // immediately and stays in the same buffer when the stroke is committed.
     renderSingleStroke(ctx, activeStroke);
   });
 
@@ -806,9 +769,6 @@ export function renderDrawing(el, user, profile) {
       // Keep the exact pixels already drawn and refresh the undo snapshot.
       invalidateSnapshot();
       captureSnapshot();
-      // Clear the live overlay; the stroke now lives on the main canvas.
-      liveOverlayCtx.clearRect(0, 0, canvas.width, canvas.height);
-      liveOverlay.style.opacity = "1";
       enqueueWrite({ type: "stroke", ...committedStroke }).then(value => { if (value?.key) strokeIds.set(committedStroke.id, value.key); });
       refreshHistoryControls();
     }
