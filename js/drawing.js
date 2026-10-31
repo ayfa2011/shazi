@@ -797,11 +797,20 @@ export function renderDrawing(el, user, profile) {
       const committedStroke = { ...activeStroke, points: simplifyPoints([...activeStroke.points]) };
       history.add(committedStroke);
       strokeIds.set(committedStroke.id, null);
-      // Commit the final stroke to the main canvas using the existing renderer
-      // so the result is pixel-identical to the previous output.
-      renderSingleStroke(ctx, committedStroke);
-      // Keep the undo/redo snapshot in sync.
-      if (snapshotValid) { renderSingleStroke(snapshotCtx, committedStroke); } else { captureSnapshot(); }
+      // The live overlay is the exact path the user saw while dragging. Copy
+      // those pixels into the committed canvas before clearing the overlay;
+      // re-rendering a simplified curve here could otherwise make the stroke
+      // appear to vanish on pointer-up on touch devices.
+      if (activeStroke.tool !== "eraser") {
+        ctx.save();
+        ctx.globalCompositeOperation = "source-over";
+        ctx.globalAlpha = activeStroke.opacity;
+        ctx.drawImage(liveOverlay, 0, 0);
+        ctx.restore();
+      }
+      // Rebuild the small undo/redo snapshot from the newly committed pixels.
+      invalidateSnapshot();
+      captureSnapshot();
       // Clear the live overlay; the stroke now lives on the main canvas.
       liveOverlayCtx.clearRect(0, 0, canvas.width, canvas.height);
       liveOverlay.style.opacity = "1";

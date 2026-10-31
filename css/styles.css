@@ -2047,8 +2047,12 @@ body.home-dashboard .home-canvas-action {
 @media (max-width: 759px) {
   .canvas-zoom-layer .draw-canvas,
   .canvas-zoom-layer #draw-overlay {
-    width: min(100%, calc((100dvh - 250px) * 4 / 3));
-    height: auto;
+    width: 100%;
+    height: min(70dvh, 100%);
+    max-width: 100%;
+    max-height: 100%;
+    aspect-ratio: auto;
+    object-fit: fill;
   }
 }
 
