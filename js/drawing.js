@@ -703,19 +703,11 @@ export function renderDrawing(el, user, profile) {
       opacity: toolConfigs[tool].opacity,
       points: [last]
     };
-    // Clear the live overlay so only the current in-progress stroke shows.
+    // Draw the live stroke directly on the visible canvas. This removes the
+    // fragile overlay-to-canvas handoff that made strokes vanish on release.
     liveOverlayCtx.clearRect(0, 0, canvas.width, canvas.height);
-    // Apply the stroke opacity via the overlay's CSS opacity; the overlay is
-    // painted at full alpha so joints don't darken. The final committed frame
-    // is rendered with renderSingleStroke (pixel-identical output) at endStroke.
-    liveOverlay.style.opacity = String(activeStroke.opacity);
-    if (activeStroke.tool === "eraser") {
-      // Eraser erases directly on the main canvas so destination-out behaves
-      // identically in-progress and at commit time.
-      renderSingleStroke(ctx, activeStroke);
-    } else {
-      renderSingleStroke(liveOverlayCtx, activeStroke, 1.0);
-    }
+    liveOverlay.style.opacity = "1";
+    renderSingleStroke(ctx, activeStroke);
   });
 
   let moveFrame = null;
@@ -742,7 +734,7 @@ export function renderDrawing(el, user, profile) {
       if (!pts.length) return;
       let prev = last;
       const isEraser = activeStroke.tool === "eraser";
-      const targetCtx = isEraser ? ctx : liveOverlayCtx;
+      const targetCtx = ctx;
       targetCtx.save();
       if (isEraser) {
         targetCtx.globalCompositeOperation = "destination-out";
@@ -750,7 +742,7 @@ export function renderDrawing(el, user, profile) {
         targetCtx.lineWidth = activeStroke.size;
       } else {
         targetCtx.globalCompositeOperation = "source-over";
-        targetCtx.globalAlpha = 1.0;
+        targetCtx.globalAlpha = activeStroke.opacity;
         targetCtx.strokeStyle = activeStroke.color;
         targetCtx.lineWidth = activeStroke.size;
       }
@@ -771,18 +763,32 @@ export function renderDrawing(el, user, profile) {
     });
   });
 
-  function endStroke() {
+  function endStroke(event) {
     cancelAnimationFrame(moveFrame);
     moveFrame = null;
+    // Some touch browsers deliver pointer-up at a newer location than the
+    // last pointer-move. Include that endpoint before finalizing the stroke.
+    if (drawing && activeStroke && event?.type === "pointerup") {
+      refreshCanvasRect();
+      const endPoint = clampPoint(
+        clientToCanvasPoint(event.clientX, event.clientY, canvasRect, canvas.width, canvas.height),
+        canvas.width,
+        canvas.height
+      );
+      const previousPoint = movePoints[movePoints.length - 1] || last;
+      if (previousPoint && (endPoint.x - previousPoint.x) ** 2 + (endPoint.y - previousPoint.y) ** 2 >= 1.5 * 1.5) {
+        movePoints.push(endPoint);
+      }
+    }
     // Pointer-up may arrive before the queued animation frame. Commit those
     // final coalesced points synchronously instead of dropping them.
     const pending = movePoints;
     movePoints = [];
     if (drawing && activeStroke && pending.length) {
-      const targetCtx = activeStroke.tool === "eraser" ? ctx : liveOverlayCtx;
+      const targetCtx = ctx;
       targetCtx.save();
       targetCtx.globalCompositeOperation = activeStroke.tool === "eraser" ? "destination-out" : "source-over";
-      targetCtx.globalAlpha = 1;
+      targetCtx.globalAlpha = activeStroke.tool === "eraser" ? 1 : activeStroke.opacity;
       targetCtx.strokeStyle = activeStroke.color;
       targetCtx.lineWidth = activeStroke.size;
       targetCtx.lineCap = "round";
@@ -797,18 +803,7 @@ export function renderDrawing(el, user, profile) {
       const committedStroke = { ...activeStroke, points: simplifyPoints([...activeStroke.points]) };
       history.add(committedStroke);
       strokeIds.set(committedStroke.id, null);
-      // The live overlay is the exact path the user saw while dragging. Copy
-      // those pixels into the committed canvas before clearing the overlay;
-      // re-rendering a simplified curve here could otherwise make the stroke
-      // appear to vanish on pointer-up on touch devices.
-      if (activeStroke.tool !== "eraser") {
-        ctx.save();
-        ctx.globalCompositeOperation = "source-over";
-        ctx.globalAlpha = activeStroke.opacity;
-        ctx.drawImage(liveOverlay, 0, 0);
-        ctx.restore();
-      }
-      // Rebuild the small undo/redo snapshot from the newly committed pixels.
+      // Keep the exact pixels already drawn and refresh the undo snapshot.
       invalidateSnapshot();
       captureSnapshot();
       // Clear the live overlay; the stroke now lives on the main canvas.
