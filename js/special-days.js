@@ -28,8 +28,7 @@ function eventCard(item) {
     : `<span class="special-day-initials" aria-hidden="true">${esc(initials)}</span>`;
   return `<article class="special-day-item" data-edit-special-day="${esc(item.id)}" tabindex="0" role="button" aria-label="Edit ${esc(item.title)}">
     <button type="button" class="special-day-photo" data-pick-special-day-photo="${esc(item.id)}" aria-label="Change photo for ${esc(item.title)}">${photo}</button>
-    <div class="special-day-item-copy"><strong>${esc(item.title)}</strong><span>${esc(item.category)} · ${esc(dateLabel)}</span><small>${item.recurring ? "Every year" : "One time"}</small></div>
-    <span class="special-day-countdown${item.countdown.days < 0 ? " is-past" : ""}">${esc(countdownLabel)}</span>
+    <div class="special-day-details"><div class="special-day-item-copy"><strong>${esc(item.title)}</strong><span class="special-day-date"><i aria-hidden="true">▦</i>${esc(dateLabel)}</span><small class="special-day-repeat"><i aria-hidden="true">↻</i>${item.recurring ? "Every year" : "One time"}</small></div><span class="special-day-countdown${item.countdown.days < 0 ? " is-past" : ""}"><i aria-hidden="true">◷</i>${esc(countdownLabel)}</span></div>
   </article>`;
 }
 
