@@ -13,15 +13,18 @@ const colorInfo = {
   yellow: { name: "Yellow", local: "ಹಳದಿ", css: "yellow", start: 13, emoji: "💛" }
 };
 const colorOrder = ["red", "blue", "green", "yellow"];
-// The supplied board is a 15×15 Ludo cross; the 52-cell route wraps around its four arms.
+
+/* ------------------------------------------------------------------ *
+ *  BOARD GEOMETRY
+ *  The board is a 15×15 Ludo cross. The outer route has 52 cells.
+ * ------------------------------------------------------------------ */
 const track = [
   [6, 1], [6, 2], [6, 3], [6, 4], [6, 5], [5, 6], [4, 6], [3, 6], [2, 6], [1, 6], [0, 6], [0, 7], [0, 8],
   [1, 8], [2, 8], [3, 8], [4, 8], [5, 8], [6, 9], [6, 10], [6, 11], [6, 12], [6, 13], [6, 14], [7, 14], [8, 14],
   [8, 13], [8, 12], [8, 11], [8, 10], [8, 9], [9, 8], [10, 8], [11, 8], [12, 8], [13, 8], [14, 8], [14, 7], [14, 6],
   [13, 6], [12, 6], [11, 6], [10, 6], [9, 6], [8, 5], [8, 4], [8, 3], [8, 2], [8, 1], [8, 0], [7, 0], [6, 0]
 ];
-const trackIndex = new Map(track.map(([row, column], index) => [`${row},${column}`, index]));
-// Standard Ludo safe spaces: the four stars and each color's entry square.
+// Standard Ludo safe spaces: the four stars and each colour's entry square.
 const safeTrackCells = new Set([0, 8, 13, 21, 26, 34, 39, 47]);
 const yardSpots = {
   green: [[2, 2], [2, 4], [4, 2], [4, 4]],
@@ -35,46 +38,65 @@ const homeLanes = {
   yellow: Array.from({ length: 6 }, (_, index) => [index + 1, 7]),
   blue: Array.from({ length: 6 }, (_, index) => [7, 13 - index])
 };
-const diceFaces = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
-let stopRoom = null;
 
-function profileForUid(uid, fallbackName = "") {
-  const configured = Object.values(APP_CONFIG.profiles).find(profile => profile.authUid === uid || profile.id === uid);
-  return configured || findProfileForAuthor(uid, fallbackName) || {};
+/* ------------------------------------------------------------------ *
+ *  GAME ENGINE (pure rules, no DOM)
+ *
+ *  A coin's progress:  -1  = in the yard
+ *                      0‥51 = on the 52-cell route (0 = its start square)
+ *                      52‥57 = home lane (57 = home)
+ *  The home gate sits after progress 50. A player whose gate is still
+ *  LOCKED (no capture yet) cannot turn into the lane: the coin simply keeps
+ *  circling the board (50 → 51 → 0 → 1 …) until a capture opens the gate.
+ *  Moving one square at a time means a coin always walks box by box.
+ * ------------------------------------------------------------------ */
+const TRACK_LEN = 52;
+const GATE = 50;
+const LANE_START = 52;
+const FINISH = 57;
+const RULES_VERSION = 2;
+
+const trackPos = (color, progress) => (colorInfo[color].start + progress) % TRACK_LEN;
+const isGateOpen = player => (player?.captures || 0) > 0;
+
+function stepOnce(progress, gateOpen) {
+  if (progress === -1) return 0;
+  if (progress === GATE) return gateOpen ? LANE_START : 51;
+  if (progress === 51) return 0;
+  if (progress >= LANE_START) return progress < FINISH ? progress + 1 : null;
+  return progress + 1;
 }
 
-function avatar(uid, name, color = "") {
-  const profile = profileForUid(uid, name);
-  const displayName = getDisplayName(uid, profile.name || name || "Partner");
-  const avatarMarkup = profile.avatar
-    ? `<img src="${esc(profile.avatar)}" alt="${esc(displayName)}" loading="lazy">`
-    : `<span class="ludo-avatar-fallback" aria-hidden="true">${esc(displayName.slice(0, 1))}</span>`;
-  return `<span class="ludo-avatar ${colorInfo[color] ? `color-${colorInfo[color].css}` : ""}">${avatarMarkup}</span>`;
-}
-
-function currentColorMap(room) {
-  return Object.fromEntries((room?.playerUids || []).map(uid => [room.players?.[uid]?.color, uid]));
-}
-
-function playerName(room, uid) {
-  return getDisplayName(uid, room?.players?.[uid]?.name || "Partner");
-}
-
-function getTrackPosition(color, progress) {
-  return (colorInfo[color].start + progress) % track.length;
-}
-
-function targetForMove(position, dice) {
-  if (!Number.isInteger(dice) || dice < 1 || dice > 6 || !Number.isInteger(position) || position < -1 || position > 57) return null;
-  if (position === -1) return dice === 6 ? 0 : null;
-  if (position >= 52) return position + dice <= 57 ? position + dice : null;
-  const next = position + dice;
-  // Complete the lap into the home lane, and require an exact roll to finish.
-  return next <= 57 ? next : null;
+// Every square the coin lands on, in order; null if the roll is not allowed.
+function movePath(progress, dice, gateOpen) {
+  if (!Number.isInteger(dice) || dice < 1 || dice > 6 || !Number.isInteger(progress) || progress < -1 || progress > FINISH) return null;
+  if (progress === -1) return dice === 6 ? [0] : null;
+  if (progress === FINISH) return null;
+  const path = [];
+  let current = progress;
+  for (let step = 0; step < dice; step += 1) {
+    current = stepOnce(current, gateOpen);
+    if (current == null) return null; // exact roll needed to reach home
+    path.push(current);
+  }
+  return path;
 }
 
 function legalPieces(player, dice) {
-  return (player?.pieces || []).flatMap((position, index) => targetForMove(position, dice) == null ? [] : [index]);
+  const gateOpen = isGateOpen(player);
+  return (player?.pieces || []).flatMap((position, index) => movePath(position, dice, gateOpen) ? [index] : []);
+}
+
+// Matches saved by the first version had a stray 51st square before the gate (a coin there jumped
+// diagonally into the lane). Move such a coin back onto the gate square so it can enter the lane normally.
+function upgradeRoom(room) {
+  if (!room || room.v === RULES_VERSION) return room;
+  if (!["waiting", "setup", "playing"].includes(room.status)) return room;
+  const players = {};
+  for (const [uid, player] of Object.entries(room.players || {})) {
+    players[uid] = { ...player, pieces: (player.pieces || []).map(position => (position === 51 ? GATE : position)) };
+  }
+  return { ...room, v: RULES_VERSION, players, activeMove: null, phase: room.phase === "moving" ? "roll" : room.phase };
 }
 
 function appendHistory(room, entry) {
@@ -85,19 +107,19 @@ function completeMoveState(room, move) {
   const player = room.players?.[move.uid];
   const opponentUid = room.playerUids.find(uid => uid !== move.uid);
   if (!player || !opponentUid || !Number.isInteger(move.pieceIndex) || move.pieceIndex < 0 || move.pieceIndex > 3 ||
-      !Number.isInteger(move.to) || move.to < 0 || move.to > 57) return null;
+      !Number.isInteger(move.to) || move.to < 0 || move.to > FINISH || !Array.isArray(move.path) || !move.path.length) return null;
 
   const pieces = [...player.pieces];
   pieces[move.pieceIndex] = move.to;
   const players = { ...room.players, [move.uid]: { ...player, pieces } };
   let captured = [];
-  if (move.to < 52) {
-    const landingSquare = getTrackPosition(player.color, move.to);
+  if (move.to < LANE_START) {
+    const landingSquare = trackPos(player.color, move.to);
     if (!safeTrackCells.has(landingSquare)) {
       const opponent = players[opponentUid];
       const opponentPieces = [...(opponent.pieces || [])];
       captured = opponentPieces.flatMap((position, index) =>
-        position >= 0 && position < 52 && getTrackPosition(opponent.color, position) === landingSquare ? [index] : []
+        position >= 0 && position < LANE_START && trackPos(opponent.color, position) === landingSquare ? [index] : []
       );
       if (captured.length) {
         captured.forEach(index => { opponentPieces[index] = -1; });
@@ -107,13 +129,16 @@ function completeMoveState(room, move) {
     }
   }
 
-  const finished = pieces.every(position => position === 57);
-  const extraTurn = room.dice === 6 || captured.length > 0 || move.to === 57;
+  const gateOpened = captured.length > 0 && !isGateOpen(player);
+  const homed = move.to === FINISH;
+  const finished = pieces.every(position => position === FINISH);
+  const extraTurn = room.dice === 6 || captured.length > 0 || homed;
   const description = captured.length
-    ? `${player.name} captured ${captured.length} ${captured.length === 1 ? "coin" : "coins"}! 🎉`
-    : move.to === 57 ? `${player.name} brought a coin home! 🏠` : `${player.name} moved a coin.`;
+    ? `${player.name} captured ${captured.length === 1 ? "a coin" : `${captured.length} coins`}! 🎉${gateOpened ? " Home gate unlocked 🔓" : ""}`
+    : homed ? `${player.name} brought a coin home! 🏠` : `${player.name} moved a coin.`;
   return {
     ...room,
+    v: RULES_VERSION,
     players,
     activeMove: null,
     lastMove: {
@@ -122,7 +147,12 @@ function completeMoveState(room, move) {
       pieceIndex: move.pieceIndex,
       from: move.from,
       to: move.to,
+      path: move.path,
+      dice: room.dice,
       captured: captured.map(pieceIndex => ({ uid: opponentUid, pieceIndex })),
+      gateOpened,
+      homed,
+      capturesAfter: players[move.uid].captures || 0,
       message: description
     },
     history: appendHistory(room, { text: description }),
@@ -139,58 +169,9 @@ function ensurePlayer(room, uid) {
   return room && room.game === "ludo" && Array.isArray(room.playerUids) && room.playerUids.includes(uid) && room.players?.[uid];
 }
 
-function playerCard(room, uid, isTurn = false) {
-  const player = room.players[uid];
-  const color = colorInfo[player.color];
-  const homeCount = player.pieces?.filter(position => position === 57).length || 0;
-  return `<div class="ludo-player-card ${color?.css || ""}${isTurn ? " active-turn" : ""}">${avatar(uid, player.name, player.color)}<div class="ludo-player-copy"><strong>${esc(playerName(room, uid))}</strong><span>${color ? `${color.emoji} ${color.name}` : "Choosing color"}</span><small>${player.captures || 0} captures</small></div><span class="ludo-home-count" aria-label="${homeCount} of 4 pieces home">🏠 ${homeCount}<small>/ 4</small></span></div>`;
-}
-
-function getTokenCoordinate(player, progress, pieceIndex) {
-  if (progress === -1) return yardSpots[player.color][pieceIndex];
-  if (progress >= 52) return homeLanes[player.color][progress - 52];
-  return track[getTrackPosition(player.color, progress)];
-}
-
-function renderBoard(room, uid, selectedPieces = []) {
-  const tokensAt = new Map();
-  for (const playerUid of room.playerUids) {
-    const player = room.players[playerUid];
-    (player.pieces || []).forEach((progress, pieceIndex) => {
-      const [row, column] = getTokenCoordinate(player, progress, pieceIndex);
-      const key = `${row},${column}`;
-      if (!tokensAt.has(key)) tokensAt.set(key, []);
-      tokensAt.get(key).push({ uid: playerUid, player, pieceIndex, progress });
-    });
-  }
-  const selected = new Set(selectedPieces);
-  const cells = Array.from({ length: 225 }, (_, index) => {
-    const row = Math.floor(index / 15);
-    const column = index % 15;
-    const key = `${row},${column}`;
-    const position = trackIndex.get(key);
-    const tokens = tokensAt.get(key) || [];
-    const classes = ["ludo-cell", tokens.length ? "has-token" : ""].filter(Boolean).join(" ");
-    const tokenMarkup = tokens.map(token => {
-      const canMove = token.uid === uid && selected.has(token.pieceIndex) && room.turnUid === uid && room.phase === "move";
-      const color = colorInfo[token.player.color]?.css || "red";
-      const animation = room.lastMove?.uid === token.uid && room.lastMove?.pieceIndex === token.pieceIndex && room.lastMove?.to === token.progress
-        ? " ludo-token-arrive" : room.lastMove?.captured?.some(capture => capture.uid === token.uid && capture.pieceIndex === token.pieceIndex) && token.progress === -1 ? " ludo-token-captured" : "";
-      const mark = avatar(token.uid, token.player.name, token.player.color);
-      const title = `${playerName(room, token.uid)} · piece ${token.pieceIndex + 1}`;
-      const yardToken = token.progress === -1 ? " yard-token" : "";
-      return canMove
-        ? `<button type="button" class="ludo-token ${color}${yardToken}${animation}" data-ludo-piece="${token.pieceIndex}" aria-label="Move ${esc(title)}">${mark}</button>`
-        : `<span class="ludo-token ${color}${yardToken}${animation}" title="${esc(title)}">${mark}</span>`;
-    }).join("");
-    const isSingleYardToken = tokens.length === 1 && tokens[0].progress === -1;
-    return tokens.length ? `<div class="${classes}" style="grid-row:${row + 1};grid-column:${column + 1}" ${position != null ? `data-track-index="${position}"` : ""}><div class="ludo-cell-tokens${tokens.length === 1 ? " single-token" : ""}${isSingleYardToken ? " yard-token-cell" : ""}">${tokenMarkup}</div></div>` : "";
-  }).join("");
-  return `<div class="ludo-board-frame"><div class="ludo-board" role="grid" aria-label="Live Ludo board">${cells}</div></div>`;
-}
-
 function makeRoom(uid, name, color) {
   return {
+    v: RULES_VERSION,
     matchId: `${Date.now()}-${uid}`,
     game: "ludo",
     status: "waiting",
@@ -206,25 +187,417 @@ function makeRoom(uid, name, color) {
   };
 }
 
+function coordinateFor(color, progress, pieceIndex) {
+  if (progress === -1) return yardSpots[color][pieceIndex];
+  if (progress >= LANE_START) return homeLanes[color][progress - LANE_START];
+  return track[trackPos(color, progress)];
+}
+
+/* ------------------------------------------------------------------ *
+ *  PROFILE / AVATAR HELPERS
+ * ------------------------------------------------------------------ */
+function profileForUid(uid, fallbackName = "") {
+  const configured = Object.values(APP_CONFIG.profiles).find(profile => profile.authUid === uid || profile.id === uid);
+  return configured || findProfileForAuthor(uid, fallbackName) || {};
+}
+
+function avatar(uid, name, color = "") {
+  const profile = profileForUid(uid, name);
+  const displayName = getDisplayName(uid, profile.name || name || "Partner");
+  const avatarMarkup = profile.avatar
+    ? `<img src="${esc(profile.avatar)}" alt="${esc(displayName)}" loading="lazy" draggable="false">`
+    : `<span class="ludo-avatar-fallback" aria-hidden="true">${esc(displayName.slice(0, 1))}</span>`;
+  return `<span class="ludo-avatar ${colorInfo[color] ? `color-${colorInfo[color].css}` : ""}">${avatarMarkup}</span>`;
+}
+
+function currentColorMap(room) {
+  return Object.fromEntries((room?.playerUids || []).map(uid => [room.players?.[uid]?.color, uid]));
+}
+
+function playerName(room, uid) {
+  return getDisplayName(uid, room?.players?.[uid]?.name || "Partner");
+}
+
+/* ------------------------------------------------------------------ *
+ *  SOUND  — everything is synthesised with the Web Audio API,
+ *  so there are no audio files to host or download.
+ * ------------------------------------------------------------------ */
+const SOUND_KEY = "olw-ludo-sound-off";
+const Sound = (() => {
+  let ctx = null;
+  let master = null;
+  let noiseBuffer = null;
+  let muted = false;
+  try { muted = localStorage.getItem(SOUND_KEY) === "1"; } catch { /* storage unavailable */ }
+
+  function ensure() {
+    try {
+      if (!ctx) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return null;
+        ctx = new AudioCtx();
+        master = ctx.createGain();
+        master.gain.value = 0.9;
+        const compressor = ctx.createDynamicsCompressor();
+        master.connect(compressor);
+        compressor.connect(ctx.destination);
+      }
+      if (ctx.state === "suspended") ctx.resume().catch(() => {});
+      return ctx;
+    } catch { return null; }
+  }
+
+  function noise() {
+    if (!noiseBuffer) {
+      noiseBuffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+      const data = noiseBuffer.getChannelData(0);
+      for (let index = 0; index < data.length; index += 1) data[index] = Math.random() * 2 - 1;
+    }
+    return noiseBuffer;
+  }
+
+  function tone(freq, { to, type = "sine", at = 0, dur = 0.15, vol = 0.25, attack = 0.004 } = {}) {
+    if (muted || !ensure()) return;
+    const t = ctx.currentTime + at;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    if (to) osc.frequency.exponentialRampToValueAtTime(to, t + dur);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(vol, t + attack);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(gain);
+    gain.connect(master);
+    osc.start(t);
+    osc.stop(t + dur + 0.05);
+  }
+
+  function hiss({ at = 0, dur = 0.1, vol = 0.2, type = "bandpass", freq = 1500, to, q = 1 } = {}) {
+    if (muted || !ensure()) return;
+    const t = ctx.currentTime + at;
+    const source = ctx.createBufferSource();
+    source.buffer = noise();
+    source.loop = true;
+    const filter = ctx.createBiquadFilter();
+    filter.type = type;
+    filter.Q.value = q;
+    filter.frequency.setValueAtTime(freq, t);
+    if (to) filter.frequency.exponentialRampToValueAtTime(to, t + dur);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(vol, t + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(master);
+    source.start(t, Math.random() * 0.5);
+    source.stop(t + dur + 0.05);
+  }
+
+  const scale = [523.25, 587.33, 659.25, 783.99, 880, 987.77];
+  const api = {
+    unlock() { ensure(); },
+    isMuted: () => muted,
+    setMuted(value) {
+      muted = Boolean(value);
+      try { localStorage.setItem(SOUND_KEY, muted ? "1" : "0"); } catch { /* ignore */ }
+    },
+    // Dice rattling around, slowing down.
+    roll() {
+      for (let index = 0; index < 11; index += 1) {
+        const at = index * 0.052 + index * index * 0.0028;
+        hiss({ at, dur: 0.035, vol: 0.2, type: "highpass", freq: 2200 + Math.random() * 2200 });
+        tone(170 + Math.random() * 140, { at, dur: 0.05, vol: 0.14, type: "triangle" });
+      }
+    },
+    land(value) {
+      tone(150, { to: 62, dur: 0.14, vol: 0.34 });
+      hiss({ dur: 0.05, vol: 0.18, freq: 1800 });
+      if (value === 6) [880, 1175, 1568].forEach((f, i) => tone(f, { at: 0.08 + i * 0.07, dur: 0.22, vol: 0.12, type: "triangle" }));
+    },
+    // A soft wooden "tok" for every square the coin walks.
+    step(index = 0) {
+      tone(scale[index % scale.length] * 0.5, { to: scale[index % scale.length] * 0.32, dur: 0.085, vol: 0.26, type: "triangle" });
+      hiss({ dur: 0.025, vol: 0.09, freq: 3200 });
+    },
+    capture() {
+      tone(560, { to: 70, type: "sawtooth", dur: 0.38, vol: 0.16 });
+      tone(130, { to: 45, dur: 0.3, vol: 0.4 });
+      hiss({ dur: 0.32, vol: 0.28, freq: 1600, to: 180 });
+    },
+    gate() {
+      hiss({ dur: 0.025, vol: 0.3, freq: 4200, type: "highpass" });
+      hiss({ at: 0.1, dur: 0.025, vol: 0.3, freq: 3000, type: "highpass" });
+      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, { at: 0.22 + i * 0.09, dur: 0.4, vol: 0.2, type: "triangle" }));
+    },
+    home() {
+      [659.25, 783.99, 987.77, 1318.5].forEach((f, i) => {
+        tone(f, { at: i * 0.1, dur: 0.55, vol: 0.22, type: "triangle" });
+        tone(f * 2, { at: i * 0.1, dur: 0.4, vol: 0.07 });
+      });
+      hiss({ at: 0.3, dur: 0.5, vol: 0.05, type: "highpass", freq: 6000 });
+    },
+    rocket() { tone(420, { to: 1900, dur: 0.55, vol: 0.06 }); },
+    cracker() {
+      tone(160, { to: 38, dur: 0.22, vol: 0.5 });
+      hiss({ dur: 0.2, vol: 0.5, type: "lowpass", freq: 3200, to: 300 });
+      for (let index = 0; index < 6; index += 1) {
+        hiss({ at: 0.06 + index * 0.045 + Math.random() * 0.03, dur: 0.03, vol: 0.2, type: "highpass", freq: 4200 + Math.random() * 2000 });
+      }
+    },
+    applause(seconds = 2.4) {
+      for (let index = 0; index < seconds * 16; index += 1) {
+        hiss({ at: Math.random() * seconds, dur: 0.035, vol: 0.12 + Math.random() * 0.1, type: "bandpass", freq: 1400 + Math.random() * 2800, q: 0.7 });
+      }
+    },
+    win() {
+      const melody = [[523.25, 0], [523.25, 0.15], [523.25, 0.3], [659.25, 0.5], [783.99, 0.8], [659.25, 1.1], [783.99, 1.3], [1046.5, 1.6]];
+      melody.forEach(([f, at]) => {
+        tone(f, { at, dur: 0.38, vol: 0.14, type: "square" });
+        tone(f / 2, { at, dur: 0.38, vol: 0.14, type: "triangle" });
+      });
+      api.applause(3);
+    }
+  };
+  return api;
+})();
+
+function buzz(pattern) {
+  if (Sound.isMuted()) return;
+  try { navigator.vibrate?.(pattern); } catch { /* not supported */ }
+}
+
+/* ------------------------------------------------------------------ *
+ *  FX  — confetti and firework "crackers" on a full-screen canvas.
+ * ------------------------------------------------------------------ */
+const FX = (() => {
+  const palette = ["#ff4d8d", "#ffd166", "#06d6a0", "#4cc9f0", "#c77dff", "#ff9f1c", "#ffffff", "#ef476f"];
+  const reduced = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  let canvas = null;
+  let ctx2d = null;
+  let particles = [];
+  let frame = 0;
+  let lastTime = 0;
+  let width = 0;
+  let height = 0;
+  let timers = [];
+  const rand = (min, max) => min + Math.random() * (max - min);
+  const pick = list => list[Math.floor(Math.random() * list.length)];
+
+  function resize() {
+    if (!canvas) return;
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    width = window.innerWidth;
+    height = window.innerHeight;
+    canvas.width = width * ratio;
+    canvas.height = height * ratio;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    ctx2d.setTransform(ratio, 0, 0, ratio, 0, 0);
+  }
+
+  function ensure() {
+    if (canvas) return true;
+    canvas = document.createElement("canvas");
+    canvas.setAttribute("aria-hidden", "true");
+    canvas.style.cssText = "position:fixed;left:0;top:0;pointer-events:none;z-index:3000";
+    ctx2d = canvas.getContext("2d");
+    if (!ctx2d) { canvas = null; return false; }
+    document.body.appendChild(canvas);
+    window.addEventListener("resize", resize);
+    resize();
+    return true;
+  }
+
+  function add(items) {
+    if (!ensure()) return;
+    particles.push(...items);
+    if (!frame) { lastTime = performance.now(); frame = requestAnimationFrame(loop); }
+  }
+
+  function loop(now) {
+    const dt = Math.min(0.04, (now - lastTime) / 1000);
+    lastTime = now;
+    ctx2d.clearRect(0, 0, width, height);
+    const next = [];
+    for (const p of particles) {
+      p.age += dt;
+      if (p.kind === "rocket") {
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        p.trail.push([p.x, p.y]); if (p.trail.length > 9) p.trail.shift();
+        if (p.y <= p.targetY) { burst(p.x, p.y, p.color, p.count); Sound.cracker(); continue; }
+        ctx2d.globalAlpha = 1;
+        p.trail.forEach(([tx, ty], index) => {
+          ctx2d.globalAlpha = (index + 1) / p.trail.length * 0.8;
+          ctx2d.fillStyle = "#ffe9a8";
+          ctx2d.fillRect(tx - 1.5, ty - 1.5, 3, 3);
+        });
+        next.push(p);
+        continue;
+      }
+      if (p.age > p.life) continue;
+      p.vx *= p.drag; p.vy = p.vy * p.drag + p.gravity * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      const fade = Math.max(0, 1 - p.age / p.life);
+      if (p.kind === "spark") {
+        p.trail.push([p.x, p.y]); if (p.trail.length > 5) p.trail.shift();
+        p.trail.forEach(([tx, ty], index) => {
+          ctx2d.globalAlpha = fade * (index + 1) / p.trail.length * 0.5;
+          ctx2d.fillStyle = p.color;
+          ctx2d.beginPath(); ctx2d.arc(tx, ty, p.size * 0.7, 0, 6.3); ctx2d.fill();
+        });
+        ctx2d.globalAlpha = fade;
+        ctx2d.fillStyle = p.color;
+        ctx2d.beginPath(); ctx2d.arc(p.x, p.y, p.size, 0, 6.3); ctx2d.fill();
+      } else {
+        p.rot += p.vr * dt;
+        ctx2d.save();
+        ctx2d.globalAlpha = Math.min(1, fade * 2);
+        ctx2d.translate(p.x, p.y);
+        ctx2d.rotate(p.rot);
+        ctx2d.scale(1, Math.abs(Math.cos(p.age * p.flip)));
+        ctx2d.fillStyle = p.color;
+        ctx2d.fillRect(-p.size / 2, -p.size / 3, p.size, p.size * 0.6);
+        ctx2d.restore();
+      }
+      if (p.y < height + 40) next.push(p);
+    }
+    ctx2d.globalAlpha = 1;
+    particles = next;
+    if (particles.length || timers.length) frame = requestAnimationFrame(loop);
+    else { frame = 0; ctx2d.clearRect(0, 0, width, height); }
+  }
+
+  function burst(x, y, color, count = 70) {
+    const items = [];
+    const second = pick(palette);
+    for (let index = 0; index < count; index += 1) {
+      const angle = (index / count) * Math.PI * 2 + rand(-0.08, 0.08);
+      const speed = rand(90, 330);
+      items.push({ kind: "spark", x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, gravity: 150, drag: 0.985,
+        age: 0, life: rand(0.9, 1.7), size: rand(1.6, 3.2), color: index % 3 === 0 ? second : color, trail: [] });
+    }
+    add(items);
+  }
+
+  function confetti(x, y, count = 70, power = 1) {
+    if (reduced()) return;
+    const items = [];
+    for (let index = 0; index < count; index += 1) {
+      const angle = rand(-Math.PI * 0.95, -Math.PI * 0.05);
+      const speed = rand(220, 620) * power;
+      items.push({ kind: "paper", x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, gravity: 780, drag: 0.985,
+        age: 0, life: rand(1.6, 2.8), size: rand(7, 13), rot: rand(0, 6.3), vr: rand(-9, 9), flip: rand(4, 11), color: pick(palette) });
+    }
+    add(items);
+  }
+
+  function rainConfetti(count = 60) {
+    const items = [];
+    for (let index = 0; index < count; index += 1) {
+      items.push({ kind: "paper", x: rand(0, width), y: rand(-60, -10), vx: rand(-40, 40), vy: rand(60, 200), gravity: 90, drag: 0.995,
+        age: 0, life: rand(2.2, 3.6), size: rand(7, 12), rot: rand(0, 6.3), vr: rand(-6, 6), flip: rand(4, 10), color: pick(palette) });
+    }
+    add(items);
+  }
+
+  function rocket() {
+    if (!ensure()) return;
+    const x = rand(width * 0.12, width * 0.88);
+    Sound.rocket();
+    add([{ kind: "rocket", x, y: height + 10, vx: rand(-25, 25), vy: -rand(520, 700), targetY: rand(height * 0.12, height * 0.5),
+      color: pick(palette), count: Math.round(rand(55, 95)), trail: [], age: 0 }]);
+  }
+
+  function show(ms = 7000) {
+    if (reduced()) return;
+    ensure();
+    const started = performance.now();
+    confetti(width * 0.2, height * 0.9, 70, 1.15);
+    confetti(width * 0.8, height * 0.9, 70, 1.15);
+    rainConfetti(70);
+    const launch = () => {
+      if (!canvas) return;
+      const elapsed = performance.now() - started;
+      if (elapsed > ms) { timers = timers.filter(t => t !== handle); return; }
+      rocket();
+      if (Math.random() > 0.55) setTimeout(rocket, 140);
+      if (Math.random() > 0.7) rainConfetti(18);
+      handle = setTimeout(launch, rand(260, 520));
+      timers = [handle];
+    };
+    let handle = setTimeout(launch, 150);
+    timers = [handle];
+    if (!frame) { lastTime = performance.now(); frame = requestAnimationFrame(loop); }
+  }
+
+  function stop() {
+    timers.forEach(clearTimeout);
+    timers = [];
+    particles = [];
+    if (frame) cancelAnimationFrame(frame);
+    frame = 0;
+    window.removeEventListener("resize", resize);
+    canvas?.remove();
+    canvas = null;
+    ctx2d = null;
+  }
+
+  return { confetti, burst, show, stop };
+})();
+
+/* ------------------------------------------------------------------ *
+ *  UI
+ * ------------------------------------------------------------------ */
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+const diceMarkup = value => `<span class="ludo-dice" data-v="${value || 0}" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>`;
+const CELL = 100 / 15;
+
+function stackLayout(count, isYard) {
+  if (count === 1) return [{ dx: 0, dy: 0, s: isYard ? 1.2 : 0.92 }];
+  if (count === 2) return [{ dx: -0.24, dy: 0, s: 0.62 }, { dx: 0.24, dy: 0, s: 0.62 }];
+  if (count === 3) return [{ dx: -0.24, dy: -0.2, s: 0.58 }, { dx: 0.24, dy: -0.2, s: 0.58 }, { dx: 0, dy: 0.25, s: 0.58 }];
+  if (count === 4) return [{ dx: -0.24, dy: -0.24, s: 0.56 }, { dx: 0.24, dy: -0.24, s: 0.56 }, { dx: -0.24, dy: 0.24, s: 0.56 }, { dx: 0.24, dy: 0.24, s: 0.56 }];
+  return Array.from({ length: count }, (_, index) => ({ dx: ((index % 3) - 1) * 0.3, dy: (Math.floor(index / 3) - 1) * 0.3, s: 0.42 }));
+}
+
+// Coins on the same progress are interchangeable, so there is nothing to choose between them.
+function distinctChoices(player, indexes) {
+  const seen = new Map();
+  indexes.forEach(index => { const progress = player.pieces[index]; if (!seen.has(progress)) seen.set(progress, index); });
+  return [...seen.values()];
+}
+
 export function mountLudoGame(el, user, profile) {
   const statusEl = $("#games-room-status", el);
   const content = $("#games-active-content", el);
   if (!statusEl || !content) return () => {};
 
   let room = null;
-  let lastAnimatedMoveId = "";
-  let lastAnimatedRollId = "";
-  let finishingMoveId = "";
-  let lastAutoMoveKey = "";
-  let autoMoveTimer = null;
-  let selectedColor = "red";
   let disposed = false;
+  let selectedColor = "red";
+  let stopRoom = null;
   const savedResults = new Set();
 
-  function showError(message) {
-    toast(message);
-  }
+  // Live-game state
+  let gv = null;
+  let seenMatchId = null;
+  let seenRollId = "";
+  let seenMoveId = "";
+  const queue = [];
+  let running = false;
+  let rollPending = false;
+  let movePending = false;
+  let autoMoveTimer = null;
+  let lastAutoKey = "";
+  let celebratedMatch = "";
+  let winOverlay = null;
 
+  const showError = message => toast(message);
+
+  /* ---------------- lobby (unchanged flow) ---------------- */
   function renderLobby() {
     const occupied = currentColorMap(room);
     const ownColor = room?.players?.[user.uid]?.color || selectedColor;
@@ -233,15 +606,23 @@ export function mountLudoGame(el, user, profile) {
       const occupiedByOther = occupied[color] && occupied[color] !== user.uid;
       return `<button type="button" class="ludo-color-option color-${info.css}${ownColor === color ? " selected" : ""}" data-ludo-color="${color}" ${occupiedByOther ? "disabled" : ""}><i></i><span>${info.name}<small>${info.local}</small></span>${ownColor === color ? `<b>✓</b>` : ""}</button>`;
     }).join("")}</div>`;
+    const lobbyCard = (uid, isTurn) => {
+      const player = room.players[uid];
+      const color = colorInfo[player.color];
+      const homeCount = player.pieces?.filter(position => position === FINISH).length || 0;
+      return `<div class="ludo-player-card ${color?.css || ""}${isTurn ? " active-turn" : ""}">${avatar(uid, player.name, player.color)}<div class="ludo-player-copy"><strong>${esc(playerName(room, uid))}</strong><span>${color ? `${color.emoji} ${color.name}` : "Choosing color"}</span><small>${player.captures || 0} captures</small></div><span class="ludo-home-count" aria-label="${homeCount} of 4 pieces home">🏠 ${homeCount}<small>/ 4</small></span></div>`;
+    };
     const playerCards = room
-      ? `<div class="ludo-players-row">${room.playerUids.map(uid => playerCard(room, uid, room.turnUid === uid)).join("")}${room.playerUids.length < 2 ? `<div class="ludo-player-card waiting">${avatar("", "Partner")}<div class="ludo-player-copy"><strong>Player 2</strong><span>Waiting to join…</span></div></div>` : ""}</div>`
+      ? `<div class="ludo-players-row">${room.playerUids.map(uid => lobbyCard(uid, room.turnUid === uid)).join("")}${room.playerUids.length < 2 ? `<div class="ludo-player-card waiting">${avatar("", "Partner")}<div class="ludo-player-copy"><strong>Player 2</strong><span>Waiting to join…</span></div></div>` : ""}</div>`
       : "";
+    const rulesText = "Roll a six to bring a coin out. Coins walk square by square — land on your partner's coin (outside ⭐ and start squares) to send it home. Your home gate stays 🔒 locked until you capture at least one coin! A six, a capture or a coin reaching home earns another roll.";
+
     if (!room || ["finished", "cancelled"].includes(room.status)) {
       const summary = room?.status === "finished"
         ? room.winnerUid === user.uid ? "You brought all four coins home! 🎉" : `${esc(playerName(room, room.winnerUid))} won this round. Play again? ♡`
         : room?.status === "cancelled" ? "This Ludo match ended." : "Choose your color, roll the dice, and bring all four coins home.";
       statusEl.innerHTML = `<div class="game-panel game-room-panel ludo-status"><p class="tic-tac-toe-status">${summary}</p>${playerCards}<button type="button" class="primary" data-ludo-start>${room ? "Play again" : "Start a private match"}</button></div>`;
-      content.innerHTML = `<article class="game-panel ludo-panel"><div class="ludo-intro-icon" aria-hidden="true">🎲</div><p class="ludo-overline">OUR LITTLE GAMES · 2 PLAYERS</p><h2>${room?.status === "finished" ? "A sweet match together" : "Choose your color"}</h2><p class="games-instructions">Roll a six to bring a coin out, race around the board, capture coins on unsafe squares, and reach home with an exact roll. A six earns another turn.</p>${room?.status === "finished" ? `<h3 class="ludo-final-score">${esc(playerName(room, room.winnerUid))} wins · ${room.playerUids.map(uid => `${esc(playerName(room, uid))}: ${room.players[uid].captures || 0} captures`).join(" · ")}</h3>` : colorPicker}</article>`;
+      content.innerHTML = `<article class="game-panel ludo-panel"><div class="ludo-intro-icon" aria-hidden="true">🎲</div><p class="ludo-overline">OUR LITTLE GAMES · 2 PLAYERS</p><h2>${room?.status === "finished" ? "A sweet match together" : "Choose your color"}</h2><p class="games-instructions">${rulesText}</p>${room?.status === "finished" ? `<h3 class="ludo-final-score">${esc(playerName(room, room.winnerUid))} wins · ${room.playerUids.map(uid => `${esc(playerName(room, uid))}: ${room.players[uid].captures || 0} captures`).join(" · ")}</h3>` : colorPicker}</article>`;
       return;
     }
 
@@ -252,69 +633,462 @@ export function mountLudoGame(el, user, profile) {
       return;
     }
 
-    if (room.status === "setup") {
-      const player = room.players[user.uid];
-      const ready = player?.ready;
-      statusEl.innerHTML = `<div class="game-panel game-room-panel ludo-status"><p class="tic-tac-toe-status">${ready ? "Color locked in! Waiting for your partner…" : "Choose a color, then mark ready."}</p>${playerCards}</div>`;
-      content.innerHTML = `<article class="game-panel ludo-panel"><p class="ludo-overline">PICK YOUR COIN COLOR</p><h2>Player 1 &amp; Player 2</h2><p class="games-instructions">Each player needs a different color. You can change it until both players are ready.</p>${colorPicker}<button type="button" class="primary ludo-ready-button" data-ludo-ready ${ready ? "disabled" : ""}>${ready ? "Ready ✓" : "Ready to play ♡"}</button></article>`;
-      return;
+    // setup
+    const player = room.players[user.uid];
+    const ready = player?.ready;
+    statusEl.innerHTML = `<div class="game-panel game-room-panel ludo-status"><p class="tic-tac-toe-status">${ready ? "Color locked in! Waiting for your partner…" : "Choose a color, then mark ready."}</p>${playerCards}</div>`;
+    content.innerHTML = `<article class="game-panel ludo-panel"><p class="ludo-overline">PICK YOUR COIN COLOR</p><h2>Player 1 &amp; Player 2</h2><p class="games-instructions">Each player needs a different color. You can change it until both players are ready.</p>${colorPicker}<button type="button" class="primary ludo-ready-button" data-ludo-ready ${ready ? "disabled" : ""}>${ready ? "Ready ✓" : "Ready to play ♡"}</button></article>`;
+  }
+
+  /* ---------------- live game view (built once, then patched) ---------------- */
+  function buildGame() {
+    teardownGameView();
+    const tokens = [];
+    const display = {};
+    const captures = {};
+    room.playerUids.forEach(uid => {
+      const player = room.players[uid];
+      captures[uid] = player.captures || 0;
+      (player.pieces || []).forEach((progress, idx) => {
+        const key = `${uid}:${idx}`;
+        display[key] = progress;
+        tokens.push({ uid, idx, key, color: player.color, n: tokens.length });
+      });
+    });
+
+    const cards = room.playerUids.map(uid => {
+      const player = room.players[uid];
+      const info = colorInfo[player.color];
+      return `<div class="ludo-player-card ${info?.css || ""}" data-card="${esc(uid)}">${avatar(uid, player.name, player.color)}<div class="ludo-player-copy"><strong>${esc(playerName(room, uid))}${uid === user.uid ? " (you)" : ""}</strong><span>${info ? `${info.emoji} ${info.name}` : ""}</span><small data-captures>0 captures</small></div><span class="ludo-gate-chip" data-gate title="Home gate">🔒</span><span class="ludo-home-count" data-home>🏠 0<small>/ 4</small></span></div>`;
+    }).join("");
+    statusEl.innerHTML = `<div class="game-panel game-room-panel ludo-status"><p class="tic-tac-toe-status" data-ludo-msg aria-live="polite"></p><div class="ludo-players-row">${cards}</div><button type="button" class="secondary ludo-end-button" data-ludo-end>End match</button></div>`;
+
+    const tokenMarkup = tokens.map(token => `<div class="ludo-token ${colorInfo[token.color]?.css || "red"}" data-t="${token.n}"><div class="ludo-token-face">${avatar(token.uid, room.players[token.uid].name, token.color)}</div></div>`).join("");
+    const gateMarkup = room.playerUids.map(uid => {
+      const color = room.players[uid].color;
+      const [row, column] = homeLanes[color][0];
+      return `<div class="ludo-gate ${colorInfo[color].css}" data-gate-uid="${esc(uid)}" style="--x:${column};--y:${row}"><span>🔒</span></div>`;
+    }).join("");
+    content.innerHTML = `<div class="ludo-game-layout"><div class="ludo-main-column">
+      <div class="ludo-board-frame"><div class="ludo-board" role="img" aria-label="Live Ludo board"><div class="ludo-gates">${gateMarkup}</div><div class="ludo-hints"></div><div class="ludo-token-layer">${tokenMarkup}</div><div class="ludo-banner" aria-live="assertive"></div></div></div>
+      <div class="ludo-controls">
+        <div class="ludo-turn-tools"><button type="button" class="ludo-dice-btn" disabled>${diceMarkup(0)}<span class="ludo-dice-label">Roll</span></button><div class="ludo-turn-side"><span class="ludo-roll-count"></span><button type="button" class="ludo-sound-btn" data-ludo-sound aria-pressed="false"></button></div></div>
+        <p class="ludo-lock-note" data-ludo-note></p>
+        <p class="ludo-last-move" data-ludo-last aria-live="polite"></p>
+        <details class="ludo-rules"><summary>How to play</summary><ul>
+          <li>Roll a <b>6</b> to bring a coin out of the yard. A 6, a capture, or a coin reaching home gives you another roll (three 6s in a row passes the turn).</li>
+          <li>Coins walk <b>square by square</b>. Land on your partner's coin to send it back to the yard — except on ⭐ and start squares, which are safe.</li>
+          <li><b>🔒 Home gate:</b> you can't enter your home lane until you capture at least one of your partner's coins. Until then your coins keep circling the board. Capture once and the gate opens 🔓.</li>
+          <li>You need the <b>exact roll</b> to reach home. Bring all four coins home to win!</li>
+        </ul></details>
+      </div></div></div>`;
+
+    gv = {
+      matchId: room.matchId,
+      tokens: tokens.map(token => ({ ...token, el: content.querySelector(`[data-t="${token.n}"]`) })),
+      display, captures,
+      cards: Object.fromEntries([...statusEl.querySelectorAll("[data-card]")].map(node => [node.dataset.card, node])),
+      gates: Object.fromEntries([...content.querySelectorAll("[data-gate-uid]")].map(node => [node.dataset.gateUid, node])),
+      msgEl: statusEl.querySelector("[data-ludo-msg]"),
+      boardEl: content.querySelector(".ludo-board"),
+      hintsEl: content.querySelector(".ludo-hints"),
+      bannerEl: content.querySelector(".ludo-banner"),
+      diceBtn: content.querySelector(".ludo-dice-btn"),
+      diceEl: content.querySelector(".ludo-dice"),
+      diceLabel: content.querySelector(".ludo-dice-label"),
+      countEl: content.querySelector(".ludo-roll-count"),
+      soundBtn: content.querySelector("[data-ludo-sound]"),
+      noteEl: content.querySelector("[data-ludo-note]"),
+      lastEl: content.querySelector("[data-ludo-last]"),
+      diceValue: room.dice || room.lastRoll?.value || 0,
+      lastMessage: room.lastMove?.message || "",
+      activity: "", focusKey: "", hintKey: "", bannerTimer: null
+    };
+    gv.tokens.forEach(token => { token.el.style.transition = "none"; });
+    layoutTokens();
+    void gv.boardEl.offsetWidth;
+    gv.tokens.forEach(token => { token.el.style.transition = ""; });
+  }
+
+  function teardownGameView() {
+    clearTimeout(autoMoveTimer);
+    autoMoveTimer = null;
+    lastAutoKey = "";
+    if (gv?.bannerTimer) clearTimeout(gv.bannerTimer);
+    closeWinOverlay();
+    FX.stop();
+    gv = null;
+  }
+
+  function coordinate(token) {
+    return coordinateFor(token.color, gv.display[token.key], token.idx);
+  }
+
+  function layoutTokens() {
+    if (!gv) return;
+    const groups = new Map();
+    gv.tokens.forEach(token => {
+      const [row, column] = coordinate(token);
+      const key = `${row},${column}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(token);
+    });
+    groups.forEach(list => {
+      const layout = stackLayout(list.length, gv.display[list[0].key] === -1);
+      list.forEach((token, index) => {
+        const [row, column] = coordinate(token);
+        const spot = layout[index];
+        const style = token.el.style;
+        style.setProperty("--x", column);
+        style.setProperty("--y", row);
+        style.setProperty("--dx", spot.dx);
+        style.setProperty("--dy", spot.dy);
+        style.setProperty("--s", spot.s);
+        style.zIndex = token.key === gv.focusKey ? 30 : gv.display[token.key] === -1 ? 6 : 12 + index;
+        token.el.classList.toggle("in-yard", gv.display[token.key] === -1);
+        token.el.classList.toggle("at-home", gv.display[token.key] === FINISH);
+      });
+    });
+  }
+
+  function setDisplay(key, progress, { hop = false, returning = false } = {}) {
+    if (!gv) return;
+    gv.display[key] = progress;
+    const token = gv.tokens.find(item => item.key === key);
+    if (token) {
+      token.el.classList.toggle("returning", returning);
+      if (hop && !prefersReducedMotion()) {
+        const face = token.el.firstElementChild;
+        face.classList.remove("hop");
+        void face.offsetWidth;
+        face.classList.add("hop");
+      }
+    }
+    layoutTokens();
+  }
+
+  function syncDisplayFromRoom() {
+    if (!gv || !room) return;
+    room.playerUids.forEach(uid => {
+      gv.captures[uid] = room.players[uid].captures || 0;
+      (room.players[uid].pieces || []).forEach((progress, idx) => { gv.display[`${uid}:${idx}`] = progress; });
+    });
+    gv.tokens.forEach(token => token.el.classList.remove("returning"));
+    gv.focusKey = "";
+    layoutTokens();
+  }
+
+  function showBanner({ kind, title, sub = "", ms = 1900 }) {
+    if (!gv) return;
+    const banner = gv.bannerEl;
+    banner.className = `ludo-banner ${kind}`;
+    banner.innerHTML = `<h3>${title}</h3>${sub ? `<p>${sub}</p>` : ""}`;
+    banner.style.setProperty("--ms", `${ms}ms`);
+    void banner.offsetWidth;
+    banner.classList.add("show");
+    clearTimeout(gv.bannerTimer);
+    gv.bannerTimer = setTimeout(() => banner.classList.remove("show"), ms);
+  }
+
+  function boardCenter() {
+    const rect = gv.boardEl.getBoundingClientRect();
+    return [rect.left + rect.width / 2, rect.top + rect.height * 0.45];
+  }
+
+  function homeCountFor(uid) {
+    return gv.tokens.filter(token => token.uid === uid && gv.display[token.key] === FINISH).length;
+  }
+
+  /* ---------------- view patching ---------------- */
+  function updateView() {
+    if (!gv || !room || disposed) return;
+    const busy = running || queue.length > 0;
+    const playing = room.status === "playing";
+    const me = room.players?.[user.uid];
+    const isTurn = playing && room.turnUid === user.uid;
+    const moveTurn = playing && isTurn && room.phase === "move" && Boolean(me);
+    const available = moveTurn && !busy && !movePending ? legalPieces(me, room.dice) : [];
+    const choices = available.length ? distinctChoices(me, available) : [];
+    const canRoll = playing && isTurn && room.phase === "roll" && !busy && !rollPending;
+    const turnName = room.turnUid ? playerName(room, room.turnUid) : "";
+
+    let message;
+    if (room.status === "finished") message = `${playerName(room, room.winnerUid)} brought all four coins home! 🏆`;
+    else if (gv.activity) message = gv.activity;
+    else if (room.phase === "move") message = isTurn
+      ? choices.length === 1 ? `You rolled ${room.dice}. Moving your coin…` : `You rolled ${room.dice}. Tap a glowing coin to move.`
+      : `${turnName} rolled ${room.dice} and is choosing a coin…`;
+    else message = isTurn ? "Your turn — roll the dice! 🎲" : `${turnName} is rolling…`;
+    gv.msgEl.textContent = message;
+
+    room.playerUids.forEach(uid => {
+      const card = gv.cards[uid];
+      if (!card) return;
+      card.classList.toggle("active-turn", playing && room.turnUid === uid);
+      const count = gv.captures[uid] || 0;
+      card.querySelector("[data-captures]").textContent = `${count} ${count === 1 ? "capture" : "captures"}`;
+      const open = count > 0;
+      const chip = card.querySelector("[data-gate]");
+      chip.textContent = open ? "🔓" : "🔒";
+      chip.classList.toggle("open", open);
+      chip.title = open ? "Home gate open" : "Home gate locked — capture a coin to open it";
+      card.querySelector("[data-home]").innerHTML = `🏠 ${homeCountFor(uid)}<small>/ 4</small>`;
+      const gate = gv.gates[uid];
+      if (gate) {
+        gate.classList.toggle("open", open);
+        gate.firstElementChild.textContent = open ? "🔓" : "🔒";
+      }
+    });
+
+    // dice
+    gv.diceEl.dataset.v = gv.diceValue || 0;
+    gv.diceBtn.disabled = !canRoll;
+    gv.diceBtn.classList.toggle("ready", canRoll);
+    if (canRoll) gv.diceBtn.setAttribute("data-ludo-roll", ""); else gv.diceBtn.removeAttribute("data-ludo-roll");
+    gv.diceBtn.setAttribute("aria-label", canRoll ? "Roll dice" : `Dice showing ${gv.diceValue || "nothing yet"}`);
+    gv.diceLabel.textContent = canRoll ? "Tap to roll" : isTurn ? "Roll" : "Dice";
+    gv.countEl.textContent = busy ? "…"
+      : moveTurn ? `${available.length} coin${available.length === 1 ? "" : "s"} can move`
+      : isTurn && playing ? "Roll to begin your turn" : playing ? `Waiting for ${turnName}` : "";
+
+    const muted = Sound.isMuted();
+    gv.soundBtn.textContent = muted ? "🔇 Sound off" : "🔊 Sound on";
+    gv.soundBtn.setAttribute("aria-pressed", String(!muted));
+
+    // gate note + last message
+    const myOpen = (gv.captures[user.uid] || 0) > 0;
+    gv.noteEl.className = `ludo-lock-note ${myOpen ? "unlocked" : "locked"}`;
+    gv.noteEl.innerHTML = myOpen
+      ? `<span>🔓</span> Home gate open — bring your coins home with an exact roll.`
+      : `<span>🔒</span> Home gate locked — capture one of your partner's coins to open it. Until then your coins keep circling.`;
+    gv.lastEl.textContent = gv.lastMessage || "";
+    gv.lastEl.hidden = !gv.lastMessage;
+
+    // movable coins + landing hints
+    const movable = new Set(available);
+    gv.tokens.forEach(token => {
+      const can = token.uid === user.uid && movable.has(token.idx);
+      token.el.classList.toggle("movable", can);
+      if (can) {
+        token.el.setAttribute("data-ludo-piece", token.idx);
+        token.el.setAttribute("role", "button");
+        token.el.setAttribute("tabindex", "0");
+        token.el.setAttribute("aria-label", `Move coin ${token.idx + 1}`);
+      } else {
+        token.el.removeAttribute("data-ludo-piece");
+        token.el.removeAttribute("role");
+        token.el.removeAttribute("tabindex");
+        token.el.removeAttribute("aria-label");
+      }
+    });
+    const hintKey = `${room.matchId}:${room.dice}:${available.join(",")}`;
+    if (hintKey !== gv.hintKey) {
+      gv.hintKey = hintKey;
+      gv.hintsEl.innerHTML = available.map(index => {
+        const path = movePath(me.pieces[index], room.dice, isGateOpen(me));
+        const [row, column] = coordinateFor(me.color, path.at(-1), index);
+        return `<div class="ludo-hint ${colorInfo[me.color].css}" style="--x:${column};--y:${row}"></div>`;
+      }).join("");
     }
 
-    const player = room.players[user.uid];
-    const isTurn = room.turnUid === user.uid;
-    const available = room.phase === "move" && isTurn ? legalPieces(player, room.dice) : [];
-    const turnName = room.turnUid ? playerName(room, room.turnUid) : "";
-    const lastMove = room.lastMove;
-    const message = room.phase === "moving"
-      ? isTurn ? "Your coin is moving one square at a time…" : `${turnName}'s coin is moving…`
-      : room.phase === "move"
-      ? isTurn ? available.length === 1 ? `You rolled ${room.dice}. Your only movable coin will move automatically.` : `You rolled ${room.dice}. Tap a glowing coin to move.` : `${turnName} rolled ${room.dice} and is choosing a coin…`
-      : isTurn ? "Your turn — roll the dice!" : `${turnName} is rolling…`;
-    const diceValue = room.dice || room.lastRoll?.value;
-    const dice = diceValue ? diceFaces[diceValue - 1] : "🎲";
-    const animateRoll = Boolean(room.lastRoll?.id && room.lastRoll.id !== lastAnimatedRollId);
-    if (animateRoll) lastAnimatedRollId = room.lastRoll.id;
-    const statusPlayers = `<div class="ludo-players-row">${room.playerUids.map(uid => playerCard(room, uid, room.turnUid === uid)).join("")}</div>`;
-    const diceAction = isTurn && room.phase === "roll"
-      ? `<button type="button" class="ludo-roll-button" data-ludo-roll aria-label="Roll dice"><span class="ludo-die-face">${dice}</span><span>Roll dice</span></button>`
-      : `<div class="ludo-dice-display ${diceValue ? "rolled" : ""}" aria-label="Dice showing ${diceValue || "waiting"}"><span class="ludo-die-face">${dice}</span></div>`;
-    const rulesNote = `<p class="ludo-lock-note unlocked"><span>🏁</span> Roll a 6 to start a coin. Complete the lap, then roll the exact number to reach home.</p>`;
-    const lastMoveMessage = lastMove
-      ? `<p class="ludo-last-move ${lastMove.captured?.length ? "captured" : ""}" aria-live="polite">${esc(lastMove.message || "A coin moved.")}</p>`
-      : "";
-    statusEl.innerHTML = `<div class="game-panel game-room-panel ludo-status"><p class="tic-tac-toe-status">${esc(message)}</p>${statusPlayers}<button type="button" class="secondary ludo-end-button" data-ludo-end>End match</button></div>`;
-    content.innerHTML = `<div class="ludo-game-layout"><div class="ludo-main-column">${renderBoard(room, user.uid, available)}<div class="ludo-controls"><div class="ludo-turn-tools">${diceAction}<span class="ludo-roll-count">${room.phase === "move" ? `${available.length} coin${available.length === 1 ? "" : "s"} can move` : isTurn ? "Roll to begin your turn" : "Waiting for your turn"}</span></div>${rulesNote}${lastMoveMessage}</div></div></div>`;
-    if (room.phase === "moving" && room.activeMove) {
-      finishInterruptedMove(room.activeMove.id);
-    } else if (room.phase !== "move") {
-      clearTimeout(autoMoveTimer);
-      autoMoveTimer = null;
-    }
-    if (room.phase === "move" && isTurn && available.length === 1) {
-      const autoMoveKey = `${room.matchId}:${room.lastRoll?.id || room.dice}:${available[0]}`;
-      if (autoMoveKey !== lastAutoMoveKey) {
-        lastAutoMoveKey = autoMoveKey;
+    // when there is nothing to choose between, move automatically
+    if (choices.length === 1) {
+      const key = `${room.matchId}:${room.lastRoll?.id || room.dice}:${choices[0]}`;
+      if (key !== lastAutoKey) {
+        lastAutoKey = key;
+        clearTimeout(autoMoveTimer);
         autoMoveTimer = setTimeout(() => {
-          if (room?.phase === "move" && room.turnUid === user.uid && legalPieces(room.players[user.uid], room.dice).length === 1) {
-            void movePiece(available[0]);
-          }
-        }, 250);
+          if (disposed || !room || room.phase !== "move" || room.turnUid !== user.uid || running || queue.length) return;
+          void movePiece(choices[0]);
+        }, 420);
       }
-    } else if (room.phase === "move") {
-      clearTimeout(autoMoveTimer);
-      autoMoveTimer = null;
-    }
-    if (animateRoll) requestAnimationFrame(() => {
-      const face = content.querySelector(".ludo-die-face");
-      face?.classList.add("rolling");
-      setTimeout(() => face?.classList.remove("rolling"), 760);
-    });
-    if (lastMove?.captured?.length && lastMove.id !== lastAnimatedMoveId) {
-      lastAnimatedMoveId = lastMove.id;
-      requestAnimationFrame(() => content.querySelector(".ludo-last-move")?.classList.add("show"));
     }
   }
 
+  /* ---------------- animated events ---------------- */
+  const stepDelay = () => (document.hidden ? 0 : prefersReducedMotion() ? 90 : 210);
+
+  async function playRoll(event) {
+    if (!gv) return;
+    const value = event.roll.value;
+    gv.activity = event.roll.uid === user.uid ? "Rolling…" : `${playerName(room, event.roll.uid)} is rolling…`;
+    updateView();
+    Sound.roll();
+    buzz(25);
+    gv.diceBtn.classList.add("rolling");
+    const frames = document.hidden || prefersReducedMotion() ? 1 : 9;
+    for (let frame = 0; frame < frames; frame += 1) {
+      gv.diceEl.dataset.v = 1 + Math.floor(Math.random() * 6);
+      await sleep(78);
+    }
+    gv.diceValue = value;
+    gv.diceEl.dataset.v = value;
+    gv.diceBtn.classList.remove("rolling");
+    gv.diceBtn.classList.remove("landed");
+    void gv.diceBtn.offsetWidth;
+    gv.diceBtn.classList.add("landed");
+    Sound.land(value);
+    gv.activity = "";
+    await sleep(document.hidden ? 0 : value === 6 ? 520 : 300);
+  }
+
+  async function playMove(event) {
+    if (!gv) return;
+    const move = event.move;
+    if (!Array.isArray(move.path) || !move.path.length) {
+      gv.lastMessage = move.message || "";
+      updateView();
+      await sleep(document.hidden ? 0 : 650);
+      return;
+    }
+    const key = `${move.uid}:${move.pieceIndex}`;
+    const mover = playerName(room, move.uid);
+    const own = move.uid === user.uid;
+    gv.activity = own ? "Your coin is on the move…" : `${mover}'s coin is moving…`;
+    gv.focusKey = key;
+    updateView();
+    const delay = stepDelay();
+    for (let index = 0; index < move.path.length; index += 1) {
+      setDisplay(key, move.path[index], { hop: true });
+      Sound.step(index);
+      if (own) buzz(8);
+      await sleep(delay);
+      if (disposed || !gv) return;
+    }
+    gv.focusKey = "";
+
+    const captured = move.captured || [];
+    if (captured.length) {
+      Sound.capture();
+      buzz([40, 30, 80]);
+      const victimUid = captured[0].uid;
+      showBanner({
+        kind: "capture",
+        title: own ? "💥 You captured a coin!" : victimUid === user.uid ? `😢 ${esc(mover)} captured your coin!` : `💥 ${esc(mover)} captured a coin!`,
+        sub: "Back to the yard it goes",
+        ms: 1500
+      });
+      captured.forEach(item => {
+        const victim = gv.tokens.find(token => token.uid === item.uid && token.idx === item.pieceIndex);
+        victim?.el.classList.add("hit");
+        setDisplay(`${item.uid}:${item.pieceIndex}`, -1, { returning: true });
+      });
+      await sleep(document.hidden ? 0 : 750);
+      gv.tokens.forEach(token => token.el.classList.remove("hit", "returning"));
+    }
+    gv.captures[move.uid] = move.capturesAfter ?? gv.captures[move.uid];
+    updateView();
+
+    if (move.gateOpened) {
+      Sound.gate();
+      buzz([30, 60, 30]);
+      showBanner({
+        kind: "gate",
+        title: own ? "🔓 Your home gate is open!" : `🔓 ${esc(mover)}'s home gate is open!`,
+        sub: own ? "Now you can take your coins home" : "They can take their coins home now",
+        ms: 1900
+      });
+      gv.gates[move.uid]?.classList.add("unlocking");
+      await sleep(document.hidden ? 0 : 1300);
+      gv.gates[move.uid]?.classList.remove("unlocking");
+    }
+
+    if (move.homed) {
+      const homeNow = homeCountFor(move.uid);
+      const last = event.status === "finished";
+      Sound.home();
+      buzz([60, 40, 60, 40, 120]);
+      const [cx, cy] = boardCenter();
+      FX.confetti(cx, cy, last ? 40 : 90, 0.9);
+      showBanner({
+        kind: "home",
+        title: own ? "🎉 Congratulations!" : `🎉 ${esc(mover)}'s coin reached home!`,
+        sub: own ? `ಅಭಿನಂದನೆಗಳು! Coin ${homeNow} of 4 is home 🏠` : `${homeNow} of 4 coins are home 🏠`,
+        ms: last ? 1500 : 2300
+      });
+      await sleep(document.hidden ? 0 : last ? 1500 : 2200);
+    }
+
+    gv.lastMessage = move.message || gv.lastMessage;
+    gv.activity = "";
+  }
+
+  async function playEvent(event) {
+    if (event.type === "roll") await playRoll(event);
+    else if (event.type === "move") await playMove(event);
+  }
+
+  async function pump() {
+    if (running || disposed) return;
+    running = true;
+    try {
+      while (queue.length && !disposed) {
+        const event = queue.shift();
+        try { await playEvent(event); } catch (error) { console.error("Ludo animation failed:", error); }
+      }
+    } finally {
+      running = false;
+    }
+    if (!disposed) settle();
+  }
+
+  function settle() {
+    if (!gv || !room) return;
+    gv.activity = "";
+    syncDisplayFromRoom();
+    gv.diceValue = room.dice || room.lastRoll?.value || gv.diceValue;
+    updateView();
+    if (room.status === "finished" && celebratedMatch !== room.matchId) celebrate();
+  }
+
+  function ingest(value) {
+    room = upgradeRoom(value);
+    if (!room) { seenMatchId = null; seenRollId = ""; seenMoveId = ""; queue.length = 0; return; }
+    if (room.matchId !== seenMatchId) {
+      seenMatchId = room.matchId;
+      seenRollId = room.lastRoll?.id || "";
+      seenMoveId = room.lastMove?.id || "";
+      queue.length = 0;
+      return;
+    }
+    if (room.lastRoll?.id && room.lastRoll.id !== seenRollId) {
+      seenRollId = room.lastRoll.id;
+      queue.push({ type: "roll", roll: room.lastRoll });
+    }
+    if (room.lastMove?.id && room.lastMove.id !== seenMoveId) {
+      seenMoveId = room.lastMove.id;
+      queue.push({ type: "move", move: room.lastMove, status: room.status });
+    }
+  }
+
+  /* ---------------- victory ---------------- */
+  function closeWinOverlay() {
+    winOverlay?.remove();
+    winOverlay = null;
+  }
+
+  function celebrate() {
+    if (!gv || !room || celebratedMatch === room.matchId) return;
+    celebratedMatch = room.matchId;
+    const won = room.winnerUid === user.uid;
+    const winner = esc(playerName(room, room.winnerUid));
+    Sound.win();
+    buzz([120, 60, 120, 60, 240]);
+    FX.show(7500);
+    winOverlay = document.createElement("div");
+    winOverlay.className = "ludo-win-overlay";
+    winOverlay.innerHTML = `<div class="ludo-win-card ${won ? "won" : "lost"}" role="dialog" aria-live="assertive" aria-label="Match finished">
+      <div class="ludo-win-trophy" aria-hidden="true">🏆</div>
+      <h2>${won ? "You won!" : `${winner} wins!`}</h2>
+      <p class="ludo-win-kn">${won ? "ಅಭಿನಂದನೆಗಳು! 🎉" : "ಚೆನ್ನಾಗಿ ಆಡಿದ್ರಿ! 💖"}</p>
+      <p class="ludo-win-sub">${room.playerUids.map(uid => `${esc(playerName(room, uid))}: ${room.players[uid].captures || 0} captures`).join(" · ")}</p>
+      <div class="ludo-win-actions"><button type="button" class="primary" data-ludo-start>Play again ♡</button><button type="button" class="secondary" data-ludo-closewin>See result</button></div>
+    </div>`;
+    el.appendChild(winOverlay);
+    winOverlay.querySelector("[data-ludo-start]")?.focus({ preventScroll: true });
+  }
+
+  /* ---------------- results ---------------- */
   function recordFinished(roomToSave) {
     if (!roomToSave?.matchId || savedResults.has(roomToSave.matchId)) return;
     savedResults.add(roomToSave.matchId);
@@ -346,13 +1120,23 @@ export function mountLudoGame(el, user, profile) {
       return;
     }
     if (room?.status === "finished") recordFinished(room);
+    const playing = room?.status === "playing";
+    const holding = Boolean(gv && room && gv.matchId === room.matchId && room.status === "finished" && (running || queue.length || winOverlay));
+    if (playing || holding) {
+      if (!gv || gv.matchId !== room.matchId) buildGame();
+      updateView();
+      return;
+    }
+    if (gv) teardownGameView();
     renderLobby();
   }
 
+  /* ---------------- actions (Realtime Database transactions) ---------------- */
   async function startOrJoin() {
     try {
       const color = colorInfo[selectedColor] ? selectedColor : "red";
-      const transaction = await runTransaction(matchRef(), current => {
+      const transaction = await runTransaction(matchRef(), stored => {
+        const current = upgradeRoom(stored);
         if (current && ["waiting", "setup", "playing"].includes(current.status)) {
           if (ensurePlayer(current, user.uid)) return current;
           if (current.status === "waiting" && current.playerUids.length === 1) {
@@ -384,8 +1168,9 @@ export function mountLudoGame(el, user, profile) {
       return;
     }
     try {
-      const transaction = await runTransaction(matchRef(), current => {
-      if (!["waiting", "setup"].includes(current?.status) || !ensurePlayer(current, user.uid)) return;
+      const transaction = await runTransaction(matchRef(), stored => {
+        const current = upgradeRoom(stored);
+        if (!["waiting", "setup"].includes(current?.status) || !ensurePlayer(current, user.uid)) return;
         if (current.playerUids.some(uid => uid !== user.uid && current.players[uid].color === color)) return;
         return { ...current, players: { ...current.players, [user.uid]: { ...current.players[user.uid], color, ready: false } }, updatedAt: Date.now() };
       });
@@ -398,7 +1183,8 @@ export function mountLudoGame(el, user, profile) {
 
   async function readyUp() {
     try {
-      const transaction = await runTransaction(matchRef(), current => {
+      const transaction = await runTransaction(matchRef(), stored => {
+        const current = upgradeRoom(stored);
         if (current?.status !== "setup" || !ensurePlayer(current, user.uid)) return;
         if (current.playerUids.some(uid => uid !== user.uid && current.players[uid].color === current.players[user.uid].color)) return;
         const players = { ...current.players, [user.uid]: { ...current.players[user.uid], ready: true } };
@@ -421,39 +1207,43 @@ export function mountLudoGame(el, user, profile) {
   }
 
   async function rollDice() {
+    if (rollPending) return;
+    rollPending = true;
+    updateView();
     try {
-      const transaction = await runTransaction(matchRef(), current => {
+      const transaction = await runTransaction(matchRef(), stored => {
+        const current = upgradeRoom(stored);
         if (current?.game !== "ludo" || current.status !== "playing" || current.turnUid !== user.uid || current.phase !== "roll") return;
         const randomWord = new Uint32Array(1);
         crypto.getRandomValues(randomWord);
         const dice = Math.floor(randomWord[0] / 0x100000000 * 6) + 1;
         const player = current.players[user.uid];
         const streak = dice === 6 ? (player.sixStreak || 0) + 1 : 0;
+        const nextUid = current.playerUids.find(uid => uid !== user.uid);
+        const rollId = `${Date.now()}-${user.uid}`;
         if (streak >= 3) {
-          const nextUid = current.playerUids.find(uid => uid !== user.uid);
           return {
             ...current,
             players: { ...current.players, [user.uid]: { ...player, sixStreak: 0 } },
             turnUid: nextUid,
             dice: null,
-            lastRoll: { id: `${Date.now()}-${user.uid}`, uid: user.uid, value: dice },
+            lastRoll: { id: rollId, uid: user.uid, value: dice },
             phase: "roll",
-            lastMove: { uid: user.uid, message: `${player.name} rolled three sixes. Turn passes to the other player.` },
+            lastMove: { id: `${rollId}-info`, uid: user.uid, message: `${player.name} rolled three sixes. Turn passes to the other player.` },
             history: appendHistory(current, { text: `${player.name} rolled three sixes — turn passed.` }),
             updatedAt: Date.now()
           };
         }
         const movable = legalPieces(player, dice);
-        const nextUid = current.playerUids.find(uid => uid !== user.uid);
         if (!movable.length) {
           return {
             ...current,
             players: { ...current.players, [user.uid]: { ...player, sixStreak: streak } },
             turnUid: dice === 6 ? user.uid : nextUid,
             dice: null,
-            lastRoll: { id: `${Date.now()}-${user.uid}`, uid: user.uid, value: dice },
+            lastRoll: { id: rollId, uid: user.uid, value: dice },
             phase: "roll",
-            lastMove: { uid: user.uid, message: `${player.name} rolled ${dice}; no coin can move${dice === 6 ? ", roll again" : "."}` },
+            lastMove: { id: `${rollId}-info`, uid: user.uid, message: `${player.name} rolled ${dice}; no coin can move${dice === 6 ? ", roll again" : "."}` },
             history: appendHistory(current, { text: `${player.name} rolled ${dice}; no legal move.` }),
             updatedAt: Date.now()
           };
@@ -462,7 +1252,7 @@ export function mountLudoGame(el, user, profile) {
           ...current,
           players: { ...current.players, [user.uid]: { ...player, sixStreak: streak } },
           dice,
-          lastRoll: { id: `${Date.now()}-${user.uid}`, uid: user.uid, value: dice },
+          lastRoll: { id: rollId, uid: user.uid, value: dice },
           phase: "move",
           updatedAt: Date.now()
         };
@@ -471,47 +1261,42 @@ export function mountLudoGame(el, user, profile) {
     } catch (error) {
       console.error("Could not roll Ludo dice:", error);
       showError("The dice could not be rolled. Please try again.");
+    } finally {
+      rollPending = false;
+      if (!disposed) updateView();
     }
   }
 
-  function finishInterruptedMove(moveId) {
-    if (!moveId || finishingMoveId === moveId || disposed) return;
-    finishingMoveId = moveId;
-    void runTransaction(matchRef(), current => {
-      const move = current?.activeMove;
-      if (current?.game !== "ludo" || current.status !== "playing" || current.phase !== "moving" || move?.id !== moveId) return;
-      return completeMoveState(current, move);
-    }).catch(error => {
-      console.error("Could not finish the pending Ludo move:", error);
-      showError("The coin move could not be saved. Please reconnect.");
-    }).finally(() => {
-      if (finishingMoveId === moveId) finishingMoveId = "";
-    });
-  }
-
   async function movePiece(pieceIndex) {
+    if (movePending) return;
+    movePending = true;
     const moveId = `${Date.now()}-${user.uid}-${pieceIndex}`;
     try {
-      const transaction = await runTransaction(matchRef(), current => {
+      const transaction = await runTransaction(matchRef(), stored => {
+        const current = upgradeRoom(stored);
         if (current?.game !== "ludo" || current.status !== "playing" || current.turnUid !== user.uid || current.phase !== "move" ||
             !Number.isInteger(pieceIndex) || pieceIndex < 0 || pieceIndex > 3) return;
         const player = current.players[user.uid];
-        const oldPosition = player.pieces[pieceIndex];
-        const targetPosition = targetForMove(oldPosition, current.dice);
-        if (targetPosition == null) return;
-        return completeMoveState(current, { id: moveId, uid: user.uid, pieceIndex, from: oldPosition, to: targetPosition });
+        const from = player.pieces[pieceIndex];
+        const path = movePath(from, current.dice, isGateOpen(player));
+        if (!path) return;
+        return completeMoveState(current, { id: moveId, uid: user.uid, pieceIndex, from, to: path[path.length - 1], path });
       });
       if (!transaction.committed) showError("That coin cannot move with this roll.");
     } catch (error) {
       console.error("Could not move Ludo coin:", error);
       showError("Your coin could not be moved. Please try again.");
+    } finally {
+      movePending = false;
+      if (!disposed) updateView();
     }
   }
 
   async function endMatch() {
     if (!window.confirm("End this Ludo match for both players?")) return;
     try {
-      const transaction = await runTransaction(matchRef(), current => {
+      const transaction = await runTransaction(matchRef(), stored => {
+        const current = upgradeRoom(stored);
         if (!ensurePlayer(current, user.uid) || !["waiting", "setup", "playing"].includes(current.status)) return;
         return { ...current, status: "cancelled", turnUid: "", updatedAt: Date.now() };
       });
@@ -522,21 +1307,46 @@ export function mountLudoGame(el, user, profile) {
     }
   }
 
+  /* ---------------- events ---------------- */
   async function onClick(event) {
+    Sound.unlock();
+    const piece = event.target.closest("[data-ludo-piece]");
+    if (piece && el.contains(piece)) { await movePiece(Number(piece.dataset.ludoPiece)); return; }
     const target = event.target.closest("button");
     if (!target || !el.contains(target)) return;
-    if (target.hasAttribute("data-ludo-start")) { await startOrJoin(); return; }
+    if (target.hasAttribute("data-ludo-sound")) {
+      Sound.setMuted(!Sound.isMuted());
+      Sound.step(2);
+      updateView();
+      return;
+    }
+    if (target.hasAttribute("data-ludo-closewin")) { closeWinOverlay(); FX.stop(); render(); return; }
+    if (target.hasAttribute("data-ludo-start")) {
+      const fromOverlay = Boolean(winOverlay && winOverlay.contains(target));
+      await startOrJoin();
+      if (fromOverlay) { closeWinOverlay(); FX.stop(); render(); }
+      return;
+    }
     if (target.hasAttribute("data-ludo-color")) { await chooseColor(target.dataset.ludoColor); return; }
     if (target.hasAttribute("data-ludo-ready")) { await readyUp(); return; }
     if (target.hasAttribute("data-ludo-roll")) { await rollDice(); return; }
-    if (target.hasAttribute("data-ludo-piece")) { await movePiece(Number(target.dataset.ludoPiece)); return; }
     if (target.hasAttribute("data-ludo-cancel") || target.hasAttribute("data-ludo-end")) { await endMatch(); }
   }
 
+  function onKeydown(event) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const piece = event.target.closest?.("[data-ludo-piece]");
+    if (piece && el.contains(piece)) { event.preventDefault(); void movePiece(Number(piece.dataset.ludoPiece)); }
+  }
+
+  const unlockAudio = () => Sound.unlock();
   el.addEventListener("click", onClick);
+  el.addEventListener("keydown", onKeydown);
+  el.addEventListener("pointerdown", unlockAudio, { passive: true });
   stopRoom = onValue(matchRef(), snapshot => {
-    room = snapshot.val();
+    ingest(snapshot.val());
     render();
+    if (queue.length) void pump();
   }, error => {
     console.error("Ludo match could not be loaded:", error);
     statusEl.innerHTML = `<p class="error">The live Ludo match could not be loaded. Please reconnect.</p>`;
@@ -547,6 +1357,10 @@ export function mountLudoGame(el, user, profile) {
     disposed = true;
     stopRoom?.();
     stopRoom = null;
+    queue.length = 0;
+    teardownGameView();
     el.removeEventListener("click", onClick);
+    el.removeEventListener("keydown", onKeydown);
+    el.removeEventListener("pointerdown", unlockAudio);
   };
 }

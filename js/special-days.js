@@ -1,6 +1,6 @@
 import { $, esc, toast, todayKey, scheduleDubaiDayRollover, compressImageFile } from "./utils.js";
 import { addItem, removeItem, setItem, watchItems, notifyPartnerSafely } from "./firestore.js";
-import { formatSpecialDayCountdown, formatSpecialDayDate, specialDayCountdown } from "./special-day-utils.js";
+import { formatSpecialDayDate, specialDayCountdown } from "./special-day-utils.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
 
@@ -21,14 +21,15 @@ function sortedSpecialDays(items, today) {
 
 function eventCard(item) {
   const dateLabel = formatSpecialDayDate(item.countdown.date);
-  const countdownLabel = formatSpecialDayCountdown(item.countdown.days);
+  const countdownDays = Math.trunc(item.countdown.days);
+  const countdownLabel = countdownDays === 0 ? "0 Days" : `${countdownDays} Days`;
   const initials = item.title.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toLocaleUpperCase() || "♡";
   const photo = item.telegramFileId
     ? `<img data-special-day-photo="${esc(item.telegramFileId)}" data-special-day-mime="${esc(item.photoMimeType || "image/jpeg")}" alt="${esc(item.title)}" loading="lazy">`
     : `<span class="special-day-initials" aria-hidden="true">${esc(initials)}</span>`;
   return `<article class="special-day-item" data-edit-special-day="${esc(item.id)}" tabindex="0" role="button" aria-label="Edit ${esc(item.title)}">
     <button type="button" class="special-day-photo" data-pick-special-day-photo="${esc(item.id)}" aria-label="Change photo for ${esc(item.title)}">${photo}</button>
-    <div class="special-day-details"><div class="special-day-item-copy"><strong>${esc(item.title)}</strong><span class="special-day-date"><i aria-hidden="true">▦</i>${esc(dateLabel)}</span><small class="special-day-repeat"><i aria-hidden="true">↻</i>${item.recurring ? "Every year" : "One time"}</small></div><span class="special-day-countdown${item.countdown.days < 0 ? " is-past" : ""}"><i aria-hidden="true">◷</i>${esc(countdownLabel)}</span></div>
+    <div class="special-day-details"><div class="special-day-item-copy"><strong>${esc(item.title)}</strong><span class="special-day-date"><i aria-hidden="true">▦</i>${esc(dateLabel)}</span></div><span class="special-day-countdown${item.countdown.days < 0 ? " is-past" : ""}"><i aria-hidden="true">◷</i>${esc(countdownLabel)}</span></div>
   </article>`;
 }
 
@@ -50,11 +51,9 @@ export function renderSpecialDays(el, user) {
   el.innerHTML = `<section class="special-days">
     <button class="special-days-back" type="button" data-special-days-back>← More</button>
     <header class="special-days-header">
-      <div><p class="eyebrow">MARK THE MOMENTS THAT MATTER</p><h1>♡ Special Days</h1><p class="muted">Birthdays, anniversaries, and all the days worth remembering.</p></div>
-      <span class="special-days-calendar" aria-hidden="true">▦</span>
+      <div><h1>♡ Special Days</h1></div>
+      <button type="button" class="primary special-days-add" data-add-special-day>+</button>
     </header>
-    <div class="special-days-banner"><span>Celebrate your special moments together always ❤️</span><button type="button" class="primary special-days-add" data-add-special-day>+ Add Day</button></div>
-    <h2 class="special-days-section-title">Upcoming Special Days</h2>
     <div class="special-days-list" aria-live="polite"><p class="muted">Loading your special days…</p></div>
     <input type="file" accept="image/*" data-card-photo-file hidden>
     <div class="special-days-modal hidden" data-special-days-modal>

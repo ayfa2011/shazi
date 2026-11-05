@@ -1,4 +1,5 @@
 import { $, esc, toast, todayKey, scheduleDubaiDayRollover } from "./utils.js";
+import { isVideoPost } from "./components.js";
 import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, toggleDiaryCommentLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, watchItems, notifyPartnerSafely } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
@@ -66,6 +67,10 @@ export function renderHome(el, user, profile) {
       .home-post-panel .home-post-author small { font-size: 10px; }
       .home-post-panel .home-post-text { margin: 6px 0; font-size: 13px; flex-grow: 1; }
       .home-post-panel .home-post-photo { max-height: 140px; margin-top: 6px; border-radius: 11px; object-fit: cover; }
+      .home-post-panel .home-post-photo.home-post-photo--pending { background: #f2e3ea; }
+      .home-post-panel .home-post-video-frame { max-height: 140px; margin-top: 6px; border-radius: 11px; background: #f2e3ea; position: relative; overflow: hidden; display: grid; place-items: center; color: #b24166; font-weight: 800; }
+      .home-post-panel .home-post-video-frame .home-video-play-overlay { font-size: 42px; line-height: 1; filter: drop-shadow(0 2px 4px #0003); }
+      .home-post-panel .home-post-video-frame--ready { background-size: cover; background-position: 50% 50%; color: transparent; }
       .home-post-panel .home-post-actions { margin-top: 7px; padding-top: 6px; border-top: 1px solid #f3f4f6; }
       .home-post-panel .home-comment-form { margin-top: 6px; }
       .home-post-panel .home-comment-form input { min-width: 0; padding: 8px 10px; font-size: 12px; }
@@ -455,6 +460,55 @@ export function renderHome(el, user, profile) {
     renderFeed(items);
   }, 1, partnerAuthorIds);
 
+  /* Build the media preview HTML for a feed post: text, photo, or video.
+     Posts store media as a Telegram file id (photoUrl is rarely set), so
+     render telegram file ids as lazy placeholders and resolve them below. */
+  function postMediaHtml(post) {
+    if (!post) return "";
+    if (post.photoUrl) {
+      return `<img src="${esc(post.photoUrl)}" class="home-post-photo" alt="Shared photo" loading="eager">`;
+    }
+    if (isVideoPost(post)) {
+      const fileId = post.telegramVideoFileId || post.telegramFileId || "";
+      if (!fileId) return "";
+      return `<div class="home-post-video-frame" data-post-video="${esc(post.id)}" data-telegram-file-id="${esc(fileId)}" data-telegram-mime="${esc(post.videoMimeType || post.photoMimeType || "video/mp4")}">
+        <span class="home-video-play-overlay" aria-hidden="true">▶</span>
+      </div>`;
+    }
+    if (post.telegramFileId) {
+      return `<img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="home-post-photo home-post-photo--pending" alt="Shared photo" loading="lazy">`;
+    }
+    return "";
+  }
+
+  /* Resolve lazy telegram media URLs for images and video thumbnails already in the feed. */
+  async function resolveFeedMedia() {
+    const images = [...feed.querySelectorAll("img.home-post-photo--pending")];
+    for (const img of images) {
+      const fileId = img.dataset.telegramFileId;
+      const mime = img.dataset.telegramMime || "image/jpeg";
+      if (!fileId) continue;
+      img.classList.remove("home-post-photo--pending");
+      try {
+        const url = await getCachedTelegramMediaUrl(fileId, mime);
+        if (url && img.isConnected) img.src = url;
+      } catch { /* leave placeholder; no fatal failure */ }
+    }
+    const videos = [...feed.querySelectorAll(".home-post-video-frame")];
+    for (const frame of videos) {
+      const fileId = frame.dataset.telegramFileId;
+      const mime = frame.dataset.telegramMime || "video/mp4";
+      if (!fileId) continue;
+      try {
+        const url = await getCachedTelegramMediaUrl(fileId, mime);
+        if (url && frame.isConnected) {
+          frame.style.backgroundImage = `url("${esc(url)}")`;
+          frame.classList.add("home-post-video-frame--ready");
+        }
+      } catch { /* keep placeholder overlay */ }
+    }
+  }
+
   function renderFeed(posts) {
     // Data arrived (or genuinely empty): the skeleton nodes are wiped by this
     // render, so remove the busy flag to end the "loading" announcement.
@@ -488,7 +542,7 @@ export function renderHome(el, user, profile) {
       ? createdAt.toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
       : "Just now";
 
-    const photoHtml = post.photoUrl ? `<img src="${esc(post.photoUrl)}" class="home-post-photo" alt="Shared photo">` : '';
+    const photoHtml = postMediaHtml(post);
 
     feed.innerHTML = `
       <div class="home-post-card" id="home-post-${post.id}">
@@ -512,6 +566,8 @@ export function renderHome(el, user, profile) {
         </div>
       </div>
     `;
+
+    void resolveFeedMedia();
 
     const likeBtn = feed.querySelector(`.home-like-btn[data-id="${post.id}"]`);
     if (likeBtn) {
