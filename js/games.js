@@ -295,6 +295,34 @@ function gamePlayerAvatar(uid, fallbackName = "") {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Celebration sound (synthesized, no external file needed)         */
+/* ------------------------------------------------------------------ */
+
+let celebrationAudioContext;
+
+function playCelebrationSound() {
+  try {
+    if (!celebrationAudioContext) celebrationAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+    if (celebrationAudioContext.state === "suspended") celebrationAudioContext.resume();
+    const now = celebrationAudioContext.currentTime;
+    const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51, 1567.98];
+    notes.forEach((freq, index) => {
+      const osc = celebrationAudioContext.createOscillator();
+      const gain = celebrationAudioContext.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, now + index * 0.07);
+      gain.gain.setValueAtTime(0, now + index * 0.07);
+      gain.gain.linearRampToValueAtTime(0.12, now + index * 0.07 + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + index * 0.07 + 0.5);
+      osc.connect(gain);
+      gain.connect(celebrationAudioContext.destination);
+      osc.start(now + index * 0.07);
+      osc.stop(now + index * 0.07 + 0.5);
+    });
+  } catch { /* Audio may be blocked by browser policy; silently skip. */ }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Scoreboard summary (both partners: wins / losses / games)         */
 /* ------------------------------------------------------------------ */
 
@@ -376,43 +404,52 @@ function scoreboardSummaryMarkup(items, user, profile) {
   const headerSub = hasData
     ? `${totalMatches} ${totalMatches === 1 ? "match" : "matches"} played together`
     : "No matches yet — start playing!";
+  const myWinRate = totalMatches > 0 ? Math.round((mine.wins / totalMatches) * 100) : 0;
+  const theirWinRate = totalMatches > 0 ? Math.round((theirs.wins / totalMatches) * 100) : 0;
+  const isLeading = mine.wins > theirs.wins ? "leading" : mine.wins < theirs.wins ? "trailing" : "tied";
   return `<section class="games-scoreboard-card" aria-label="Game scoreboard summary">
     <div class="games-scoreboard-head">
-      <h2>Scoreboard</h2>
+      <h2>Our Game Points ♡</h2>
       <span class="games-scoreboard-total">${esc(headerSub)}</span>
     </div>
-    <div class="games-scoreboard-grid">
-      <div class="games-scoreboard-player me">
-        <div class="games-scoreboard-main">
-          <strong class="games-scoreboard-wins">${mine.wins}</strong>
-          <span class="games-scoreboard-label">WINS</span>
-        </div>
-        <div class="games-scoreboard-info">
-          <div class="games-scoreboard-identity">${avatarMarkup(ownProfile, "You")}<span class="games-scoreboard-name">You</span></div>
-          <div class="games-scoreboard-meta">
-            <span><b>${mine.losses}</b><small>Losses</small></span>
-            <span><b>${mine.games}</b><small>Total games</small></span>
-          </div>
-        </div>
+    <div class="games-scoreboard-vs">
+      <div class="games-scoreboard-side me${mine.wins > theirs.wins ? " winning" : ""}">
+        ${avatarMarkup(ownProfile, "You")}
+        <span class="games-scoreboard-side-name">You</span>
+        <span class="games-scoreboard-side-score">${mine.wins}</span>
+        <span class="games-scoreboard-side-winrate">${myWinRate}% win rate</span>
       </div>
-      <div class="games-scoreboard-player partner">
-        <div class="games-scoreboard-main">
-          <strong class="games-scoreboard-wins">${theirs.wins}</strong>
-          <span class="games-scoreboard-label">WINS</span>
-        </div>
-        <div class="games-scoreboard-info">
-          <div class="games-scoreboard-identity">${avatarMarkup(partnerProfile, partnerName)}<span class="games-scoreboard-name">${esc(partnerName)}</span></div>
-          <div class="games-scoreboard-meta">
-            <span><b>${theirs.losses}</b><small>Losses</small></span>
-            <span><b>${theirs.games}</b><small>Total games</small></span>
-          </div>
-        </div>
+      <div class="games-scoreboard-side-heart">♡</div>
+      <div class="games-scoreboard-side partner${theirs.wins > mine.wins ? " winning" : ""}">
+        ${avatarMarkup(partnerProfile, partnerName)}
+        <span class="games-scoreboard-side-name">${esc(partnerName)}</span>
+        <span class="games-scoreboard-side-score">${theirs.wins}</span>
+        <span class="games-scoreboard-side-winrate">${theirWinRate}% win rate</span>
+      </div>
+    </div>
+    <div class="games-scoreboard-stats">
+      <div class="games-scoreboard-stat">
+        <span class="games-scoreboard-stat-label">My wins</span>
+        <strong class="games-scoreboard-stat-value">${mine.wins}</strong>
+      </div>
+      <div class="games-scoreboard-stat">
+        <span class="games-scoreboard-stat-label">${esc(partnerName)}'s wins</span>
+        <strong class="games-scoreboard-stat-value">${theirs.wins}</strong>
+      </div>
+      <div class="games-scoreboard-stat">
+        <span class="games-scoreboard-stat-label">Draws</span>
+        <strong class="games-scoreboard-stat-value">${Math.min(mine.draws, theirs.draws)}</strong>
+      </div>
+      <div class="games-scoreboard-stat">
+        <span class="games-scoreboard-stat-label">Total played</span>
+        <strong class="games-scoreboard-stat-value">${totalMatches}</strong>
       </div>
     </div>
     <div class="games-scoreboard-bar" role="img" aria-label="Win share between partners">
       <span class="me" style="width:${myShare}%"></span>
       <span class="partner" style="width:${partnerShare}%"></span>
     </div>
+    <p class="games-scoreboard-status">${isLeading === "leading" ? "You're in the lead! 🎉" : isLeading === "trailing" ? `${esc(partnerName)} is ahead — rematch? ♡` : "It's a perfect tie! 🤝"}</p>
     ${hasData ? "" : `<p class="games-scoreboard-empty">Play a match together to fill this scoreboard 💞</p>`}
   </section>`;
 }
@@ -627,6 +664,7 @@ function renderSosGame(content, user, gameState, presence, pendingCell, profile 
     const playerName = sosPlayerName(playerUid, playerData.name);
     const score = state?.scores?.[playerUid] || 0;
     const isTurn = state?.turnUid === playerUid && playing;
+    const isWinner = finished && state.winnerUid === playerUid;
     const playerSecondsLeft = isTurn ? secondsUntilTurn(state) : 0;
     // The card that already holds the timer keeps its markup across re-renders so
     // the 1s countdown writes in place. Any other card is re-created without a
@@ -638,9 +676,14 @@ function renderSosGame(content, user, gameState, presence, pendingCell, profile 
     const ringStyle = isTurn
       ? ` style="--sos-turn-progress:${liveCountdown?.closest(".sos-avatar-wrap")?.style.getPropertyValue("--sos-turn-progress")?.trim() || (playerSecondsLeft / SOS_TURN_SECONDS)}"`
       : "";
-    return `<div class="sos-player-card ${color}${isTurn ? " turn-active" : ""}">
-      <span class="sos-avatar-wrap${isTurn ? " sos-avatar-turn" : ""}"${ringStyle}>${gamePlayerAvatar(playerUid, playerName)}${timerMarkup}<i class="sos-presence${isOnline ? " online" : ""}" aria-label="${isOnline ? "Online" : "Offline"}"></i></span>
-      <span class="sos-player-details"><span class="sos-player-name">${esc(playerName)}</span><span class="sos-player-label">${color === "blue" ? "Blue Player" : "Red Player"}</span></span>
+    const avatar = gamePlayerAvatar(playerUid, playerName);
+    const winnerAvatar = isWinner
+      ? avatar.replace('class="game-player-avatar"', 'class="game-player-avatar winner-avatar"')
+        .replace('class="game-player-avatar fallback"', 'class="game-player-avatar fallback winner-avatar"')
+      : avatar;
+    return `<div class="sos-player-card ${color}${isTurn ? " turn-active" : ""}${isWinner ? " sos-player-card-winner" : ""}">
+      <span class="sos-avatar-wrap${isTurn ? " sos-avatar-turn" : ""}"${ringStyle}>${winnerAvatar}${timerMarkup}${isWinner ? '<span class="sos-player-crown">👑</span>' : ""}<i class="sos-presence${isOnline ? " online" : ""}" aria-label="${isOnline ? "Online" : "Offline"}"></i></span>
+      <span class="sos-player-details"><span class="sos-player-name">${esc(playerName)}${isWinner ? " <span class=\"sos-player-win-badge\">Winner</span>" : ""}</span><span class="sos-player-label">${color === "blue" ? "Blue Player" : "Red Player"}</span></span>
       <strong class="sos-live-score">${score}</strong>
     </div>`;
   };
@@ -856,7 +899,10 @@ export function renderGames(el, user, profile) {
           players: sosGameState.playerUids,
           scores: sosGameState.scores
         }).then(() => {
-          if (sosGameState.winnerUid === user.uid) void notifyPartnerSafely(ownProfileKey(profile, user), "game", `${profile?.name || getDisplayName(user.uid, "Your partner")} won a game of SOS!`, sosGameState.matchId, "games");
+          if (sosGameState.winnerUid === user.uid) {
+            void playCelebrationSound();
+            void notifyPartnerSafely(ownProfileKey(profile, user), "game", `${profile?.name || getDisplayName(user.uid, "Your partner")} won a game of SOS!`, sosGameState.matchId, "games");
+          }
         }).catch(error => {
           savedMatchResults.delete(sosGameState.matchId);
           console.error("Could not save SOS result:", error);
@@ -1067,7 +1113,14 @@ export function renderGames(el, user, profile) {
     content.style.opacity = "";
     if (!room || room.status === "finished" || room.status === "cancelled") {
       const finalScores = room?.status === "finished"
-        ? `<div class="game-room-player-row">${room.playerUids.map(uid => `<div class="game-room-player">${gamePlayerAvatar(uid, players[uid]?.name)}<span>${esc(getDisplayName(uid, players[uid]?.name || "Partner"))}</span><strong>${esc(formatGameScore(activeGame, players[uid]?.score))}</strong></div>`).join("")}</div>`
+        ? `<div class="game-room-player-row">${room.playerUids.map(uid => {
+            const isWinner = room.winnerUid === uid;
+            const avatar = gamePlayerAvatar(uid, players[uid]?.name);
+            const avatarWithWinner = isWinner
+              ? avatar.replace('class="game-player-avatar"', 'class="game-player-avatar winner-avatar"')
+              : avatar.replace('class="game-player-avatar fallback"', 'class="game-player-avatar fallback winner-avatar"');
+            return `<div class="game-room-player${isWinner ? " game-room-player-winner" : ""}">${avatarWithWinner}<span>${esc(getDisplayName(uid, players[uid]?.name || "Partner"))}</span><strong>${esc(formatGameScore(activeGame, players[uid]?.score))}</strong>${isWinner ? '<span class="game-room-player-crown">👑</span>' : ""}</div>`;
+          }).join("")}</div>`
         : "";
       const result = room?.status === "cancelled"
         ? "This match was cancelled."
@@ -1215,7 +1268,10 @@ export function renderGames(el, user, profile) {
       players: room.playerUids,
       scores
     }).then(() => {
-      if (room.winnerUid === user.uid) void notifyPartnerSafely(ownProfileKey(profile, user), "game", `${profile?.name || getDisplayName(user.uid, "Your partner")} won ${gameTitles[activeGame] || "a game"}!`, room.matchId, "games");
+      if (room.winnerUid === user.uid) {
+        void playCelebrationSound();
+        void notifyPartnerSafely(ownProfileKey(profile, user), "game", `${profile?.name || getDisplayName(user.uid, "Your partner")} won ${gameTitles[activeGame] || "a game"}!`, room.matchId, "games");
+      }
     }).catch(error => {
       savedMatchResults.delete(room.matchId);
       console.error("Could not save game result:", error);
@@ -2021,8 +2077,8 @@ export function renderGames(el, user, profile) {
     saveGuessTheQuestionsLocal();
     renderGuessTheQuestion($("#games-active-content", el));
     await gtqQueueWrite({ op: "update", qId, data: patch }, () => update(questionRef, patch));
-    void notifyPartnerSafely(ownProfileKey(profile, user), "game", `${getDisplayName(user.uid, "Your partner")} requested another hint for: ${question.question}`, `${qId}-${request.requestedAt}`, "games");
-    toast("Hint requested ♡");
+    void notifyPartnerSafely(ownProfileKey(profile, user), "game", `${getDisplayName(user.uid, "Your partner")} requested another clue for: ${question.question}`, `${qId}-${request.requestedAt}`, "games");
+    toast("Clue requested ♡");
   }
 
   async function addGuessTheQuestionHint(qId, hintText) {
@@ -2041,7 +2097,7 @@ export function renderGames(el, user, profile) {
     if (extraHintInput) extraHintInput.value = "";
     renderGuessTheQuestion($("#games-active-content", el));
     await gtqQueueWrite({ op: "update", qId, data: patch }, () => update(gtqQRef(qId), patch));
-    toast("Hint shared with your partner ♡");
+    toast("Clue shared with your partner ♡");
   }
 
   function gtqProfiles() {
@@ -2070,14 +2126,15 @@ export function renderGames(el, user, profile) {
           <span class="gtq-player-name">${esc(ownName)}</span>
           <span class="gtq-player-role">${ownUid === user.uid ? "You" : "Partner"}</span>
           <span class="gtq-player-online ${gtqOnline(ownUid) ? "" : "offline"}"><i aria-hidden="true"></i>${gtqOnline(ownUid) ? "Online" : "Offline"}</span>
-          <span class="gtq-player-score">${ownScore}<small>points</small></span>
+          <span class="gtq-player-score">${ownScore}</span>
         </div>
+        <div class="gtq-vs" aria-hidden="true">♡</div>
         <div class="gtq-player partner">
           ${gamePlayerAvatar(partnerUid, partnerName)}
           <span class="gtq-player-name">${esc(partnerName)}</span>
           <span class="gtq-player-role">${partnerUid ? "Partner" : "Partner"}</span>
           <span class="gtq-player-online ${gtqOnline(partnerUid) ? "" : "offline"}"><i aria-hidden="true"></i>${gtqOnline(partnerUid) ? "Online" : "Offline"}</span>
-          <span class="gtq-player-score">${partnerScore}<small>points</small></span>
+          <span class="gtq-player-score">${partnerScore}</span>
         </div>
       </div>`;
   }
@@ -2088,11 +2145,13 @@ export function renderGames(el, user, profile) {
       <button type="button" class="gtq-back" data-gtq-back>← Questions List</button>
       <article class="gtq-panel">
         <div class="gtq-detail-head"><span class="gtq-from">New question</span><span class="gtq-status gtq-status-open">Open</span></div>
-        <div class="gtq-question" style="font-size:22px;margin-bottom:6px">Send a new question</div>
-        <p class="games-instructions" style="margin-bottom:14px">Ask your partner anything — an emoji guess, a word puzzle, or a riddle. Add a hint and the answer so it can be checked automatically.</p>
+        <div class="gtq-note">
+          <div class="gtq-question" style="font-size:20px;margin-bottom:6px">Send a new question</div>
+        </div>
+        <p class="games-instructions" style="margin-bottom:10px">Ask your partner anything — an emoji guess, a word puzzle, or a riddle. Add a clue and the answer so it can be checked automatically.</p>
         <div class="gtq-form">
           <label>Question<textarea id="gtq-question-input" data-gtq-field="question" maxlength="200" placeholder="e.g. What am I thinking of right now?"></textarea></label>
-          <label>Hint (optional)<input id="gtq-hint-input" data-gtq-field="hint" maxlength="120" placeholder="A gentle clue…"></label>
+          <label>Clue (optional)<input id="gtq-hint-input" data-gtq-field="hint" maxlength="120" placeholder="A gentle clue…"></label>
           <label>Answer (optional)<input id="gtq-answer-input" data-gtq-field="answer" maxlength="200" placeholder="The correct answer (auto-marked)"></label>
           <p class="gtq-hint-text">Leave the answer blank if you want to review your partner's answer yourself.</p>
           <div class="gtq-form-actions">
@@ -2110,51 +2169,50 @@ export function renderGames(el, user, profile) {
       container.innerHTML = `<section class="gtq-section"><header class="gtq-section-head"><h2>Queue Questions</h2><span>0</span></header><div class="gtq-empty">No questions yet. Send your partner the first question!</div></section><section class="gtq-section"><header class="gtq-section-head"><h2>Completed Questions</h2><span>0</span></header><div class="gtq-empty">Resolved questions will appear here.</div></section>`;
       return;
     }
-    const card = question => {
-      const myAnswer = gtqMyAnswer(question);
-      const partnerUid = gtqPartnerUid(question);
-      const status = gtqStatus(question);
-      const isCreator = gtqIsCreator(question);
-      const hintRequested = Object.values(question.hintRequests || {}).some(request => request?.pending);
-      let statusLabel, statusClass;
-      if (status === "open") { statusLabel = "Open"; statusClass = "gtq-status-open"; }
-      else if (status === "answered") { statusLabel = isCreator ? "Awaiting your review" : "Pending review"; statusClass = "gtq-status-answered"; }
-      else { statusLabel = "Resolved"; statusClass = "gtq-status-resolved"; }
-      if (hintRequested && isCreator) { statusLabel = "Hint requested"; statusClass = "gtq-status-hint-requested"; }
-      let attemptHtml = "";
-      if (myAnswer && myAnswer.verdict === "wrong" && myAnswer.attempts >= 2) {
-        attemptHtml = `<span class="gtq-attempts">${gtqOrdinal(myAnswer.attempts)} try</span>`;
-      }
-      const answererUid = isCreator ? partnerUid : user.uid;
-      const answererLabel = isCreator ? "Partner" : "You";
-      const answererScore = gtqScoreOf(question, answererUid);
-      const answeredByMe = !!myAnswer;
-      const canAnswer = gtqCanAnswer(question);
-      let actionLabel = "View", actionClass = "secondary";
-      if (!answeredByMe && !isCreator) actionLabel = "Answer";
-      else if (canAnswer) actionLabel = "Try again";
-      else if (isCreator && status === "answered") actionLabel = "Review answers";
-      else if (isCreator) actionLabel = "View";
-      const senderName = isCreator ? getDisplayName(user.uid, "You") : gtqPartnerName(question);
-      const fromName = esc(senderName);
-      const fromAvatar = gamePlayerAvatar(isCreator ? user.uid : partnerUid, senderName);
-      return `<article class="gtq-card${isCreator ? " gtq-card-own" : ""}">
-        <div class="gtq-card-head">
-          ${fromAvatar}
-          <div class="gtq-card-info">
-            <span class="gtq-from">${isCreator ? `From you · ${fromName}` : `From ${fromName}`}</span>
-            <span class="gtq-status ${statusClass}">${esc(statusLabel)}</span>
+      const card = question => {
+        const myAnswer = gtqMyAnswer(question);
+        const partnerUid = gtqPartnerUid(question);
+        const status = gtqStatus(question);
+        const isCreator = gtqIsCreator(question);
+        const hintRequested = Object.values(question.hintRequests || {}).some(request => request?.pending);
+        let statusLabel, statusClass;
+        if (status === "open") { statusLabel = "Open"; statusClass = "gtq-status-open"; }
+        else if (status === "answered") { statusLabel = isCreator ? "Awaiting review" : "Pending review"; statusClass = "gtq-status-answered"; }
+        else { statusLabel = "Resolved"; statusClass = "gtq-status-resolved"; }
+        if (hintRequested && isCreator) { statusLabel = "Clue requested"; statusClass = "gtq-status-hint-requested"; }
+        let attemptHtml = "";
+        if (myAnswer && myAnswer.verdict === "wrong" && myAnswer.attempts >= 2) {
+          attemptHtml = `<span class="gtq-attempts">${gtqOrdinal(myAnswer.attempts)} try</span>`;
+        }
+        const answererUid = isCreator ? partnerUid : user.uid;
+        const answererLabel = isCreator ? "Partner" : "You";
+        const answererScore = gtqScoreOf(question, answererUid);
+        const answeredByMe = !!myAnswer;
+        const canAnswer = gtqCanAnswer(question);
+        let actionLabel = "View", actionClass = "secondary";
+        if (!answeredByMe && !isCreator) actionLabel = "Answer";
+        else if (canAnswer) actionLabel = "Try again";
+        else if (isCreator && status === "answered") actionLabel = "Review answers";
+        else if (isCreator) actionLabel = "View";
+        const senderName = isCreator ? getDisplayName(user.uid, "You") : gtqPartnerName(question);
+        const fromName = esc(senderName);
+        const fromAvatar = gamePlayerAvatar(isCreator ? user.uid : partnerUid, senderName);
+        const hints = question.hints?.length ? question.hints : question.hint ? [question.hint] : [];
+        const hintsHtml = hints.map((hint, index) => `<div class="gtq-hint"><b>Clue ${index + 1}</b> · ${esc(hint)}</div>`).join("");
+        return `<article class="gtq-card gtq-card-bubble${isCreator ? " gtq-card-own" : ""}">
+          <div class="gtq-bubble">
+            <span class="gtq-bubble-from">${fromName}</span>
+            <div class="gtq-question">${esc(question.question)}</div>
+            ${hintsHtml}
+            <div class="gtq-meta">
+              <span class="gtq-score">❤️ <strong>${answererScore}</strong></span>
+              ${attemptHtml}
+            </div>
           </div>
-        </div>
-        <div class="gtq-question">${esc(question.question)}</div>
-        ${(question.hints?.length ? question.hints : question.hint ? [question.hint] : []).map((hint, index) => `<div class="gtq-hint"><b>Hint ${index + 1}</b> · ${esc(hint)}</div>`).join("")}
-        <div class="gtq-meta">
-          <span class="gtq-score">${answererLabel} <strong>${answererScore}</strong></span>
-          ${attemptHtml}
-        </div>
-        <button type="button" class="gtq-action ${actionClass}" data-gtq-open="${esc(question.id)}">${esc(actionLabel)}</button>
-      </article>`;
-    };
+          <span class="gtq-status ${statusClass}">${esc(statusLabel)}</span>
+          <button type="button" class="gtq-action ${actionClass}" data-gtq-open="${esc(question.id)}">${esc(actionLabel)}</button>
+        </article>`;
+      };
     const pending = questions.filter(question => gtqStatus(question) !== "resolved");
     const completed = questions.filter(question => gtqStatus(question) === "resolved");
     const history = completed.length ? `<div class="gtq-history-list">${completed.map(question => {
@@ -2178,6 +2236,7 @@ export function renderGames(el, user, profile) {
     const myAnswer = gtqMyAnswer(question);
     const isCreator = gtqIsCreator(question);
     const partnerUid = gtqPartnerUid(question);
+    const senderName = isCreator ? getDisplayName(user.uid, "You") : gtqPartnerName(question);
     const status = gtqStatus(question);
     const attempts = myAnswer ? myAnswer.attempts : 0;
     const attemptHtml = (myAnswer && myAnswer.verdict === "wrong" && attempts >= 2)
@@ -2228,11 +2287,11 @@ export function renderGames(el, user, profile) {
     const answererUid = isCreator ? partnerUid : user.uid;
     const answererLabel = isCreator ? "Partner" : "You";
     const hints = question.hints?.length ? question.hints : question.hint ? [question.hint] : [];
-    const hintsHtml = hints.map((hint, index) => `<div class="gtq-hint"><b>Hint ${index + 1}</b> · ${esc(hint)}</div>`).join("");
+    const hintsHtml = hints.map((hint, index) => `<div class="gtq-clue"><b>Clue ${index + 1}</b> · ${esc(hint)}</div>`).join("");
     const hintRequestPending = Object.values(question.hintRequests || {}).some(request => request?.pending);
     const hintActions = status === "resolved" ? "" : isCreator
-      ? `${hintRequestPending ? `<p class="gtq-hint-requested">Your partner requested another hint.</p>` : ""}<div class="gtq-add-hint"><input data-gtq-field="extra-hint" data-gtq-hint-input maxlength="120" placeholder="Add another hint"><button type="button" class="secondary" data-gtq-add-hint="${esc(qId)}">Add Hint</button></div>`
-      : `<div class="gtq-request-hint"><strong>Don’t know the answer?</strong>${question.hintRequests?.[user.uid]?.pending ? `<span class="gtq-hint-requested">Hint requested · waiting for ${esc(gtqPartnerName(question))}</span>` : `<button type="button" class="secondary" data-gtq-request-hint="${esc(qId)}">＋ Request Another Hint</button>`}</div>`;
+      ? `${hintRequestPending ? `<p class="gtq-hint-requested">Your partner requested another clue.</p>` : ""}<div class="gtq-add-hint"><input data-gtq-field="extra-hint" data-gtq-hint-input maxlength="120" placeholder="Add another clue"><button type="button" class="secondary" data-gtq-add-hint="${esc(qId)}">Add Clue</button></div>`
+      : `<div class="gtq-request-hint"><strong>Don’t know the answer?</strong>${question.hintRequests?.[user.uid]?.pending ? `<span class="gtq-hint-requested">Clue requested · waiting for ${esc(gtqPartnerName(question))}</span>` : `<button type="button" class="secondary" data-gtq-request-hint="${esc(qId)}">＋ Request Another Clue</button>`}</div>`;
     container.innerHTML = `
       <button type="button" class="gtq-back" data-gtq-back>← Questions List</button>
       <article class="gtq-panel gtq-detail-panel">
@@ -2240,15 +2299,21 @@ export function renderGames(el, user, profile) {
           <span class="gtq-from">${isCreator ? "Your question" : "Question for you"}</span>
           <span class="gtq-status ${status === "resolved" ? "gtq-status-resolved" : status === "answered" ? "gtq-status-answered" : "gtq-status-open"}">${esc(statusLabel)}</span>
         </div>
-        <div class="gtq-question">${esc(question.question)}</div>
-        <div class="gtq-hints"><strong class="gtq-hints-count">Hints provided · ${hints.length}</strong>${hintsHtml || `<p class="gtq-hint-text">No hints yet.</p>`}</div>
+        <div class="gtq-note">
+          <span class="gtq-note-from">${senderName}</span>
+          <div class="gtq-question">${esc(question.question)}</div>
+        </div>
+        <div class="gtq-clues">
+          <strong class="gtq-hints-count">${hints.length} clue${hints.length !== 1 ? "s" : ""}</strong>
+          ${hintsHtml || `<p class="gtq-hint-text">No clues yet.</p>`}
+        </div>
         ${hintActions}
         ${answerForm}
         <div class="gtq-meta">
-          <span class="gtq-score">${answererLabel} <strong>${gtqScoreOf(question, answererUid)}</strong></span>
+          <span class="gtq-score">❤️ <strong>${gtqScoreOf(question, answererUid)}</strong></span>
         </div>
-        <h3 style="margin:14px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.18em;color:var(--muted);font-weight:900">Answers</h3>
-        <div class="gtq-answers">${answersHtml}</div>
+        <h3>Answers</h3>
+        <div class="gtq-answers gtq-answers-compact">${answersHtml}</div>
       </article>`;
   }
 
