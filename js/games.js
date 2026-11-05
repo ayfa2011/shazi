@@ -27,8 +27,8 @@ const emojiQuestions = [
   { emojis: "🍓 🍫 😋", options: ["A sweet treat to share", "Strawberry shopping", "Chocolate for breakfast"], answer: 0 }
 ];
 
-const battleshipRoomRef = () => ref(rtdb, "battleshipMatches/our-little-world");
-const battleshipBoardRef = (matchId, uid) => ref(rtdb, `battleshipPrivate/${matchId}/${uid}`);
+const battleshipRoomRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/matches/battleship`);
+const battleshipBoardRef = (matchId, uid) => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/battleship/${matchId}/${uid}`);
 const BATTLESHIP_FLEET = [
   { id: "carrier", name: "Carrier", emoji: "🚢", length: 5 },
   { id: "battleship", name: "Battleship", emoji: "🛳️", length: 4 },
@@ -2332,7 +2332,6 @@ export function renderGames(el, user, profile) {
     const page = document.createElement("div");
     page.className = "gtq-page";
     page.innerHTML = `
-      <header class="gtq-page-header"><button class="games-back-button" type="button" data-back-games>← All games</button><div class="gtq-title"><span aria-hidden="true">💬</span><div><h1>Guess the Answer</h1><p>Send questions with hints, guess answers, and compare scores.</p></div></div></header>
       ${gtqPlayersStrip()}
       <div id="gtq-view"></div>`;
     content.appendChild(page);
