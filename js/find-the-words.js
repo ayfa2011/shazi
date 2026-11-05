@@ -306,6 +306,8 @@ export function mountFindTheWordsGame(container, user, profile) {
       const next = makeBoard(game?.words?.map(item => item.word) || []);
       const transaction = await runTransaction(gameRef(), current => {
         if (validGame(current) && current.status === "playing") return;
+        // A completed round is replaced in the same transaction, so a stale
+        // local snapshot cannot prevent either player from starting again.
         return {
           ...next,
           gameId: `${Date.now()}-${user.uid}`,
@@ -402,13 +404,28 @@ export function mountFindTheWordsGame(container, user, profile) {
   }
 
   let dragStart = null;
+  function updateDragFromPoint(clientX, clientY) {
+    if (dragStart == null) return;
+    const target = document.elementFromPoint(clientX, clientY)?.closest?.("[data-find-cell]");
+    if (!target || !container.contains(target)) return;
+    selectionEnd = Number(target.dataset.findCell);
+    updateSelection(container, selectionStart, selectionEnd);
+  }
   container.addEventListener("pointerdown", event => {
     const cell = event.target.closest("[data-find-cell]");
     if (!cell || game?.status !== "playing" || !game.players?.[user.uid]) return;
+    event.preventDefault();
     dragStart = Number(cell.dataset.findCell);
     selectionStart = dragStart;
     selectionEnd = dragStart;
+    try { cell.setPointerCapture(event.pointerId); } catch { /* touch fallback uses elementFromPoint */ }
     updateSelection(container, selectionStart, selectionEnd);
+  });
+  container.addEventListener("pointermove", event => {
+    if (dragStart != null && event.pointerType === "touch") {
+      event.preventDefault();
+      updateDragFromPoint(event.clientX, event.clientY);
+    }
   });
   container.addEventListener("pointerover", event => {
     const cell = event.target.closest("[data-find-cell]");
@@ -418,7 +435,8 @@ export function mountFindTheWordsGame(container, user, profile) {
   });
   container.addEventListener("pointerup", event => {
     if (dragStart == null) return;
-    const cell = event.target.closest("[data-find-cell]");
+    updateDragFromPoint(event.clientX, event.clientY);
+    const cell = event.target.closest("[data-find-cell]") || document.elementFromPoint(event.clientX, event.clientY)?.closest?.("[data-find-cell]");
     const end = cell ? Number(cell.dataset.findCell) : selectionEnd;
     const cells = traceCells(dragStart, end);
     const found = game && wordAt(game, cells);

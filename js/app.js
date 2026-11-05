@@ -1113,6 +1113,8 @@ function renderPostFeed(el, user, profile) {
     video.playsInline = true;
     video.muted = true;
     video.loop = true;
+    // Load the source before requesting playback. Calling play() before src is
+    // ready can race the asynchronous Telegram URL lookup on mobile browsers.
     video.preload = autoplay ? "auto" : "metadata";
     video.setAttribute("playsinline", "");
     video.setAttribute("webkit-playsinline", "");
@@ -1144,12 +1146,21 @@ function renderPostFeed(el, user, profile) {
     // Android Chrome WebView otherwise does not expand post videos).
     frame.addEventListener("click", event => {
       event.stopPropagation();
-      openPostVideoViewer(postId);
+      if (video.paused) {
+        video.muted = false;
+        video.play().catch(() => openPostVideoViewer(postId));
+      } else {
+        openPostVideoViewer(postId);
+      }
     });
     getTelegramMediaUrl(fileId, mime)
-      .then(url => { if (video.isConnected) video.src = url; })
+      .then(url => {
+        if (!video.isConnected) return;
+        video.src = url;
+        video.load();
+        if (autoplay) video.play().catch(() => {});
+      })
       .catch(error => console.error("Post video could not load from Telegram:", error));
-    if (autoplay) video.play().catch(() => {});
   }
   function hydratePostVideos(root, autoplayFirst = false) {
     const frames = [...root.querySelectorAll(".tw-post-video-frame[data-post-video]")];

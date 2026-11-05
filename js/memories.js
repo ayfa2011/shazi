@@ -486,6 +486,13 @@ export function renderMemories(el, user, profile) {
       if (!url) { closeImageLightbox(); toast("This video is missing its media link."); return; }
       lightboxVideo.src = url;
       lightboxVideo.load();
+      // Starting playback after the authenticated media URL resolves avoids
+      // the empty-frame race on mobile browsers. Inline playback attributes
+      // keep the same player usable on both iOS Safari and Android WebView.
+      lightboxVideo.playsInline = true;
+      lightboxVideo.setAttribute("playsinline", "");
+      lightboxVideo.setAttribute("webkit-playsinline", "");
+      void lightboxVideo.play().catch(() => {});
     } else {
       lightboxVideo.style.display = "none";
       const url = isUsableMediaUrl(item.url) && !item.telegramFileId ? item.url : item.telegramFileId ? await getTelegramMediaUrl(item.telegramFileId, memoryMediaMime(item)) : "";
@@ -718,8 +725,14 @@ export function renderMemories(el, user, profile) {
       video.preload = "metadata";
       video.setAttribute("aria-label", selected?.name || "Memory video");
       video.setAttribute("controlslist", "nodownload");
+      video.setAttribute("webkit-playsinline", "");
       if (mediaUrl) video.src = mediaUrl;
-      else getTelegramMediaUrl(fileId, mimeType).then(url => { if (video.isConnected) { video.src = url; video.load(); } }).catch(error => console.error("Memory video could not load:", error));
+      else getTelegramMediaUrl(fileId, mimeType).then(url => {
+        if (video.isConnected) {
+          video.src = url;
+          video.load();
+        }
+      }).catch(error => console.error("Memory video could not load:", error));
       video.addEventListener("error", () => {
         console.error("Memory video playback failed", video.error, { mimeType, mediaUrl });
         if (video.error?.code === 4) toast("This video codec is not supported on this iPhone. Try an MP4 (H.264) copy.");

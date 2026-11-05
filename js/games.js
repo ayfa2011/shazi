@@ -1828,6 +1828,8 @@ export function renderGames(el, user, profile) {
       id,
       question: String(value.question || ""),
       hint: value.hint || undefined,
+      hints: Array.isArray(value.hints) ? value.hints.filter(item => typeof item === "string" && item.trim()) : (value.hint ? [String(value.hint)] : []),
+      hintRequests: value.hintRequests && typeof value.hintRequests === "object" && !Array.isArray(value.hintRequests) ? value.hintRequests : {},
       answer: value.answer || undefined,
       createdBy: String(value.createdBy || ""),
       createdAt: Number(value.createdAt) || 0,
@@ -1935,6 +1937,7 @@ export function renderGames(el, user, profile) {
     const doc = {
       question,
       hint: hint || undefined,
+      hints: hint ? [hint] : [],
       answer: answer || undefined,
       createdBy: user.uid,
       createdAt: Date.now(),
@@ -2000,6 +2003,39 @@ export function renderGames(el, user, profile) {
     toast(`Answer marked ${verdict} ♡`);
   }
 
+  async function requestGuessTheQuestionHint(qId) {
+    const question = guessTheQuestions.find(item => item.id === qId);
+    if (!question || gtqIsCreator(question) || gtqStatus(question) === "resolved") return;
+    if (question.hintRequests?.[user.uid]?.pending) { toast("Your hint request is already waiting."); return; }
+    const request = { pending: true, requestedAt: Date.now() };
+    const patch = { [`hintRequests/${user.uid}`]: request, updatedAt: Date.now() };
+    const questionRef = gtqQRef(qId);
+    const next = { ...question, hintRequests: { ...(question.hintRequests || {}), [user.uid]: request }, updatedAt: patch.updatedAt };
+    guessTheQuestions = guessTheQuestions.map(item => item.id === qId ? next : item);
+    saveGuessTheQuestionsLocal();
+    renderGuessTheQuestion($("#games-active-content", el));
+    await gtqQueueWrite({ op: "update", qId, data: patch }, () => update(questionRef, patch));
+    void notifyPartnerSafely(ownProfileKey(profile, user), "game", `${getDisplayName(user.uid, "Your partner")} requested another hint for: ${question.question}`, `${qId}-${request.requestedAt}`, "games");
+    toast("Hint requested ♡");
+  }
+
+  async function addGuessTheQuestionHint(qId, hintText) {
+    const question = guessTheQuestions.find(item => item.id === qId);
+    const hint = String(hintText || "").trim();
+    if (!question || !gtqIsCreator(question) || gtqStatus(question) === "resolved") return;
+    if (!hint) { toast("Type a hint first ♡"); return; }
+    if (hint.length > 120) { toast("Keep each hint under 120 characters."); return; }
+    const hints = [...(question.hints || (question.hint ? [question.hint] : [])), hint];
+    const hintRequests = { ...(question.hintRequests || {}) };
+    Object.keys(hintRequests).forEach(uid => { if (hintRequests[uid]?.pending) hintRequests[uid] = { ...hintRequests[uid], pending: false, fulfilledAt: Date.now() }; });
+    const patch = { hints, hint, hintRequests, updatedAt: Date.now() };
+    guessTheQuestions = guessTheQuestions.map(item => item.id === qId ? { ...item, ...patch } : item);
+    saveGuessTheQuestionsLocal();
+    renderGuessTheQuestion($("#games-active-content", el));
+    await gtqQueueWrite({ op: "update", qId, data: patch }, () => update(gtqQRef(qId), patch));
+    toast("Hint shared with your partner ♡");
+  }
+
   function gtqProfiles() {
     const ownKey = ownProfileKey(profile, user);
     const own = APP_CONFIG.profiles[ownKey] || gamePlayerProfile(user.uid) || {};
@@ -2063,18 +2099,20 @@ export function renderGames(el, user, profile) {
     if (!container) return;
     const questions = guessTheQuestions;
     if (questions.length === 0) {
-      container.innerHTML = `<div class="gtq-empty"><p style="font-size:16px">No questions yet.<br>Send your partner the first question!</p></div>`;
+      container.innerHTML = `<section class="gtq-section"><header class="gtq-section-head"><h2>Queue Questions</h2><span>0</span></header><div class="gtq-empty">No questions yet. Send your partner the first question!</div></section><section class="gtq-section"><header class="gtq-section-head"><h2>Completed Questions</h2><span>0</span></header><div class="gtq-empty">Resolved questions will appear here.</div></section>`;
       return;
     }
-    container.innerHTML = questions.map(question => {
+    const card = (question, completed = false) => {
       const myAnswer = gtqMyAnswer(question);
       const partnerUid = gtqPartnerUid(question);
       const status = gtqStatus(question);
       const isCreator = gtqIsCreator(question);
+      const hintRequested = Object.values(question.hintRequests || {}).some(request => request?.pending);
       let statusLabel, statusClass;
       if (status === "open") { statusLabel = "Open"; statusClass = "gtq-status-open"; }
       else if (status === "answered") { statusLabel = isCreator ? "Awaiting your review" : "Pending review"; statusClass = "gtq-status-answered"; }
       else { statusLabel = "Resolved"; statusClass = "gtq-status-resolved"; }
+      if (hintRequested && isCreator) { statusLabel = "Hint requested"; statusClass = "gtq-status-hint-requested"; }
       let attemptHtml = "";
       if (myAnswer && myAnswer.verdict === "wrong" && myAnswer.attempts >= 2) {
         attemptHtml = `<span class="gtq-attempts">${gtqOrdinal(myAnswer.attempts)} try</span>`;
@@ -2088,26 +2126,30 @@ export function renderGames(el, user, profile) {
       else if (canAnswer) actionLabel = "Try again";
       else if (isCreator && status === "answered") actionLabel = "Review answers";
       else if (isCreator) actionLabel = "View";
-      const fromName = isCreator ? "You" : esc(gtqPartnerName(question));
-      const fromAvatar = isCreator ? gamePlayerAvatar(user.uid, getDisplayName(user.uid, "You")) : gamePlayerAvatar(partnerUid, gtqPartnerName(question));
-      return `<article class="gtq-card${isCreator ? " gtq-card-own" : ""}">
+      const senderName = isCreator ? getDisplayName(user.uid, "You") : gtqPartnerName(question);
+      const fromName = esc(senderName);
+      const fromAvatar = gamePlayerAvatar(isCreator ? user.uid : partnerUid, senderName);
+      return `<article class="gtq-card${isCreator ? " gtq-card-own" : ""}${completed ? " gtq-card-completed" : ""}">
         <div class="gtq-card-head">
           ${fromAvatar}
           <div class="gtq-card-info">
-            <span class="gtq-from">${isCreator ? "From you" : `From ${fromName}`}</span>
+            <span class="gtq-from">${isCreator ? `From you · ${fromName}` : `From ${fromName}`}</span>
             <span class="gtq-status ${statusClass}">${esc(statusLabel)}</span>
           </div>
         </div>
         <div class="gtq-question">${esc(question.question)}</div>
-        ${question.hint ? `<div class="gtq-hint">Hint · ${esc(question.hint)}</div>` : ""}
+        ${(question.hints?.length ? question.hints : question.hint ? [question.hint] : []).map((hint, index) => `<div class="gtq-hint"><b>Hint ${index + 1}</b> · ${esc(hint)}</div>`).join("")}
         <div class="gtq-meta">
           <span class="gtq-score">You <strong>${myScore}</strong></span>
           <span class="gtq-score">Partner <strong>${partnerScore}</strong></span>
           ${attemptHtml}
         </div>
-        <button type="button" class="gtq-action ${actionClass}" data-gtq-open="${esc(question.id)}">${esc(actionLabel)}</button>
+        <button type="button" class="gtq-action ${actionClass}" data-gtq-open="${esc(question.id)}">${completed ? "View Answer" : esc(actionLabel)}</button>
       </article>`;
-    }).join("");
+    };
+    const pending = questions.filter(question => gtqStatus(question) !== "resolved");
+    const completed = questions.filter(question => gtqStatus(question) === "resolved");
+    container.innerHTML = `<section class="gtq-section"><header class="gtq-section-head"><h2>Queue Questions</h2><span>${pending.length}</span></header>${pending.length ? pending.map(question => card(question)).join("") : `<div class="gtq-empty">No unanswered questions.</div>`}</section><section class="gtq-section"><header class="gtq-section-head"><h2>Completed Questions</h2><span>${completed.length}</span></header>${completed.length ? completed.map(question => card(question, true)).join("") : `<div class="gtq-empty">Resolved questions will appear here.</div>`}</section>`;
   }
 
   function renderGuessTheQuestionDetail(container, qId) {
@@ -2166,7 +2208,13 @@ export function renderGames(el, user, profile) {
       </div>`;
     }).join("") || `<p class="gtq-empty-answers">No answers yet.</p>`;
 
-    const statusLabel = status === "open" ? "Open" : status === "answered" ? "Awaiting review" : "Resolved";
+    const statusLabel = status === "open" ? (isCreator ? "Waiting for partner" : "Your turn") : status === "answered" ? "Awaiting review" : "Resolved";
+    const hints = question.hints?.length ? question.hints : question.hint ? [question.hint] : [];
+    const hintsHtml = hints.map((hint, index) => `<div class="gtq-hint"><b>Hint ${index + 1}</b> · ${esc(hint)}</div>`).join("");
+    const hintRequestPending = Object.values(question.hintRequests || {}).some(request => request?.pending);
+    const hintActions = status === "resolved" ? "" : isCreator
+      ? `${hintRequestPending ? `<p class="gtq-hint-requested">Your partner requested another hint.</p>` : ""}<div class="gtq-add-hint"><input data-gtq-hint-input maxlength="120" placeholder="Add another hint"><button type="button" class="secondary" data-gtq-add-hint="${esc(qId)}">Add Hint</button></div>`
+      : `<div class="gtq-request-hint"><strong>Don’t know the answer?</strong>${question.hintRequests?.[user.uid]?.pending ? `<span class="gtq-hint-requested">Hint requested · waiting for ${esc(gtqPartnerName(question))}</span>` : `<button type="button" class="secondary" data-gtq-request-hint="${esc(qId)}">＋ Request Another Hint</button>`}</div>`;
     container.innerHTML = `
       <button type="button" class="gtq-back" data-gtq-back>← Questions List</button>
       <article class="gtq-panel gtq-detail-panel">
@@ -2175,7 +2223,8 @@ export function renderGames(el, user, profile) {
           <span class="gtq-status ${status === "resolved" ? "gtq-status-resolved" : status === "answered" ? "gtq-status-answered" : "gtq-status-open"}">${esc(statusLabel)}</span>
         </div>
         <div class="gtq-question">${esc(question.question)}</div>
-        ${question.hint ? `<div class="gtq-hint">Hint · ${esc(question.hint)}</div>` : ""}
+        <div class="gtq-hints"><strong class="gtq-hints-count">Hints provided · ${hints.length}</strong>${hintsHtml || `<p class="gtq-hint-text">No hints yet.</p>`}</div>
+        ${hintActions}
         ${answerForm}
         <div class="gtq-meta">
           <span class="gtq-score">You <strong>${gtqScoreOf(question, user.uid)}</strong></span>
@@ -2196,10 +2245,9 @@ export function renderGames(el, user, profile) {
     const page = document.createElement("div");
     page.className = "gtq-page";
     page.innerHTML = `
-      <button class="games-back-button" type="button" data-back-games>← All games</button>
-      <h1>Questions List</h1>
+      <header class="gtq-page-header"><button class="games-back-button" type="button" data-back-games>← All games</button><div class="gtq-title"><span aria-hidden="true">💬</span><div><h1>Guess the Answer</h1><p>Send questions with hints, guess answers, and compare scores.</p></div></div></header>
       ${gtqPlayersStrip()}
-      <button type="button" class="primary gtq-action" data-gtq-new style="width:100%;margin:0 0 16px">＋ New Question</button>
+      <button type="button" class="primary gtq-create-question" data-gtq-new>＋ Create New Question</button>
       <div id="gtq-list"></div>
       <div id="gtq-detail"></div>`;
     content.appendChild(page);
@@ -2511,6 +2559,16 @@ export function renderGames(el, user, profile) {
       }
       if (target.hasAttribute("data-gtq-mark")) {
         await markGuessTheQuestionAnswer(target.dataset.gtqMark, target.dataset.gtqAnswerUid, target.dataset.gtqVerdict);
+        return;
+      }
+      if (target.hasAttribute("data-gtq-request-hint")) {
+        await requestGuessTheQuestionHint(target.dataset.gtqRequestHint);
+        return;
+      }
+      if (target.hasAttribute("data-gtq-add-hint")) {
+        const content = $("#games-active-content", el);
+        const input = $("[data-gtq-hint-input]", content);
+        await addGuessTheQuestionHint(target.dataset.gtqAddHint, input?.value);
         return;
       }
     }
