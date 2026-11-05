@@ -2083,23 +2083,34 @@ export function renderGames(el, user, profile) {
     const partnerName = getDisplayName(partnerUid, partner.name || "Partner");
     const ownScore = gtqTotalScoreOf(ownUid);
     const partnerScore = gtqTotalScoreOf(partnerUid);
+    const totalQuestions = guessTheQuestions.length;
+    const totalAnswered = guessTheQuestions.filter(q => gtqStatus(q) === "resolved").length;
+    const isLeading = ownScore > partnerScore ? "leading" : ownScore < partnerScore ? "trailing" : "tied";
+    const share = ownScore + partnerScore > 0 ? Math.round((ownScore / (ownScore + partnerScore)) * 100) : 50;
     return `
-      <div class="gtq-players">
-        <div class="gtq-player me">
-          ${gamePlayerAvatar(ownUid, ownName)}
-          <span class="gtq-player-name">${esc(ownName)}</span>
-          <span class="gtq-player-role">${ownUid === user.uid ? "You" : "Partner"}</span>
-          <span class="gtq-player-online ${gtqOnline(ownUid) ? "" : "offline"}"><i aria-hidden="true"></i>${gtqOnline(ownUid) ? "Online" : "Offline"}</span>
-          <span class="gtq-player-score">${ownScore}</span>
+      <div class="gtq-scorecard">
+        <div class="gtq-scorecard-head">
+          <span class="gtq-scorecard-title">Our Game Points ♡</span>
+          <span class="gtq-scorecard-total">${totalAnswered}/${totalQuestions} answered</span>
         </div>
-        <div class="gtq-vs" aria-hidden="true">♡</div>
-        <div class="gtq-player partner">
-          ${gamePlayerAvatar(partnerUid, partnerName)}
-          <span class="gtq-player-name">${esc(partnerName)}</span>
-          <span class="gtq-player-role">${partnerUid ? "Partner" : "Partner"}</span>
-          <span class="gtq-player-online ${gtqOnline(partnerUid) ? "" : "offline"}"><i aria-hidden="true"></i>${gtqOnline(partnerUid) ? "Online" : "Offline"}</span>
-          <span class="gtq-player-score">${partnerScore}</span>
+        <div class="gtq-scorecard-vs">
+          <div class="gtq-scorecard-side me${isLeading === "leading" ? " winning" : ""}">
+            ${gamePlayerAvatar(ownUid, ownName)}
+            <span class="gtq-scorecard-side-name">${esc(ownName)}</span>
+            <span class="gtq-scorecard-side-score">${ownScore}</span>
+          </div>
+          <div class="gtq-scorecard-side-heart">♡</div>
+          <div class="gtq-scorecard-side partner${isLeading === "trailing" ? " winning" : ""}">
+            ${gamePlayerAvatar(partnerUid, partnerName)}
+            <span class="gtq-scorecard-side-name">${esc(partnerName)}</span>
+            <span class="gtq-scorecard-side-score">${partnerScore}</span>
+          </div>
         </div>
+        <div class="gtq-scorecard-bar" role="img" aria-label="Win share between partners">
+          <span class="me" style="width:${share}%"></span>
+          <span class="partner" style="width:${100 - share}%"></span>
+        </div>
+        <p class="gtq-scorecard-status">${isLeading === "leading" ? "You're in the lead! 🎉" : isLeading === "trailing" ? `${esc(partnerName)} is ahead — rematch? ♡` : "It's a perfect tie! 🤝"}</p>
       </div>`;
   }
 

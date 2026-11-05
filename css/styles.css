@@ -358,22 +358,22 @@ input:focus,textarea:focus{border-color:var(--pink);box-shadow:0 0 0 4px #ef6d9f
 .gtq-toolbar h1{margin:0;font-size:18px;color:var(--deep);font-weight:900;letter-spacing:.02em}
 .gtq-page{padding:0 4px 16px}
 
-/* ── VS Scoreboard ── */
-.gtq-players{display:flex;align-items:center;justify-content:center;gap:6px;margin:0 0 10px}
-.gtq-player{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 6px;border-radius:16px;background:linear-gradient(145deg,#fff,#fff8fb);border:1px solid var(--line);box-shadow:0 6px 18px rgba(143,49,93,.06);text-align:center;min-width:0}
-.gtq-player.me{border-color:#e9b6cf;background:linear-gradient(145deg,#fffafd,#fdeef5)}
-.gtq-player.partner{border-color:#d8c6f2;background:linear-gradient(145deg,#faf8ff,#f3efff)}
-.gtq-player-avatar{width:44px;height:44px;border-radius:50%;object-fit:cover;box-shadow:0 4px 12px rgba(143,49,93,.14);border:3px solid #fff;background:#eee;flex:none}
-.gtq-player-avatar.fallback{display:grid;place-items:center;background:linear-gradient(135deg,#f8bbd0,#d5c0f4);color:#75435a;font-size:18px;font-weight:900}
-.gtq-vs{width:28px;height:28px;flex:none;display:grid;place-items:center;border-radius:50%;background:#ffe4ee;color:#a84470;font-weight:900;font-size:14px;box-shadow:0 2px 8px rgba(168,68,112,.15)}
-.gtq-player-name{font-size:12px;font-weight:900;color:var(--deep);overflow-wrap:anywhere;line-height:1.2}
-.gtq-player-role{font-size:9px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);font-weight:800}
-.gtq-player-online{font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:4px}
-.gtq-player-online i{width:7px;height:7px;border-radius:50%;background:#4ade80;box-shadow:0 0 0 2px rgba(74,222,128,.25)}
-.gtq-player-online.offline i{background:#c7c7c7;box-shadow:none}
-.gtq-player-score{font-size:20px;font-weight:900;color:#b64f7b;line-height:1;margin:2px 0 0}
-.gtq-player-score.partner{color:#7c5cc4}
-.gtq-player-score small{font-size:9px;font-weight:700;color:var(--muted);opacity:.85}
+/* ── GTQ Score Summary Card ── */
+.gtq-scorecard{padding:16px 14px;border-radius:20px;background:linear-gradient(150deg,#fff,#fff8fb);border:1px solid var(--line);box-shadow:0 14px 40px rgba(143,49,93,.08);max-width:620px;margin:0 auto 18px}
+.gtq-scorecard-head{display:flex;flex-direction:column;align-items:center;gap:6px;margin:0 0 14px;text-align:center}
+.gtq-scorecard-title{margin:0;font-size:16px;color:var(--deep);font-weight:900;letter-spacing:.02em}
+.gtq-scorecard-total{font-size:11px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.1em}
+.gtq-scorecard-vs{display:flex;align-items:center;justify-content:center;gap:14px;margin:0 0 14px;flex-wrap:wrap}
+.gtq-scorecard-side{display:flex;flex-direction:column;align-items:center;gap:8px;min-width:120px;text-align:center}
+.gtq-scorecard-side.winning .gtq-scorecard-side-score{color:#bf175c;font-weight:900}
+.gtq-scorecard-side .gtq-scorecard-side-name{font-size:12px;font-weight:900;color:var(--deep);overflow-wrap:anywhere;text-align:center}
+.gtq-scorecard-side .gtq-scorecard-side-score{font-size:28px;font-weight:900;color:#b64f7b;line-height:1}
+.gtq-scorecard-side-heart{font-size:24px;font-weight:900;color:#ff6b9d;flex:none;filter:drop-shadow(0 2px 4px rgba(255,107,157,.3))}
+.gtq-scorecard-bar{height:8px;border-radius:999px;background:#efe3e9;overflow:hidden;margin:0 0 12px}
+.gtq-scorecard-bar span{display:block;height:100%;border-radius:inherit}
+.gtq-scorecard-bar .me{background:linear-gradient(90deg,#ffe4ee,#ffd6e6)}
+.gtq-scorecard-bar .partner{background:linear-gradient(90deg,#e8d7f5,#d5c0f4)}
+.gtq-scorecard-status{margin:0;font-size:13px;font-weight:900;color:#8f315d;text-align:center;letter-spacing:.04em}
 
 /* ── Panels ── */
 .gtq-panel{max-width:none;margin:0 auto;text-align:center;border-radius:18px;padding:14px 12px;background:linear-gradient(150deg,#fff,#fff8fb);border:1px solid var(--line);box-shadow:0 10px 30px rgba(143,49,93,.08)}
@@ -444,7 +444,7 @@ input:focus,textarea:focus{border-color:var(--pink);box-shadow:0 0 0 4px #ef6d9f
 
 /* ── Page Header ── */
 .gtq-page-header{display:grid;gap:4px;margin:0 0 8px}.gtq-page-header .games-back-button{justify-self:start;margin:0}.gtq-title{display:flex;align-items:center;gap:8px}.gtq-title>span{display:grid;place-items:center;width:34px;height:34px;border:1px solid #f0d0dd;border-radius:10px;background:#fff;color:#a84470;font-size:18px}.gtq-title h1{margin:0;color:var(--deep);font-size:20px}.gtq-title p{margin:2px 0 0;color:var(--muted);font-size:10px;line-height:1.35}
-.gtq-page>.gtq-players{gap:6px;margin:0 0 6px}.gtq-page .gtq-player{padding:6px 8px;border-radius:14px;text-align:left}.gtq-page .gtq-player-avatar{width:34px;height:34px;border:2px solid #fff}.gtq-page .gtq-player-avatar.fallback{font-size:14px}.gtq-page .gtq-player-name{font-size:11px}.gtq-page .gtq-player-role{font-size:8px;letter-spacing:.1em}.gtq-page .gtq-player-online{font-size:8px}.gtq-page .gtq-player-online i{width:5px;height:5px}.gtq-page .gtq-player-score{font-size:18px}.gtq-page .gtq-player-score small{font-size:7px}
+.gtq-page>.gtq-scorecard{padding:12px 10px;border-radius:16px;margin:0 0 12px}.gtq-page .gtq-scorecard-side{min-width:100px}.gtq-page .gtq-scorecard-side .gtq-scorecard-side-score{font-size:24px}.gtq-page .gtq-scorecard-side-heart{font-size:20px}
 
 /* ── Create Button / Sections ── */
 .gtq-create-question{display:block;width:100%;min-height:42px;margin:0 0 10px;border-radius:14px;font-size:13px;font-weight:800}
@@ -512,17 +512,12 @@ input:focus,textarea:focus{border-color:var(--pink);box-shadow:0 0 0 4px #ef6d9f
 @media(max-width:420px){
 .gtq-page{padding-right:0;padding-left:0}
 .gtq-title h1{font-size:18px}
-.gtq-page>.gtq-players{gap:4px}
-.gtq-page .gtq-player{padding:5px 6px;border-radius:12px}
-.gtq-page .gtq-player-avatar{width:30px;height:30px}
-.gtq-page .gtq-player-name{font-size:10px}
-.gtq-page .gtq-player-score{font-size:16px}
+.gtq-page>.gtq-scorecard{gap:4px}.gtq-page .gtq-scorecard-side{min-width:90px}.gtq-page .gtq-scorecard-side .gtq-scorecard-side-score{font-size:22px}.gtq-page .gtq-scorecard-side-heart{font-size:18px}.gtq-page .gtq-scorecard-title{font-size:14px}
 .gtq-card{padding:8px}
 .gtq-add-hint{flex-direction:column}
 .gtq-add-hint button{width:100%}
-.gtq-vs{width:24px;height:24px;font-size:12px}
-.gtq-player-avatar{width:40px;height:40px}
-.gtq-player-score{font-size:18px}
+.gtq-scorecard-side .game-player-avatar{width:40px;height:40px}
+.gtq-scorecard-side .gtq-scorecard-side-score{font-size:18px}
 }
 
 .gtq-history-list{display:grid;gap:4px}.puzzle-previous-result{display:grid;gap:4px;margin:0 0 14px;padding:10px 12px;border:1px solid #f0d0dd;border-radius:13px;background:#fffafd;color:#86576c;font-size:12px}
