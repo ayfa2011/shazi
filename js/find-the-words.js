@@ -404,6 +404,7 @@ export function mountFindTheWordsGame(container, user, profile) {
   }
 
   let dragStart = null;
+  let dragPointerId = null;
   function updateDragFromPoint(clientX, clientY) {
     if (dragStart == null) return;
     const target = document.elementFromPoint(clientX, clientY)?.closest?.("[data-find-cell]");
@@ -411,47 +412,46 @@ export function mountFindTheWordsGame(container, user, profile) {
     selectionEnd = Number(target.dataset.findCell);
     updateSelection(container, selectionStart, selectionEnd);
   }
+  function clearDragSelection() {
+    dragStart = null;
+    dragPointerId = null;
+    selectionStart = null;
+    selectionEnd = null;
+    updateSelection(container, null, null);
+  }
   container.addEventListener("pointerdown", event => {
     const cell = event.target.closest("[data-find-cell]");
     if (!cell || game?.status !== "playing" || !game.players?.[user.uid]) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
     event.preventDefault();
     dragStart = Number(cell.dataset.findCell);
+    dragPointerId = event.pointerId;
     selectionStart = dragStart;
     selectionEnd = dragStart;
-    try { cell.setPointerCapture(event.pointerId); } catch { /* touch fallback uses elementFromPoint */ }
     updateSelection(container, selectionStart, selectionEnd);
   });
-  container.addEventListener("pointermove", event => {
-    if (dragStart != null && event.pointerType === "touch") {
-      event.preventDefault();
-      updateDragFromPoint(event.clientX, event.clientY);
-    }
-  });
-  container.addEventListener("pointerover", event => {
-    const cell = event.target.closest("[data-find-cell]");
-    if (dragStart == null || !cell) return;
-    selectionEnd = Number(cell.dataset.findCell);
-    updateSelection(container, selectionStart, selectionEnd);
-  });
-  container.addEventListener("pointerup", event => {
-    if (dragStart == null) return;
+  const onFindWordsPointerMove = event => {
+    if (dragStart == null || event.pointerId !== dragPointerId) return;
+    event.preventDefault();
     updateDragFromPoint(event.clientX, event.clientY);
-    const cell = event.target.closest("[data-find-cell]") || document.elementFromPoint(event.clientX, event.clientY)?.closest?.("[data-find-cell]");
-    const end = cell ? Number(cell.dataset.findCell) : selectionEnd;
+  };
+  const onFindWordsPointerUp = event => {
+    if (dragStart == null || event.pointerId !== dragPointerId) return;
+    updateDragFromPoint(event.clientX, event.clientY);
+    const cell = document.elementFromPoint(event.clientX, event.clientY)?.closest?.("[data-find-cell]");
+    const end = cell && container.contains(cell) ? Number(cell.dataset.findCell) : selectionEnd;
     const cells = traceCells(dragStart, end);
     const found = game && wordAt(game, cells);
-    dragStart = null;
-    selectionStart = null;
-    selectionEnd = null;
-    updateSelection(container, null, null);
+    clearDragSelection();
     if (found) claimWord(found);
-  });
-  container.addEventListener("pointercancel", () => {
-    dragStart = null;
-    selectionStart = null;
-    selectionEnd = null;
-    updateSelection(container, null, null);
-  });
+  };
+  const onFindWordsPointerCancel = event => {
+    if (dragPointerId != null && event.pointerId !== dragPointerId) return;
+    clearDragSelection();
+  };
+  document.addEventListener("pointermove", onFindWordsPointerMove, { passive: false });
+  document.addEventListener("pointerup", onFindWordsPointerUp);
+  document.addEventListener("pointercancel", onFindWordsPointerCancel);
   container.addEventListener("click", event => {
     if (event.target.closest("[data-new-find-words]")) { startGame(); return; }
     const cell = event.target.closest("[data-find-cell]");
@@ -498,6 +498,9 @@ export function mountFindTheWordsGame(container, user, profile) {
 
   return () => {
     disposed = true;
+    document.removeEventListener("pointermove", onFindWordsPointerMove);
+    document.removeEventListener("pointerup", onFindWordsPointerUp);
+    document.removeEventListener("pointercancel", onFindWordsPointerCancel);
     stopListeners.forEach(stop => stop());
     if (rtdb) {
       const playerRef = presenceRef(user.uid);

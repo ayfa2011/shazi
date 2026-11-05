@@ -1444,7 +1444,8 @@ export function renderGames(el, user, profile) {
 
         const hitShip = board.ships.find(ship => ship.cells.includes(index));
         const hit = Boolean(hitShip);
-        const sunk = Boolean(hitShip && hitShip.hits.length === hitShip.cells.length);
+        // Include the current hit so the completing shot is detected as a sink.
+        const sunk = Boolean(hitShip && [...(hitShip.hits || []), index].length === hitShip.cells.length);
 
         if (hitShip) {
           const updatedShips = board.ships.map(ship =>
