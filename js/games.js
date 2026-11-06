@@ -66,6 +66,52 @@ let battleshipBoardMatchId = "";
 let battleshipDraftShips = [];
 let battleshipOrientation = "horizontal";
 let battleshipSelectedShipId = "carrier";
+let battleshipAudioContext = null;
+let battleshipSoundEnabled = true;
+let battleshipLastShotCue = "";
+
+function unlockBattleshipAudio() {
+  if (!battleshipSoundEnabled) return;
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    battleshipAudioContext ||= new AudioContextClass();
+    if (battleshipAudioContext.state === "suspended") void battleshipAudioContext.resume();
+  } catch (error) {
+    console.debug("Battleship audio is unavailable:", error);
+  }
+}
+
+function playBattleshipSound(kind) {
+  if (!battleshipSoundEnabled) return;
+  unlockBattleshipAudio();
+  const context = battleshipAudioContext;
+  if (!context || context.state !== "running") return;
+  const patterns = {
+    place: [[440, 0, .08], [660, .09, .12]],
+    launch: [[190, 0, .12], [115, .08, .18]],
+    hit: [[620, 0, .1], [880, .09, .13], [1040, .2, .16]],
+    miss: [[330, 0, .12], [245, .12, .2]],
+    sink: [[520, 0, .12], [660, .1, .12], [880, .2, .18], [1175, .34, .24]],
+    win: [[523, 0, .14], [659, .13, .14], [784, .26, .16], [1047, .4, .34]],
+    lose: [[392, 0, .18], [330, .18, .18], [262, .36, .32]],
+    turn: [[740, 0, .09], [988, .1, .12]]
+  };
+  (patterns[kind] || []).forEach(([frequency, delay, duration]) => {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const start = context.currentTime + delay;
+    oscillator.type = kind === "miss" || kind === "lose" ? "triangle" : "sine";
+    oscillator.frequency.setValueAtTime(frequency, start);
+    gain.gain.setValueAtTime(.0001, start);
+    gain.gain.exponentialRampToValueAtTime(.13, start + .018);
+    gain.gain.exponentialRampToValueAtTime(.0001, start + duration);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(start);
+    oscillator.stop(start + duration + .02);
+  });
+}
 function shuffle(items) {
   const shuffled = [...items];
   for (let index = shuffled.length - 1; index > 0; index--) {
@@ -1634,6 +1680,7 @@ export function renderGames(el, user, profile) {
       return;
     }
     battleshipDraftShips.push({ id: ship.id, name: ship.name, cells });
+    playBattleshipSound("place");
     battleshipSelectedShipId = BATTLESHIP_FLEET.find(item => !battleshipDraftShips.some(placed => placed.id === item.id))?.id || "";
     try { localStorage.setItem(`olw-battleship-draft:${gameRoomState?.matchId}:${user.uid}`, JSON.stringify(battleshipDraftShips)); } catch { /* The match itself remains available in Realtime Database. */ }
     renderCurrentGame();
@@ -1644,6 +1691,7 @@ export function renderGames(el, user, profile) {
       stopBattleshipBoard?.();
       stopBattleshipBoard = null;
       battleshipBoardMatchId = room.matchId;
+      battleshipLastShotCue = "";
       battleshipBoard = null;
       battleshipDraftShips = [];
       battleshipSelectedShipId = BATTLESHIP_FLEET[0].id;
@@ -1684,6 +1732,7 @@ export function renderGames(el, user, profile) {
       if (room.winnerUid && room.matchId !== battleshipCelebratedMatchId) {
         battleshipCelebratedMatchId = room.matchId;
         const won = room.winnerUid === user.uid;
+        playBattleshipSound(won ? "win" : "lose");
         const winnerName = getDisplayName(room.winnerUid, players[room.winnerUid]?.name || "Your partner");
         const details = `${players[user.uid]?.score || 0} hits · ${players[opponentUid]?.score || 0} hits`;
         void celebrateWin({ game: "Battleship", won, draw: !room.winnerUid, winnerName, details, actions: [{ label: "Play again ♡", primary: true, onClick: () => { const btn = document.querySelector("[data-room-start]"); if (btn) btn.click(); } }] });
@@ -1714,7 +1763,7 @@ export function renderGames(el, user, profile) {
       }
       if (!nextShip && battleshipSelectedShipId) battleshipSelectedShipId = "";
       const draftMap = draftShips.map(ship => ({ ...ship, hits: [] }));
-      content.innerHTML = `<article class="game-panel battleship-panel"><p class="battleship-step">PLACE YOUR FLEET <span>${battleshipDraftShips.length} / 5</span></p><p class="games-instructions">Choose a ship and orientation, then tap its starting square. Ships cannot overlap.</p><div class="battleship-placement-controls"><select data-bs-ship ${nextShip ? "" : "disabled"}>${BATTLESHIP_FLEET.map(ship => `<option value="${ship.id}" ${ship.id === battleshipSelectedShipId ? "selected" : ""} ${battleshipDraftShips.some(item => item.id === ship.id) ? "disabled" : ""}>${ship.emoji} ${ship.name} · ${ship.length}</option>`).join("")}</select><button type="button" class="secondary" data-bs-orientation>${battleshipOrientation === "horizontal" ? "↔ Horizontal" : "↕ Vertical"}</button></div>${renderBattleshipGrid({ room, own: true, clickable: Boolean(nextShip), ships: draftMap })}<div class="battleship-placement-actions"><button type="button" class="secondary" data-bs-reset-layout ${battleshipDraftShips.length ? "" : "disabled"}>Reset ships</button><button type="button" class="primary" data-bs-ready ${battleshipDraftShips.length === 5 ? "" : "disabled"}>Ready to play ♡</button></div></article>`;
+      content.innerHTML = `<article class="game-panel battleship-panel"><p class="battleship-step">PLACE YOUR FLEET <span>${battleshipDraftShips.length} / 5</span></p><p class="games-instructions">Choose a ship and orientation, then tap its starting square. Ships cannot overlap.</p><div class="battleship-placement-controls"><select data-bs-ship ${nextShip ? "" : "disabled"}>${BATTLESHIP_FLEET.map(ship => `<option value="${ship.id}" ${ship.id === battleshipSelectedShipId ? "selected" : ""} ${battleshipDraftShips.some(item => item.id === ship.id) ? "disabled" : ""}>${ship.emoji} ${ship.name} · ${ship.length}</option>`).join("")}</select><button type="button" class="secondary" data-bs-orientation>${battleshipOrientation === "horizontal" ? "↔ Horizontal" : "↕ Vertical"}</button></div>${renderBattleshipGrid({ room, own: true, clickable: Boolean(nextShip), ships: draftMap })}<div class="battleship-placement-actions"><button type="button" class="secondary" data-bs-reset-layout ${battleshipDraftShips.length ? "" : "disabled"}>Reset ships</button><button type="button" class="secondary" data-bs-sound>${battleshipSoundEnabled ? "🔊 Sound" : "🔇 Muted"}</button><button type="button" class="primary" data-bs-ready ${battleshipDraftShips.length === 5 ? "" : "disabled"}>Ready to play ♡</button></div></article>`;
       return;
     }
 
@@ -1725,6 +1774,13 @@ export function renderGames(el, user, profile) {
     const incomingShots = room.shots?.[opponentUid] || {};
     const latestShot = Object.values(room.shots || {}).flatMap(playerShots => Object.values(playerShots || {}))
       .sort((left, right) => right.at - left.at)[0];
+    if (latestShot) {
+      const cueKey = `${room.matchId}:${latestShot.by}:${latestShot.index}:${latestShot.at}`;
+      if (battleshipLastShotCue !== cueKey) {
+        playBattleshipSound(latestShot.sunkShip ? "sink" : latestShot.hit ? "hit" : "miss");
+      }
+      battleshipLastShotCue = cueKey;
+    }
     const latestCoordinate = latestShot ? `${String.fromCharCode(65 + Math.floor(latestShot.index / 10))}${latestShot.index % 10 + 1}` : "";
     const latestShotMessage = latestShot
       ? `<p class="battleship-last-shot" aria-live="polite"><strong>${latestShot.by === user.uid ? "Your shot" : "Your partner's shot"} · ${latestCoordinate}</strong><span>${latestShot.hit ? `HIT! 💥${latestShot.sunkShip ? ` ${esc(latestShot.sunkShip)} sunk! 🚢` : ""}` : "MISS 🌊"}</span></p>`
@@ -1732,7 +1788,7 @@ export function renderGames(el, user, profile) {
     statusEl.innerHTML = `<div class="game-panel game-room-panel battleship-status"><p class="tic-tac-toe-status">${isTurn ? "Your turn — choose a target square!" : hasTurn ? (room.processingShot?.needsDefender ? "Waiting for your partner's device to confirm the shot…" : "Saving your shot…") : `${esc(getDisplayName(room.turnUid, players[room.turnUid]?.name || "Your partner"))} is taking aim…`}</p>${scoreRow}<p class="battleship-turn-note">${isTurn ? "Tap a square on the target board to fire." : "Your fleet is hidden. Your turn starts after the shot."}</p></div>`;
     const ownBoard = `<section class="battleship-board-card"><h3>Your fleet <span>PRIVATE</span></h3>${renderBattleshipGrid({ room, own: true, ships: battleshipBoard?.ships || [], shots: incomingShots })}<p class="battleship-legend"><span>🚢 Ship</span><span>💥 Hit</span><span>🌊 Miss</span></p></section>`;
     const targetBoard = `<section class="battleship-board-card"><h3>${esc(getDisplayName(opponentUid, players[opponentUid]?.name || "Partner"))}'s waters <span>${isTurn ? "YOUR TURN" : "WAITING"}</span></h3>${renderBattleshipGrid({ room, own: false, clickable: isTurn, shots: myShots })}<p class="battleship-legend"><span>💥 Hit</span><span>🌊 Miss</span><span>☞ Fire</span></p></section>`;
-    content.innerHTML = `${latestShotMessage}<div class="battleship-boards">${ownBoard}${targetBoard}</div><div class="battleship-actions"><button type="button" class="secondary" data-room-end>End match</button></div>`;
+    content.innerHTML = `${latestShotMessage}<div class="battleship-boards">${ownBoard}${targetBoard}</div><div class="battleship-actions"><button type="button" class="secondary" data-bs-sound>${battleshipSoundEnabled ? "🔊 Sound ON" : "🔇 Sound OFF"}</button><button type="button" class="secondary" data-room-end>End match</button></div>`;
   }
 
   function renderCurrentGame() {
@@ -2423,6 +2479,7 @@ export function renderGames(el, user, profile) {
     }
 
     if (activeGame === "battleship" && target.hasAttribute("data-room-start")) {
+      unlockBattleshipAudio();
       try {
         await callBattleshipAction({ action: "startOrJoin" });
       } catch (error) {
@@ -2442,12 +2499,25 @@ export function renderGames(el, user, profile) {
       return;
     }
 
+    if (activeGame === "battleship" && target.hasAttribute("data-bs-sound")) {
+      battleshipSoundEnabled = !battleshipSoundEnabled;
+      if (battleshipSoundEnabled) {
+        unlockBattleshipAudio();
+        playBattleshipSound("turn");
+      }
+      renderCurrentGame();
+      return;
+    }
+
     if (activeGame === "battleship" && target.hasAttribute("data-bs-place")) {
+      unlockBattleshipAudio();
       placeDraftShip(Number(target.dataset.bsPlace));
       return;
     }
 
     if (activeGame === "battleship" && target.hasAttribute("data-bs-orientation")) {
+      unlockBattleshipAudio();
+      playBattleshipSound("place");
       battleshipOrientation = battleshipOrientation === "horizontal" ? "vertical" : "horizontal";
       renderCurrentGame();
       return;
@@ -2475,6 +2545,9 @@ export function renderGames(el, user, profile) {
     }
 
     if (activeGame === "battleship" && target.hasAttribute("data-bs-fire")) {
+      unlockBattleshipAudio();
+      playBattleshipSound("launch");
+      target.classList.add("is-firing");
       try {
         await callBattleshipAction({ action: "fire", matchId: gameRoomState?.matchId, index: Number(target.dataset.bsFire) });
       } catch (error) {
