@@ -8,6 +8,22 @@
           "messages": {
             ".indexOn": ["createdAt"]
           }
+        },
+        "games": {
+          "battleshipMatches": {
+            "$matchId": {
+              ".read": "auth != null && (auth.token.email === 'akabeeram@gmail.com' || auth.token.email === 'hizasgallery@gmail.com')",
+              ".write": "auth != null && (auth.token.email === 'akabeeram@gmail.com' || auth.token.email === 'hizasgallery@gmail.com')"
+            }
+          },
+          "battleshipPrivate": {
+            "$matchId": {
+              "$uid": {
+                ".read": "auth != null && auth.uid === $uid && (auth.token.email === 'akabeeram@gmail.com' || auth.token.email === 'hizasgallery@gmail.com')",
+                ".write": "auth != null && auth.uid === $uid && (auth.token.email === 'akabeeram@gmail.com' || auth.token.email === 'hizasgallery@gmail.com')"
+              }
+            }
+          }
         }
       }
     },
