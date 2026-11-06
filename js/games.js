@@ -27,8 +27,8 @@ const emojiQuestions = [
   { emojis: "🍓 🍫 😋", options: ["A sweet treat to share", "Strawberry shopping", "Chocolate for breakfast"], answer: 0 }
 ];
 
-const battleshipRoomRef = () => ref(rtdb, "battleshipMatches/our-little-world");
-const battleshipBoardRef = (matchId, uid) => ref(rtdb, `battleshipPrivate/${matchId}/${uid}`);
+const battleshipRoomRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/battleshipMatches/our-little-world`);
+const battleshipBoardRef = (matchId, uid) => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/battleshipPrivate/${matchId}/${uid}`);
 const BATTLESHIP_FLEET = [
   { id: "carrier", name: "Carrier", emoji: "🚢", length: 5 },
   { id: "battleship", name: "Battleship", emoji: "🛳️", length: 4 },
