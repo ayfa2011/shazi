@@ -26,11 +26,12 @@ const track = [
 ];
 // Standard Ludo safe spaces: the four stars and each colour's entry square.
 const safeTrackCells = new Set([0, 8, 13, 21, 26, 34, 39, 47]);
+// Centres of the white circles painted on the board artwork (measured from the real board image).
 const yardSpots = {
-  green: [[2, 2], [2, 4], [4, 2], [4, 4]],
-  yellow: [[2, 10], [2, 12], [4, 10], [4, 12]],
-  red: [[10, 2], [10, 4], [12, 2], [12, 4]],
-  blue: [[10, 10], [10, 12], [12, 10], [12, 12]]
+  green: [[1.64, 1.64], [1.64, 3.36], [3.36, 1.64], [3.36, 3.36]],
+  yellow: [[1.64, 10.64], [1.64, 12.36], [3.36, 10.64], [3.36, 12.36]],
+  red: [[10.64, 1.64], [10.64, 3.36], [12.36, 1.64], [12.36, 3.36]],
+  blue: [[10.64, 10.64], [10.64, 12.36], [12.36, 10.64], [12.36, 12.36]]
 };
 const homeLanes = {
   red: Array.from({ length: 6 }, (_, index) => [13 - index, 7]),
@@ -191,6 +192,126 @@ function coordinateFor(color, progress, pieceIndex) {
   if (progress === -1) return yardSpots[color][pieceIndex];
   if (progress >= LANE_START) return homeLanes[color][progress - LANE_START];
   return track[trackPos(color, progress)];
+}
+
+
+/* ------------------------------------------------------------------ *
+ *  STYLES  — shipped inside this file so the Ludo board always renders
+ *  correctly, whatever version of styles.css is deployed.
+ * ------------------------------------------------------------------ */
+const LUDO_STYLE_ID = "lv-ludo-styles";
+const LUDO_CSS = `.ludo-board.lv-board{touch-action:manipulation;user-select:none;-webkit-user-select:none}
+.lv-token.red{--ludo-color:#e64e73}.lv-token.blue{--ludo-color:#3396d5}.lv-token.green{--ludo-color:#4aaf82}.lv-token.yellow{--ludo-color:#e9ac32}
+.lv-token-layer,.lv-hints,.lv-gates { position:absolute;inset:0;pointer-events:none; }
+
+/* Coins: one persistent element per coin that glides square by square. */
+.lv-token { --x:0;--y:0;--dx:0;--dy:0;--s:1;position:absolute;left:calc(var(--x) * 6.6667%);top:calc(var(--y) * 6.6667%);width:6.6667%;height:6.6667%;
+  transform:translate(calc(var(--dx) * 100%),calc(var(--dy) * 100%)) scale(var(--s));
+  transition:left .2s linear,top .2s linear,transform .2s ease;will-change:left,top,transform;pointer-events:none; }
+.lv-token.returning { transition:left .65s cubic-bezier(.45,.05,.25,1),top .65s cubic-bezier(.45,.05,.25,1),transform .65s ease; }
+.lv-token-face { width:100%;height:100%;box-sizing:border-box;border:2px solid #fff;border-radius:50%;background:var(--ludo-color);overflow:hidden;
+  box-shadow:0 0 0 1.5px var(--ludo-color),0 2px 5px #38202a55; }
+.lv-token .ludo-avatar { width:100%;height:100%;border:0;border-radius:50%; }
+.lv-token .ludo-avatar img { display:block;width:100%;height:100%;object-fit:cover;pointer-events:none; }
+.lv-token .ludo-avatar-fallback { font-size:clamp(8px,2.2vw,13px); }
+.lv-token-face.hop { animation:lv-hop .2s ease-out; }
+.lv-token.hit .lv-token-face { animation:lv-hit .6s ease-out; }
+.lv-token.movable { pointer-events:auto;cursor:pointer; }
+.lv-token.movable::after { content:"";position:absolute;inset:-40%;border-radius:50%; }
+.lv-token.movable .lv-token-face { animation:lv-pulse 1s ease-in-out infinite;box-shadow:0 0 0 2px #fff,0 0 0 4px var(--ludo-color),0 0 14px 4px color-mix(in srgb,var(--ludo-color) 55%,transparent); }
+.lv-token.movable:focus-visible { outline:none; }
+.lv-token.movable:focus-visible .lv-token-face { box-shadow:0 0 0 2px #fff,0 0 0 5px #34242c; }
+.lv-token.at-home .lv-token-face { box-shadow:0 0 0 1.5px #f4c24d,0 0 8px 2px #f4c24d99; }
+@keyframes lv-pulse { 50% { transform:scale(1.14); } }
+@keyframes lv-hop { 0% { transform:translateY(0) scale(1); } 45% { transform:translateY(-38%) scale(1.22); } 100% { transform:translateY(0) scale(1); } }
+@keyframes lv-hit { 0% { transform:scale(1); } 25% { transform:scale(1.5) rotate(-18deg); filter:brightness(1.5); } 60% { transform:scale(.7) rotate(18deg); opacity:.6; } 100% { transform:scale(1); opacity:1; } }
+
+/* Landing hints + home gates */
+.lv-hint { --x:0;--y:0;position:absolute;left:calc(var(--x) * 6.6667% + .6%);top:calc(var(--y) * 6.6667% + .6%);width:5.4%;height:5.4%;box-sizing:border-box;border:2px dashed var(--ludo-color,#e64e73);border-radius:50%;background:#ffffff88;animation:lv-hint 1s ease-in-out infinite; }
+.lv-hint.red { --ludo-color:#e64e73; } .lv-hint.blue { --ludo-color:#3396d5; } .lv-hint.green { --ludo-color:#4aaf82; } .lv-hint.yellow { --ludo-color:#e9ac32; }
+@keyframes lv-hint { 50% { transform:scale(1.18);opacity:.55; } }
+.lv-gate { --x:0;--y:0;position:absolute;left:calc(var(--x) * 6.6667%);top:calc(var(--y) * 6.6667%);width:6.6667%;height:6.6667%;display:grid;place-items:center;z-index:2; }
+.lv-gate span { display:grid;place-items:center;width:78%;height:78%;border-radius:50%;background:#fffffff0;box-shadow:0 1px 4px #38202a40;font-size:clamp(7px,2vw,12px);line-height:1;transition:transform .3s; }
+.lv-gate.open span { background:#eefaf2; }
+.lv-gate.unlocking span { animation:lv-gate-open 1.2s ease-out; }
+@keyframes lv-gate-open { 0% { transform:scale(1) rotate(0); } 20% { transform:scale(1.9) rotate(-25deg); } 45% { transform:scale(1.9) rotate(25deg); } 100% { transform:scale(1) rotate(0); } }
+
+/* Big banners: congratulations, captures, gate */
+.lv-banner { --ms:1900ms;position:absolute;left:50%;top:44%;z-index:60;max-width:92%;padding:12px 20px;border-radius:22px;text-align:center;pointer-events:none;opacity:0;
+  transform:translate(-50%,-50%) scale(.5);background:linear-gradient(145deg,#fff,#fff1f7);color:#8f315d;box-shadow:0 14px 40px #6e184666,0 0 0 3px #fff; }
+.lv-banner h3 { margin:0;font-size:clamp(22px,7.2vw,42px);line-height:1.1;font-weight:900;letter-spacing:-.01em; }
+.lv-banner p { margin:5px 0 0;font-size:clamp(12px,3.4vw,17px);font-weight:700;opacity:.85; }
+.lv-banner.show { animation:lv-banner var(--ms) cubic-bezier(.2,.9,.3,1.2) both; }
+.lv-banner.home { background:linear-gradient(145deg,#fff9df,#ffe28a);color:#7a4a00;box-shadow:0 14px 44px #c98a0066,0 0 0 3px #fff7c2; }
+.lv-banner.capture { background:linear-gradient(145deg,#fff4ee,#ffd3c4);color:#a8321c; }
+.lv-banner.gate { background:linear-gradient(145deg,#f2fff6,#bdf0cf);color:#1f6b3d; }
+@keyframes lv-banner { 0% { opacity:0;transform:translate(-50%,-50%) scale(.4) rotate(-4deg); } 14% { opacity:1;transform:translate(-50%,-50%) scale(1.12) rotate(1.5deg); } 24% { transform:translate(-50%,-50%) scale(1) rotate(0); }
+  86% { opacity:1;transform:translate(-50%,-50%) scale(1); } 100% { opacity:0;transform:translate(-50%,-62%) scale(.92); } }
+
+/* Controls and dice */
+.lv-controls { display:grid;gap:8px;padding:10px 12px;border:1px solid #f0d6e2;border-radius:17px;background:linear-gradient(145deg,#fff,#fff7fa); }
+.lv-turn-tools { display:flex;align-items:center;justify-content:center;gap:16px;margin:2px 0; }
+.lv-turn-side { display:grid;gap:8px;justify-items:start; }
+.lv-dice-btn { min-width:104px;display:grid;justify-items:center;gap:6px;padding:10px 14px 8px;border:1px solid #edd6e0;border-radius:22px;background:#fff5f9;color:#ac4771;cursor:default;transition:transform .15s,box-shadow .2s; }
+.lv-dice-btn:disabled { opacity:1;cursor:default; }
+.lv-dice-btn.ready { cursor:pointer;border-color:transparent;background:linear-gradient(145deg,#f06c9e,#c94e7e);color:#fff;box-shadow:0 6px 18px #c94e7e55;animation:lv-ready 1.3s ease-in-out infinite; }
+.lv-dice-btn.ready:active { transform:scale(.94); }
+.lv-dice-label { font-size:11px;font-weight:800;letter-spacing:.02em; }
+@keyframes lv-ready { 50% { transform:scale(1.05);box-shadow:0 8px 24px #c94e7e77; } }
+.lv-dice { position:relative;width:54px;height:54px;display:grid;grid-template:repeat(3,1fr)/repeat(3,1fr);padding:8px;box-sizing:border-box;border-radius:14px;background:linear-gradient(145deg,#fff,#f1e4ea);box-shadow:inset 0 -3px 0 #e5d0da,0 3px 8px #38202a33; }
+.lv-dice i { place-self:center;width:9px;height:9px;border-radius:50%;background:#3a2530;opacity:0;transform:scale(.4);transition:opacity .08s,transform .12s; }
+.lv-dice[data-v="0"]::after { content:"🎲";position:absolute;inset:0;display:grid;place-items:center;font-size:28px; }
+.lv-dice[data-v="1"] i:nth-child(5),
+.lv-dice[data-v="2"] i:nth-child(1),.lv-dice[data-v="2"] i:nth-child(9),
+.lv-dice[data-v="3"] i:nth-child(1),.lv-dice[data-v="3"] i:nth-child(5),.lv-dice[data-v="3"] i:nth-child(9),
+.lv-dice[data-v="4"] i:nth-child(1),.lv-dice[data-v="4"] i:nth-child(3),.lv-dice[data-v="4"] i:nth-child(7),.lv-dice[data-v="4"] i:nth-child(9),
+.lv-dice[data-v="5"] i:nth-child(1),.lv-dice[data-v="5"] i:nth-child(3),.lv-dice[data-v="5"] i:nth-child(5),.lv-dice[data-v="5"] i:nth-child(7),.lv-dice[data-v="5"] i:nth-child(9),
+.lv-dice[data-v="6"] i:nth-child(1),.lv-dice[data-v="6"] i:nth-child(3),.lv-dice[data-v="6"] i:nth-child(4),.lv-dice[data-v="6"] i:nth-child(6),.lv-dice[data-v="6"] i:nth-child(7),.lv-dice[data-v="6"] i:nth-child(9) { opacity:1;transform:scale(1); }
+.lv-dice-btn.rolling .lv-dice { animation:lv-dice-tumble .5s linear infinite; }
+.lv-dice-btn.landed .lv-dice { animation:lv-dice-land .45s cubic-bezier(.2,.9,.3,1.4); }
+@keyframes lv-dice-tumble { 0% { transform:rotate(0) translateY(0); } 25% { transform:rotate(90deg) translateY(-9px); } 50% { transform:rotate(180deg) translateY(0); } 75% { transform:rotate(270deg) translateY(-6px); } 100% { transform:rotate(360deg) translateY(0); } }
+@keyframes lv-dice-land { 0% { transform:scale(1.35) rotate(-14deg); } 60% { transform:scale(.94) rotate(4deg); } 100% { transform:scale(1) rotate(0); } }
+.lv-roll-count { color:#987888;font-size:11px;min-height:1.2em; }
+.lv-sound-btn { padding:6px 11px;border:1px solid #efd5e1;border-radius:999px;background:#fff;color:#8b4261;font-size:11px;font-weight:800;cursor:pointer; }
+.lv-lock-note,.lv-last-move { display:flex;align-items:center;justify-content:center;gap:7px;margin:0;padding:9px;border-radius:13px;font-size:11px;line-height:1.4;text-align:center; }
+.lv-lock-note.locked { background:#fff7ec;color:#8b6941; }
+.lv-lock-note.unlocked { background:#eefaf2;color:#43845b; }
+.lv-last-move { background:#fff1f6;color:#9b3e69; }
+.lv-last-move[hidden] { display:none; }
+.lv-gate-chip { flex:none;font-size:14px;filter:grayscale(.3); }
+.lv-gate-chip.open { filter:none; }
+.ludo-end-button { margin-top:5px; }
+.lv-rules { font-size:11px;color:#80596a; }
+.lv-rules summary { cursor:pointer;font-weight:800;color:#9e3567; }
+.lv-rules ul { margin:8px 0 0;padding-left:18px;display:grid;gap:5px;line-height:1.45; }
+
+/* Victory */
+.lv-win-overlay { position:fixed;inset:0;z-index:2000;display:grid;place-items:center;padding:18px;background:#2a101e8a;backdrop-filter:blur(2px);animation:lv-fade .35s ease both; }
+.lv-win-card { width:min(420px,100%);padding:26px 22px 20px;border-radius:28px;text-align:center;background:linear-gradient(160deg,#fffdf4,#ffe9f2);box-shadow:0 24px 70px #000000aa,0 0 0 4px #ffffffcc;animation:lv-win-pop .7s cubic-bezier(.2,.9,.3,1.3) both; }
+.lv-win-card.lost { background:linear-gradient(160deg,#fff,#f4ecff); }
+.lv-win-trophy { font-size:68px;line-height:1;animation:lv-trophy 1.4s ease-in-out infinite; }
+.lv-win-card h2 { margin:8px 0 2px;color:#8f315d;font-size:clamp(28px,8vw,40px); }
+.lv-win-kn { margin:0;color:#c2417b;font-size:20px;font-weight:800; }
+.lv-win-sub { margin:10px 0 16px;color:#8c737d;font-size:12px; }
+.lv-win-actions { display:flex;flex-wrap:wrap;justify-content:center;gap:10px; }
+@keyframes lv-fade { from { opacity:0; } }
+@keyframes lv-win-pop { 0% { opacity:0;transform:scale(.4) rotate(-6deg); } 100% { opacity:1;transform:scale(1) rotate(0); } }
+@keyframes lv-trophy { 50% { transform:translateY(-8px) rotate(-6deg) scale(1.08); } }
+
+@media(prefers-reduced-motion:reduce) {
+  .lv-token,.lv-token.returning { transition-duration:.01s!important; }
+  .lv-token-face,.lv-dice-btn .lv-dice,.lv-dice-btn.ready,.lv-hint,.lv-win-trophy,.lv-gate span { animation:none!important; }
+  .lv-banner.show { animation:lv-fade .2s ease both,none; opacity:1;transform:translate(-50%,-50%); }
+}
+`;
+function ensureLudoStyles() {
+  let style = document.getElementById(LUDO_STYLE_ID);
+  if (!style) {
+    style = document.createElement("style");
+    style.id = LUDO_STYLE_ID;
+    document.head.appendChild(style);
+  }
+  if (style.textContent !== LUDO_CSS) style.textContent = LUDO_CSS;
 }
 
 /* ------------------------------------------------------------------ *
@@ -552,11 +673,11 @@ const FX = (() => {
  * ------------------------------------------------------------------ */
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const prefersReducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-const diceMarkup = value => `<span class="ludo-dice" data-v="${value || 0}" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>`;
+const diceMarkup = value => `<span class="lv-dice" data-v="${value || 0}" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>`;
 const CELL = 100 / 15;
 
 function stackLayout(count, isYard) {
-  if (count === 1) return [{ dx: 0, dy: 0, s: isYard ? 1.2 : 0.92 }];
+  if (count === 1) return [{ dx: 0, dy: 0, s: isYard ? 1.08 : 0.92 }];
   if (count === 2) return [{ dx: -0.24, dy: 0, s: 0.62 }, { dx: 0.24, dy: 0, s: 0.62 }];
   if (count === 3) return [{ dx: -0.24, dy: -0.2, s: 0.58 }, { dx: 0.24, dy: -0.2, s: 0.58 }, { dx: 0, dy: 0.25, s: 0.58 }];
   if (count === 4) return [{ dx: -0.24, dy: -0.24, s: 0.56 }, { dx: 0.24, dy: -0.24, s: 0.56 }, { dx: -0.24, dy: 0.24, s: 0.56 }, { dx: 0.24, dy: 0.24, s: 0.56 }];
@@ -571,6 +692,7 @@ function distinctChoices(player, indexes) {
 }
 
 export function mountLudoGame(el, user, profile) {
+  ensureLudoStyles();
   const statusEl = $("#games-room-status", el);
   const content = $("#games-active-content", el);
   if (!statusEl || !content) return () => {};
@@ -659,23 +781,23 @@ export function mountLudoGame(el, user, profile) {
     const cards = room.playerUids.map(uid => {
       const player = room.players[uid];
       const info = colorInfo[player.color];
-      return `<div class="ludo-player-card ${info?.css || ""}" data-card="${esc(uid)}">${avatar(uid, player.name, player.color)}<div class="ludo-player-copy"><strong>${esc(playerName(room, uid))}${uid === user.uid ? " (you)" : ""}</strong><span>${info ? `${info.emoji} ${info.name}` : ""}</span><small data-captures>0 captures</small></div><span class="ludo-gate-chip" data-gate title="Home gate">🔒</span><span class="ludo-home-count" data-home>🏠 0<small>/ 4</small></span></div>`;
+      return `<div class="ludo-player-card ${info?.css || ""}" data-card="${esc(uid)}">${avatar(uid, player.name, player.color)}<div class="ludo-player-copy"><strong>${esc(playerName(room, uid))}${uid === user.uid ? " (you)" : ""}</strong><span>${info ? `${info.emoji} ${info.name}` : ""}</span><small data-captures>0 captures</small></div><span class="lv-gate-chip" data-gate title="Home gate">🔒</span><span class="ludo-home-count" data-home>🏠 0<small>/ 4</small></span></div>`;
     }).join("");
     statusEl.innerHTML = `<div class="game-panel game-room-panel ludo-status"><p class="tic-tac-toe-status" data-ludo-msg aria-live="polite"></p><div class="ludo-players-row">${cards}</div><button type="button" class="secondary ludo-end-button" data-ludo-end>End match</button></div>`;
 
-    const tokenMarkup = tokens.map(token => `<div class="ludo-token ${colorInfo[token.color]?.css || "red"}" data-t="${token.n}"><div class="ludo-token-face">${avatar(token.uid, room.players[token.uid].name, token.color)}</div></div>`).join("");
+    const tokenMarkup = tokens.map(token => `<div class="lv-token ${colorInfo[token.color]?.css || "red"}" data-t="${token.n}"><div class="lv-token-face">${avatar(token.uid, room.players[token.uid].name, token.color)}</div></div>`).join("");
     const gateMarkup = room.playerUids.map(uid => {
       const color = room.players[uid].color;
       const [row, column] = homeLanes[color][0];
-      return `<div class="ludo-gate ${colorInfo[color].css}" data-gate-uid="${esc(uid)}" style="--x:${column};--y:${row}"><span>🔒</span></div>`;
+      return `<div class="lv-gate ${colorInfo[color].css}" data-gate-uid="${esc(uid)}" style="--x:${column};--y:${row}"><span>🔒</span></div>`;
     }).join("");
     content.innerHTML = `<div class="ludo-game-layout"><div class="ludo-main-column">
-      <div class="ludo-board-frame"><div class="ludo-board" role="img" aria-label="Live Ludo board"><div class="ludo-gates">${gateMarkup}</div><div class="ludo-hints"></div><div class="ludo-token-layer">${tokenMarkup}</div><div class="ludo-banner" aria-live="assertive"></div></div></div>
-      <div class="ludo-controls">
-        <div class="ludo-turn-tools"><button type="button" class="ludo-dice-btn" disabled>${diceMarkup(0)}<span class="ludo-dice-label">Roll</span></button><div class="ludo-turn-side"><span class="ludo-roll-count"></span><button type="button" class="ludo-sound-btn" data-ludo-sound aria-pressed="false"></button></div></div>
-        <p class="ludo-lock-note" data-ludo-note></p>
-        <p class="ludo-last-move" data-ludo-last aria-live="polite"></p>
-        <details class="ludo-rules"><summary>How to play</summary><ul>
+      <div class="ludo-board-frame"><div class="ludo-board lv-board" role="img" aria-label="Live Ludo board"><div class="lv-gates">${gateMarkup}</div><div class="lv-hints"></div><div class="lv-token-layer">${tokenMarkup}</div><div class="lv-banner" aria-live="assertive"></div></div></div>
+      <div class="lv-controls">
+        <div class="lv-turn-tools"><button type="button" class="lv-dice-btn" disabled>${diceMarkup(0)}<span class="lv-dice-label">Roll</span></button><div class="lv-turn-side"><span class="lv-roll-count"></span><button type="button" class="lv-sound-btn" data-ludo-sound aria-pressed="false"></button></div></div>
+        <p class="lv-lock-note" data-ludo-note></p>
+        <p class="lv-last-move" data-ludo-last aria-live="polite"></p>
+        <details class="lv-rules"><summary>How to play</summary><ul>
           <li>Roll a <b>6</b> to bring a coin out of the yard. A 6, a capture, or a coin reaching home gives you another roll (three 6s in a row passes the turn).</li>
           <li>Coins walk <b>square by square</b>. Land on your partner's coin to send it back to the yard — except on ⭐ and start squares, which are safe.</li>
           <li><b>🔒 Home gate:</b> you can't enter your home lane until you capture at least one of your partner's coins. Until then your coins keep circling the board. Capture once and the gate opens 🔓.</li>
@@ -691,12 +813,12 @@ export function mountLudoGame(el, user, profile) {
       gates: Object.fromEntries([...content.querySelectorAll("[data-gate-uid]")].map(node => [node.dataset.gateUid, node])),
       msgEl: statusEl.querySelector("[data-ludo-msg]"),
       boardEl: content.querySelector(".ludo-board"),
-      hintsEl: content.querySelector(".ludo-hints"),
-      bannerEl: content.querySelector(".ludo-banner"),
-      diceBtn: content.querySelector(".ludo-dice-btn"),
-      diceEl: content.querySelector(".ludo-dice"),
-      diceLabel: content.querySelector(".ludo-dice-label"),
-      countEl: content.querySelector(".ludo-roll-count"),
+      hintsEl: content.querySelector(".lv-hints"),
+      bannerEl: content.querySelector(".lv-banner"),
+      diceBtn: content.querySelector(".lv-dice-btn"),
+      diceEl: content.querySelector(".lv-dice"),
+      diceLabel: content.querySelector(".lv-dice-label"),
+      countEl: content.querySelector(".lv-roll-count"),
       soundBtn: content.querySelector("[data-ludo-sound]"),
       noteEl: content.querySelector("[data-ludo-note]"),
       lastEl: content.querySelector("[data-ludo-last]"),
@@ -781,7 +903,7 @@ export function mountLudoGame(el, user, profile) {
   function showBanner({ kind, title, sub = "", ms = 1900 }) {
     if (!gv) return;
     const banner = gv.bannerEl;
-    banner.className = `ludo-banner ${kind}`;
+    banner.className = `lv-banner ${kind}`;
     banner.innerHTML = `<h3>${title}</h3>${sub ? `<p>${sub}</p>` : ""}`;
     banner.style.setProperty("--ms", `${ms}ms`);
     void banner.offsetWidth;
@@ -857,7 +979,7 @@ export function mountLudoGame(el, user, profile) {
 
     // gate note + last message
     const myOpen = (gv.captures[user.uid] || 0) > 0;
-    gv.noteEl.className = `ludo-lock-note ${myOpen ? "unlocked" : "locked"}`;
+    gv.noteEl.className = `lv-lock-note ${myOpen ? "unlocked" : "locked"}`;
     gv.noteEl.innerHTML = myOpen
       ? `<span>🔓</span> Home gate open — bring your coins home with an exact roll.`
       : `<span>🔒</span> Home gate locked — capture one of your partner's coins to open it. Until then your coins keep circling.`;
@@ -887,7 +1009,7 @@ export function mountLudoGame(el, user, profile) {
       gv.hintsEl.innerHTML = available.map(index => {
         const path = movePath(me.pieces[index], room.dice, isGateOpen(me));
         const [row, column] = coordinateFor(me.color, path.at(-1), index);
-        return `<div class="ludo-hint ${colorInfo[me.color].css}" style="--x:${column};--y:${row}"></div>`;
+        return `<div class="lv-hint ${colorInfo[me.color].css}" style="--x:${column};--y:${row}"></div>`;
       }).join("");
     }
 
@@ -1076,13 +1198,13 @@ export function mountLudoGame(el, user, profile) {
     buzz([120, 60, 120, 60, 240]);
     FX.show(7500);
     winOverlay = document.createElement("div");
-    winOverlay.className = "ludo-win-overlay";
-    winOverlay.innerHTML = `<div class="ludo-win-card ${won ? "won" : "lost"}" role="dialog" aria-live="assertive" aria-label="Match finished">
-      <div class="ludo-win-trophy" aria-hidden="true">🏆</div>
+    winOverlay.className = "lv-win-overlay";
+    winOverlay.innerHTML = `<div class="lv-win-card ${won ? "won" : "lost"}" role="dialog" aria-live="assertive" aria-label="Match finished">
+      <div class="lv-win-trophy" aria-hidden="true">🏆</div>
       <h2>${won ? "You won!" : `${winner} wins!`}</h2>
-      <p class="ludo-win-kn">${won ? "ಅಭಿನಂದನೆಗಳು! 🎉" : "ಚೆನ್ನಾಗಿ ಆಡಿದ್ರಿ! 💖"}</p>
-      <p class="ludo-win-sub">${room.playerUids.map(uid => `${esc(playerName(room, uid))}: ${room.players[uid].captures || 0} captures`).join(" · ")}</p>
-      <div class="ludo-win-actions"><button type="button" class="primary" data-ludo-start>Play again ♡</button><button type="button" class="secondary" data-ludo-closewin>See result</button></div>
+      <p class="lv-win-kn">${won ? "ಅಭಿನಂದನೆಗಳು! 🎉" : "ಚೆನ್ನಾಗಿ ಆಡಿದ್ರಿ! 💖"}</p>
+      <p class="lv-win-sub">${room.playerUids.map(uid => `${esc(playerName(room, uid))}: ${room.players[uid].captures || 0} captures`).join(" · ")}</p>
+      <div class="lv-win-actions"><button type="button" class="primary" data-ludo-start>Play again ♡</button><button type="button" class="secondary" data-ludo-closewin>See result</button></div>
     </div>`;
     el.appendChild(winOverlay);
     winOverlay.querySelector("[data-ludo-start]")?.focus({ preventScroll: true });

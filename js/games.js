@@ -27,8 +27,8 @@ const emojiQuestions = [
   { emojis: "🍓 🍫 😋", options: ["A sweet treat to share", "Strawberry shopping", "Chocolate for breakfast"], answer: 0 }
 ];
 
-const battleshipRoomRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/matches/battleship`);
-const battleshipBoardRef = (matchId, uid) => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/battleship/${matchId}/${uid}`);
+const battleshipRoomRef = () => ref(rtdb, "battleshipMatches/our-little-world");
+const battleshipBoardRef = (matchId, uid) => ref(rtdb, `battleshipPrivate/${matchId}/${uid}`);
 const BATTLESHIP_FLEET = [
   { id: "carrier", name: "Carrier", emoji: "🚢", length: 5 },
   { id: "battleship", name: "Battleship", emoji: "🛳️", length: 4 },
@@ -199,6 +199,15 @@ function normalizeRoom(room) {
     }
   }
   if (room.game === "true-false") room.trueFalseAnswers = room.trueFalseAnswers || {};
+  if (room.game === "battleship" && room.shots && typeof room.shots === "object") {
+    // Realtime Database returns {0: a, 1: b, …} as an Array (with null holes) once it is dense enough.
+    const shots = {};
+    for (const [uid, list] of Object.entries(room.shots)) {
+      const entries = Array.isArray(list) ? list.map((shot, index) => [index, shot]) : Object.entries(list || {});
+      shots[uid] = Object.fromEntries(entries.filter(([, shot]) => shot));
+    }
+    room.shots = shots;
+  }
   return room;
 }
 
@@ -295,34 +304,6 @@ function gamePlayerAvatar(uid, fallbackName = "") {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Celebration sound (synthesized, no external file needed)         */
-/* ------------------------------------------------------------------ */
-
-let celebrationAudioContext;
-
-function playCelebrationSound() {
-  try {
-    if (!celebrationAudioContext) celebrationAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-    if (celebrationAudioContext.state === "suspended") celebrationAudioContext.resume();
-    const now = celebrationAudioContext.currentTime;
-    const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51, 1567.98];
-    notes.forEach((freq, index) => {
-      const osc = celebrationAudioContext.createOscillator();
-      const gain = celebrationAudioContext.createGain();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(freq, now + index * 0.07);
-      gain.gain.setValueAtTime(0, now + index * 0.07);
-      gain.gain.linearRampToValueAtTime(0.12, now + index * 0.07 + 0.04);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + index * 0.07 + 0.5);
-      osc.connect(gain);
-      gain.connect(celebrationAudioContext.destination);
-      osc.start(now + index * 0.07);
-      osc.stop(now + index * 0.07 + 0.5);
-    });
-  } catch { /* Audio may be blocked by browser policy; silently skip. */ }
-}
-
-/* ------------------------------------------------------------------ */
 /*  Scoreboard summary (both partners: wins / losses / games)         */
 /* ------------------------------------------------------------------ */
 
@@ -397,29 +378,51 @@ function scoreboardSummaryMarkup(items, user, profile) {
     ? `<img class="games-scoreboard-avatar" src="${esc(person.avatar)}" alt="${esc(name)}">`
     : `<span class="games-scoreboard-avatar fallback" aria-hidden="true">${esc((name || "♡").slice(0, 1))}</span>`;
   const totalMatches = Math.max(mine.games, theirs.games);
-  const hasData = totalMatches > 0;
-  const myShare = mine.wins + theirs.wins > 0 ? Math.round((mine.wins / (mine.wins + theirs.wins)) * 100) : 50;
+  const totalWins = mine.wins + theirs.wins;
+  const myShare = totalWins > 0 ? Math.round((mine.wins / totalWins) * 100) : 50;
   const partnerShare = 100 - myShare;
+  const hasData = totalMatches > 0;
+  const headerSub = hasData
+    ? `${totalMatches} ${totalMatches === 1 ? "match" : "matches"} played together`
+    : "No matches yet — start playing!";
   return `<section class="games-scoreboard-card" aria-label="Game scoreboard summary">
-    <h2>Our Game Points ♡</h2>
-    <div class="games-scoreboard-vs">
-      <div class="games-scoreboard-side me${mine.wins > theirs.wins ? " winning" : ""}">
-        ${avatarMarkup(ownProfile, "You")}
-        <span class="games-scoreboard-side-name">You</span>
-        <span class="games-scoreboard-side-score">${mine.wins}</span>
+    <div class="games-scoreboard-head">
+      <h2>Scoreboard</h2>
+      <span class="games-scoreboard-total">${esc(headerSub)}</span>
+    </div>
+    <div class="games-scoreboard-grid">
+      <div class="games-scoreboard-player me">
+        <div class="games-scoreboard-main">
+          <strong class="games-scoreboard-wins">${mine.wins}</strong>
+          <span class="games-scoreboard-label">WINS</span>
+        </div>
+        <div class="games-scoreboard-info">
+          <div class="games-scoreboard-identity">${avatarMarkup(ownProfile, "You")}<span class="games-scoreboard-name">You</span></div>
+          <div class="games-scoreboard-meta">
+            <span><b>${mine.losses}</b><small>Losses</small></span>
+            <span><b>${mine.games}</b><small>Total games</small></span>
+          </div>
+        </div>
       </div>
-      <div class="games-scoreboard-side-heart">♡</div>
-      <div class="games-scoreboard-side partner${theirs.wins > mine.wins ? " winning" : ""}">
-        ${avatarMarkup(partnerProfile, partnerName)}
-        <span class="games-scoreboard-side-name">${esc(partnerName)}</span>
-        <span class="games-scoreboard-side-score">${theirs.wins}</span>
+      <div class="games-scoreboard-player partner">
+        <div class="games-scoreboard-main">
+          <strong class="games-scoreboard-wins">${theirs.wins}</strong>
+          <span class="games-scoreboard-label">WINS</span>
+        </div>
+        <div class="games-scoreboard-info">
+          <div class="games-scoreboard-identity">${avatarMarkup(partnerProfile, partnerName)}<span class="games-scoreboard-name">${esc(partnerName)}</span></div>
+          <div class="games-scoreboard-meta">
+            <span><b>${theirs.losses}</b><small>Losses</small></span>
+            <span><b>${theirs.games}</b><small>Total games</small></span>
+          </div>
+        </div>
       </div>
     </div>
     <div class="games-scoreboard-bar" role="img" aria-label="Win share between partners">
       <span class="me" style="width:${myShare}%"></span>
       <span class="partner" style="width:${partnerShare}%"></span>
     </div>
-    ${hasData ? "" : `<p class="games-scoreboard-empty">Play a match together 💞</p>`}
+    ${hasData ? "" : `<p class="games-scoreboard-empty">Play a match together to fill this scoreboard 💞</p>`}
   </section>`;
 }
 
@@ -435,67 +438,72 @@ function gameCard(id, emoji, title) {
 }
 
 const scoreboardStyles = `<style>
-  .games-scoreboard-card{margin:0 0 10px;padding:10px;border-radius:14px;
-    background:linear-gradient(135deg,#fff5f9 0%,#fdeaf3 60%,#f6e2ff 100%);
-    border:1px solid #f3d5e2;box-shadow:0 10px 24px -16px rgba(182,79,123,.5)}
-  .games-scoreboard-card h2{margin:0 0 8px;font-size:15px;color:#75435a;letter-spacing:.01em;text-align:center}
-  .games-scoreboard-vs{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap}
-  .games-scoreboard-side{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:110px;text-align:center}
-  .games-scoreboard-side.winning .games-scoreboard-side-score{color:#bf175c;font-weight:900}
-  .games-scoreboard-side .games-scoreboard-side-name{font-size:10px;font-weight:800;color:#8c7480;letter-spacing:.05em;text-transform:uppercase}
-  .games-scoreboard-side .games-scoreboard-side-score{font-size:24px;font-weight:900;line-height:1;color:#75435a}
-  .games-scoreboard-side-heart{font-size:18px;font-weight:900;color:#ff6b9d;flex:none}
-  .games-scoreboard-bar{display:flex;height:5px;margin-top:8px;border-radius:999px;overflow:hidden;background:#f6e2ff}
+  .games-scoreboard-card{margin:0 0 12px;padding:12px;border-radius:18px;
+    background:linear-gradient(135deg,#fff5f9 0%,#fdeaf3 55%,#f6e2ff 100%);
+    border:1px solid #f3d5e2;box-shadow:0 14px 30px -20px rgba(182,79,123,.55)}
+  .games-scoreboard-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px}
+  .games-scoreboard-head h2{margin:0;font-size:15px;color:#75435a;letter-spacing:.01em}
+  .games-scoreboard-total{font-size:11px;color:#8c7480;text-align:right;max-width:45%;line-height:1.3}
+  .games-scoreboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch;gap:8px}
+  .games-scoreboard-player{min-width:0;display:grid;grid-template-columns:52px minmax(0,1fr);align-items:center;gap:7px;padding:8px;border-radius:14px;
+    background:rgba(255,255,255,.8);border:1px solid #f3d5e2}
+  .games-scoreboard-main{display:grid;justify-items:center;align-content:center;min-width:0}
+  .games-scoreboard-avatar{display:block;flex:none;width:30px;height:30px;border:2px solid #fff;border-radius:50%;object-fit:cover;box-shadow:0 3px 8px rgba(182,79,123,.18)}
+  .games-scoreboard-avatar.fallback{display:grid;place-items:center;background:linear-gradient(135deg,#f8bbd0,#d5c0f4);color:#75435a;font-size:14px;font-weight:800}
+  .games-scoreboard-info{min-width:0;display:grid;gap:7px}
+  .games-scoreboard-identity{min-width:0;display:flex;align-items:center;gap:6px}
+  .games-scoreboard-name{font-size:11px;font-weight:700;color:#75435a;text-transform:uppercase;letter-spacing:.08em;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .games-scoreboard-wins{font-size:38px;line-height:.95;font-weight:900;color:#b64f7b}
+  .games-scoreboard-player.partner .games-scoreboard-wins{color:#7c5cc4}
+  .games-scoreboard-label{font-size:9px;font-weight:800;color:#8c7480;letter-spacing:.04em}
+  .games-scoreboard-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;font-size:10px;color:#8c7480}
+  .games-scoreboard-meta span{display:grid;line-height:1.15}
+  .games-scoreboard-meta b{color:#75435a;font-weight:800;font-size:12px}
+  .games-scoreboard-meta small{font-size:9px}
+  .games-scoreboard-bar{display:flex;height:6px;margin-top:9px;border-radius:999px;overflow:hidden;background:#f6e2ff}
   .games-scoreboard-bar span{display:block;height:100%;transition:width .45s ease}
   .games-scoreboard-bar .me{background:linear-gradient(90deg,#f7b6cf,#b64f7b)}
   .games-scoreboard-bar .partner{background:linear-gradient(90deg,#c9b6f7,#7c5cc4)}
-  .games-scoreboard-empty{font-size:11px;color:#8c7480;text-align:center;margin:8px 0 0}
+  .games-scoreboard-empty{font-size:12px;color:#8c7480;text-align:center;margin:12px 0 0}
   @media (max-width:420px){
-    .games-scoreboard-card{padding:9px}
-    .games-scoreboard-vs{gap:8px}
-    .games-scoreboard-side{min-width:90px}
-    .games-scoreboard-side .games-scoreboard-side-score{font-size:20px}
-    .games-scoreboard-bar{margin-top:6px}
+    .games-scoreboard-card{padding:10px}
+    .games-scoreboard-grid{gap:6px}
+    .games-scoreboard-player{grid-template-columns:42px minmax(0,1fr);gap:5px;padding:7px 5px}
+    .games-scoreboard-wins{font-size:32px}
+    .games-scoreboard-name{font-size:9px;letter-spacing:.04em}
+    .games-scoreboard-avatar{width:26px;height:26px}
   }
 </style>`;
 
 const scoreboardSkeletonStyles = `<style>
-  .games-scoreboard-skeleton{display:grid;gap:8px;padding:10px;border-radius:14px;margin:0 0 10px;
-    background:linear-gradient(135deg,#fff5f9 0%,#fdeaf3 60%,#f6e2ff 100%);border:1px solid #f3d5e2;box-shadow:0 10px 24px -16px rgba(182,79,123,.5)}
-  .games-scoreboard-skeleton-head{height:14px;width:30%;margin:0 auto 6px;border-radius:4px}
-  .games-scoreboard-skeleton-vs{display:flex;align-items:center;justify-content:center;gap:10px}
-  .games-scoreboard-skeleton-player{display:flex;align-items:center;gap:6px;min-width:90px}
-  .games-scoreboard-skeleton-avatar{width:28px;height:28px;border-radius:50%;background:#f3d5e2;flex:none}
-  .games-scoreboard-skeleton-name{height:10px;width:60%;border-radius:4px;background:#f3d5e2}
-  .games-scoreboard-skeleton-score{height:20px;width:44px;border-radius:4px;background:#f3d5e2}
-  .games-scoreboard-skeleton-heart{width:16px;height:16px;border-radius:50%;background:#f3d5e2;flex:none}
-  .games-scoreboard-skeleton-bar{display:flex;height:5px;margin-top:6px;border-radius:999px;overflow:hidden;background:#f6e2ff}
-  .games-scoreboard-skeleton-bar span{display:block;height:100%;width:100%;background:#ffe6f2}
-  @media (max-width:420px){.games-scoreboard-skeleton-player{min-width:70px}.games-scoreboard-skeleton-score{width:36px}}
+  .games-scoreboard-skeleton{display:grid;gap:8px;padding:12px;border-radius:18px;margin:0 0 12px;
+    background:linear-gradient(135deg,#fff5f9 0%,#fdeaf3 55%,#f6e2ff 100%);border:1px solid #f3d5e2;box-shadow:0 14px 30px -20px rgba(182,79,123,.55)}
+  .games-scoreboard-skeleton-head{height:15px;width:34%}
+  .games-scoreboard-skeleton-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .games-scoreboard-skeleton-player{display:grid;grid-template-columns:52px minmax(0,1fr);gap:7px;align-items:center;
+    padding:8px;border-radius:14px;background:rgba(255,255,255,.8);border:1px solid #f3d5e2}
+  .games-scoreboard-skeleton-stat{height:30px;border-radius:8px}
+  .games-scoreboard-skeleton-copy{display:grid;gap:8px}
+  .games-scoreboard-skeleton-bar{height:6px;border-radius:999px}
+  @media (max-width:420px){.games-scoreboard-skeleton-player{grid-template-columns:42px minmax(0,1fr)}.games-scoreboard-skeleton-stat{height:26px}}
 </style>`;
 
 function scoreboardSkeletonMarkup() {
   const playerSkeleton = `<div class="games-scoreboard-skeleton-player">
-    <i class="games-scoreboard-skeleton-avatar"></i>
-    <span class="games-scoreboard-skeleton-copy">
-      <i class="games-scoreboard-skeleton-name"></i>
-      <i class="games-scoreboard-skeleton-score"></i>
-    </span>
+    <i class="skeleton-shape skeleton-circle"></i>
+    <span class="games-scoreboard-skeleton-copy"><i class="skeleton-shape skeleton-line short"></i><i class="skeleton-shape skeleton-line"></i></span>
   </div>`;
   return `<div class="games-scoreboard-skeleton" aria-busy="true" aria-label="Loading scoreboard" role="status">
-    <i class="games-scoreboard-skeleton-head"></i>
-    <div class="games-scoreboard-skeleton-vs">
+    <i class="skeleton-shape games-scoreboard-skeleton-head"></i>
+    <div class="games-scoreboard-skeleton-grid">
       <div class="games-scoreboard-skeleton-player">
-        <i class="games-scoreboard-skeleton-avatar"></i>
-        <span class="games-scoreboard-skeleton-copy">
-          <i class="games-scoreboard-skeleton-name"></i>
-          <i class="games-scoreboard-skeleton-score"></i>
-        </span>
+        <i class="skeleton-shape skeleton-circle"></i>
+        <span class="games-scoreboard-skeleton-copy"><i class="skeleton-shape games-scoreboard-skeleton-stat"></i><i class="skeleton-shape skeleton-line"></i></span>
       </div>
-      <i class="games-scoreboard-skeleton-heart"></i>
       ${playerSkeleton}
     </div>
-    <div class="games-scoreboard-skeleton-bar"><span></span></div>
+    <i class="skeleton-shape games-scoreboard-skeleton-bar"></i>
   </div>`;
 }
 
@@ -628,7 +636,6 @@ function renderSosGame(content, user, gameState, presence, pendingCell, profile 
     const playerName = sosPlayerName(playerUid, playerData.name);
     const score = state?.scores?.[playerUid] || 0;
     const isTurn = state?.turnUid === playerUid && playing;
-    const isWinner = finished && state.winnerUid === playerUid;
     const playerSecondsLeft = isTurn ? secondsUntilTurn(state) : 0;
     // The card that already holds the timer keeps its markup across re-renders so
     // the 1s countdown writes in place. Any other card is re-created without a
@@ -640,14 +647,9 @@ function renderSosGame(content, user, gameState, presence, pendingCell, profile 
     const ringStyle = isTurn
       ? ` style="--sos-turn-progress:${liveCountdown?.closest(".sos-avatar-wrap")?.style.getPropertyValue("--sos-turn-progress")?.trim() || (playerSecondsLeft / SOS_TURN_SECONDS)}"`
       : "";
-    const avatar = gamePlayerAvatar(playerUid, playerName);
-    const winnerAvatar = isWinner
-      ? avatar.replace('class="game-player-avatar"', 'class="game-player-avatar winner-avatar"')
-        .replace('class="game-player-avatar fallback"', 'class="game-player-avatar fallback winner-avatar"')
-      : avatar;
-    return `<div class="sos-player-card ${color}${isTurn ? " turn-active" : ""}${isWinner ? " sos-player-card-winner" : ""}">
-      <span class="sos-avatar-wrap${isTurn ? " sos-avatar-turn" : ""}"${ringStyle}>${winnerAvatar}${timerMarkup}${isWinner ? '<span class="sos-player-crown">👑</span>' : ""}<i class="sos-presence${isOnline ? " online" : ""}" aria-label="${isOnline ? "Online" : "Offline"}"></i></span>
-      <span class="sos-player-details"><span class="sos-player-name">${esc(playerName)}${isWinner ? " <span class=\"sos-player-win-badge\">Winner</span>" : ""}</span><span class="sos-player-label">${color === "blue" ? "Blue Player" : "Red Player"}</span></span>
+    return `<div class="sos-player-card ${color}${isTurn ? " turn-active" : ""}">
+      <span class="sos-avatar-wrap${isTurn ? " sos-avatar-turn" : ""}"${ringStyle}>${gamePlayerAvatar(playerUid, playerName)}${timerMarkup}<i class="sos-presence${isOnline ? " online" : ""}" aria-label="${isOnline ? "Online" : "Offline"}"></i></span>
+      <span class="sos-player-details"><span class="sos-player-name">${esc(playerName)}</span><span class="sos-player-label">${color === "blue" ? "Blue Player" : "Red Player"}</span></span>
       <strong class="sos-live-score">${score}</strong>
     </div>`;
   };
@@ -725,7 +727,7 @@ function resetActiveGame(game) {
 
 function isValidGameRoom(room, game) {
   if (!room || room.game !== game || typeof room.matchId !== "string" ||
-      !["waiting", "playing", "finished", "cancelled"].includes(room.status) ||
+      !["waiting", "placing", "playing", "finished", "cancelled"].includes(room.status) ||
       !Array.isArray(room.playerUids) || room.playerUids.length < 1 ||
       room.playerUids.length > 2 || new Set(room.playerUids).size !== room.playerUids.length ||
       !room.playerUids.every(uid => typeof uid === "string" && uid) ||
@@ -799,6 +801,7 @@ export function renderGames(el, user, profile) {
   let gameRoomState = null;
   let roomStateInitializing = "";
   let battleshipActionPending = false;
+  let battleshipResolvingOp = "";
   let savedMatchResults = new Set();
   let gameResults = null;
   let trueFalseBankCache = null;
@@ -863,10 +866,7 @@ export function renderGames(el, user, profile) {
           players: sosGameState.playerUids,
           scores: sosGameState.scores
         }).then(() => {
-          if (sosGameState.winnerUid === user.uid) {
-            void playCelebrationSound();
-            void notifyPartnerSafely(ownProfileKey(profile, user), "game", `${profile?.name || getDisplayName(user.uid, "Your partner")} won a game of SOS!`, sosGameState.matchId, "games");
-          }
+          if (sosGameState.winnerUid === user.uid) void notifyPartnerSafely(ownProfileKey(profile, user), "game", `${profile?.name || getDisplayName(user.uid, "Your partner")} won a game of SOS!`, sosGameState.matchId, "games");
         }).catch(error => {
           savedMatchResults.delete(sosGameState.matchId);
           console.error("Could not save SOS result:", error);
@@ -1077,14 +1077,7 @@ export function renderGames(el, user, profile) {
     content.style.opacity = "";
     if (!room || room.status === "finished" || room.status === "cancelled") {
       const finalScores = room?.status === "finished"
-        ? `<div class="game-room-player-row">${room.playerUids.map(uid => {
-            const isWinner = room.winnerUid === uid;
-            const avatar = gamePlayerAvatar(uid, players[uid]?.name);
-            const avatarWithWinner = isWinner
-              ? avatar.replace('class="game-player-avatar"', 'class="game-player-avatar winner-avatar"')
-              : avatar.replace('class="game-player-avatar fallback"', 'class="game-player-avatar fallback winner-avatar"');
-            return `<div class="game-room-player${isWinner ? " game-room-player-winner" : ""}">${avatarWithWinner}<span>${esc(getDisplayName(uid, players[uid]?.name || "Partner"))}</span><strong>${esc(formatGameScore(activeGame, players[uid]?.score))}</strong>${isWinner ? '<span class="game-room-player-crown">👑</span>' : ""}</div>`;
-          }).join("")}</div>`
+        ? `<div class="game-room-player-row">${room.playerUids.map(uid => `<div class="game-room-player">${gamePlayerAvatar(uid, players[uid]?.name)}<span>${esc(getDisplayName(uid, players[uid]?.name || "Partner"))}</span><strong>${esc(formatGameScore(activeGame, players[uid]?.score))}</strong></div>`).join("")}</div>`
         : "";
       const result = room?.status === "cancelled"
         ? "This match was cancelled."
@@ -1232,10 +1225,7 @@ export function renderGames(el, user, profile) {
       players: room.playerUids,
       scores
     }).then(() => {
-      if (room.winnerUid === user.uid) {
-        void playCelebrationSound();
-        void notifyPartnerSafely(ownProfileKey(profile, user), "game", `${profile?.name || getDisplayName(user.uid, "Your partner")} won ${gameTitles[activeGame] || "a game"}!`, room.matchId, "games");
-      }
+      if (room.winnerUid === user.uid) void notifyPartnerSafely(ownProfileKey(profile, user), "game", `${profile?.name || getDisplayName(user.uid, "Your partner")} won ${gameTitles[activeGame] || "a game"}!`, room.matchId, "games");
     }).catch(error => {
       savedMatchResults.delete(room.matchId);
       console.error("Could not save game result:", error);
@@ -1364,6 +1354,72 @@ export function renderGames(el, user, profile) {
     return Array.isArray(room?.playerUids) && room.playerUids.includes(uid) && room.players?.[uid];
   }
 
+  const isPermissionDenied = error => /permission[_ ]denied/i.test(`${error?.code || ""} ${error?.message || ""}`);
+
+  // Applies a shot to one fleet stored in the database and reports what happened.
+  // Realtime Database drops empty arrays, so a ship with no hits yet has no `hits` field at all.
+  async function resolveShotAgainstBoard(matchId, ownerUid, index) {
+    const boardRef = battleshipBoardRef(matchId, ownerUid);
+    const board = (await get(boardRef)).val();
+    if (!board || !Array.isArray(board.ships) || !board.ships.every(ship => Array.isArray(ship?.cells))) {
+      throw new Error("Your partner's fleet is not ready yet.");
+    }
+    const ships = board.ships.map(ship => ({ ...ship, hits: Array.isArray(ship.hits) ? ship.hits : [] }));
+    const hitShip = ships.find(ship => ship.cells.includes(index));
+    if (!hitShip) return { hit: false, sunk: false, shipName: "" };
+    if (!hitShip.hits.includes(index)) hitShip.hits = [...hitShip.hits, index];
+    await set(boardRef, { ...board, ships });
+    return { hit: true, sunk: hitShip.hits.length === hitShip.cells.length, shipName: hitShip.name || "" };
+  }
+
+  function finalizeShot({ matchId, shooterUid, targetUid, index, operationId, outcome }) {
+    return runTransaction(battleshipRoomRef(), room => {
+      if (room?.matchId !== matchId || room.status !== "playing" || room.turnUid !== shooterUid ||
+          room.processingShot?.operationId !== operationId || room.shots?.[shooterUid]?.[index]) return;
+      const players = { ...room.players };
+      players[shooterUid] = { ...players[shooterUid], score: players[shooterUid].score + (outcome.hit ? 1 : 0) };
+      if (outcome.sunk) players[targetUid] = { ...players[targetUid], shipsRemaining: Math.max(0, players[targetUid].shipsRemaining - 1) };
+      const shot = { index, by: shooterUid, hit: outcome.hit, sunkShip: outcome.sunk ? outcome.shipName : "", at: Date.now() };
+      const shots = { ...(room.shots || {}), [shooterUid]: { ...(room.shots?.[shooterUid] || {}), [index]: shot } };
+      const finished = players[targetUid].shipsRemaining === 0;
+      return {
+        ...room,
+        players,
+        shots,
+        processingShot: null,
+        status: finished ? "finished" : "playing",
+        winnerUid: finished ? shooterUid : "",
+        turnUid: finished ? "" : targetUid,
+        updatedAt: Date.now()
+      };
+    });
+  }
+
+  // A failed shot must not leave the turn locked for a minute.
+  function releaseReservedShot(matchId, operationId) {
+    return runTransaction(battleshipRoomRef(), room => {
+      if (room?.matchId !== matchId || room.processingShot?.operationId !== operationId) return;
+      return { ...room, processingShot: null, updatedAt: Date.now() };
+    }).catch(error => console.warn("Could not release the pending Battleship shot:", error));
+  }
+
+  // If the database keeps fleets private, the shooter cannot read the partner's board.
+  // Then the partner's own device answers the shot from the fleet it is allowed to read.
+  async function resolveIncomingShot(room) {
+    const shot = room?.processingShot;
+    if (!shot?.needsDefender || shot.uid === user.uid || room.status !== "playing" || room.turnUid !== shot.uid || !playerIsInRoom(room, user.uid)) return;
+    if (battleshipResolvingOp === shot.operationId) return;
+    battleshipResolvingOp = shot.operationId;
+    try {
+      const outcome = await resolveShotAgainstBoard(room.matchId, user.uid, shot.index);
+      await finalizeShot({ matchId: room.matchId, shooterUid: shot.uid, targetUid: user.uid, index: shot.index, operationId: shot.operationId, outcome });
+    } catch (error) {
+      console.error("Could not answer your partner's Battleship shot:", error);
+    } finally {
+      setTimeout(() => { if (battleshipResolvingOp === shot.operationId) battleshipResolvingOp = ""; }, 4000);
+    }
+  }
+
   async function callBattleshipAction(payload) {
     if (!rtdb) throw new Error("Firebase Realtime Database is not configured.");
     if (battleshipActionPending) return Promise.reject(new Error("A Battleship action is already in progress."));
@@ -1454,47 +1510,27 @@ export function renderGames(el, user, profile) {
 
         const roomBeforeShot = reserve.snapshot.val();
         const targetUid = roomBeforeShot.playerUids.find(uid => uid !== user.uid);
-        const targetBoardRef = battleshipBoardRef(matchId, targetUid);
 
-        const boardSnapshot = await get(targetBoardRef);
-        const board = boardSnapshot.val();
-        if (!board || !Array.isArray(board.ships) || !board.ships.every(ship => Array.isArray(ship.cells) && Array.isArray(ship.hits))) {
-          throw new Error("Your partner's fleet is not ready yet.");
+        let outcome;
+        try {
+          outcome = await resolveShotAgainstBoard(matchId, targetUid, index);
+        } catch (error) {
+          if (isPermissionDenied(error)) {
+            await runTransaction(matchRef, room => {
+              if (room?.matchId !== matchId || room.processingShot?.operationId !== operationId) return;
+              return { ...room, processingShot: { ...room.processingShot, needsDefender: true }, updatedAt: Date.now() };
+            });
+            return roomBeforeShot;
+          }
+          await releaseReservedShot(matchId, operationId);
+          throw error;
         }
 
-        const hitShip = board.ships.find(ship => ship.cells.includes(index));
-        const hit = Boolean(hitShip);
-        // Include the current hit so the completing shot is detected as a sink.
-        const sunk = Boolean(hitShip && [...(hitShip.hits || []), index].length === hitShip.cells.length);
-
-        if (hitShip) {
-          const updatedShips = board.ships.map(ship =>
-            ship.id === hitShip.id ? { ...ship, hits: [...ship.hits, index] } : ship
-          );
-          await set(targetBoardRef, { ...board, ships: updatedShips });
+        const fireResult = await finalizeShot({ matchId, shooterUid: user.uid, targetUid, index, operationId, outcome });
+        if (!fireResult.committed) {
+          await releaseReservedShot(matchId, operationId);
+          throw new Error("The match changed while saving your shot.");
         }
-
-        const fireResult = await runTransaction(matchRef, room => {
-          if (room?.matchId !== matchId || room.status !== "playing" || room.turnUid !== user.uid ||
-              room.processingShot?.operationId !== operationId || room.shots?.[user.uid]?.[index]) return;
-          const players = { ...room.players };
-          players[user.uid] = { ...players[user.uid], score: players[user.uid].score + (hit ? 1 : 0) };
-          if (sunk) players[targetUid] = { ...players[targetUid], shipsRemaining: Math.max(0, players[targetUid].shipsRemaining - 1) };
-          const shot = { index, by: user.uid, hit, sunkShip: sunk ? hitShip?.name || "" : "", at: Date.now() };
-          const shots = { ...(room.shots || {}), [user.uid]: { ...(room.shots?.[user.uid] || {}), [index]: shot } };
-          const finished = players[targetUid].shipsRemaining === 0;
-          return {
-            ...room,
-            players,
-            shots,
-            processingShot: null,
-            status: finished ? "finished" : "playing",
-            winnerUid: finished ? user.uid : "",
-            turnUid: finished ? "" : targetUid,
-            updatedAt: Date.now()
-          };
-        });
-        if (!fireResult.committed) throw new Error("The match changed while saving your shot.");
         return fireResult.snapshot.val();
       }
 
@@ -1660,6 +1696,7 @@ export function renderGames(el, user, profile) {
     }
 
     const hasTurn = room.turnUid === user.uid;
+    void resolveIncomingShot(room);
     const isTurn = hasTurn && !room.processingShot;
     const myShots = room.shots?.[user.uid] || {};
     const incomingShots = room.shots?.[opponentUid] || {};
@@ -1669,7 +1706,7 @@ export function renderGames(el, user, profile) {
     const latestShotMessage = latestShot
       ? `<p class="battleship-last-shot" aria-live="polite"><strong>${latestShot.by === user.uid ? "Your shot" : "Your partner's shot"} · ${latestCoordinate}</strong><span>${latestShot.hit ? `HIT! 💥${latestShot.sunkShip ? ` ${esc(latestShot.sunkShip)} sunk! 🚢` : ""}` : "MISS 🌊"}</span></p>`
       : "";
-    statusEl.innerHTML = `<div class="game-panel game-room-panel battleship-status"><p class="tic-tac-toe-status">${isTurn ? "Your turn — choose a target square!" : hasTurn ? "Saving your shot…" : `${esc(getDisplayName(room.turnUid, players[room.turnUid]?.name || "Your partner"))} is taking aim…`}</p>${scoreRow}<p class="battleship-turn-note">${isTurn ? "Tap a square on the target board to fire." : "Your fleet is hidden. Your turn starts after the shot."}</p></div>`;
+    statusEl.innerHTML = `<div class="game-panel game-room-panel battleship-status"><p class="tic-tac-toe-status">${isTurn ? "Your turn — choose a target square!" : hasTurn ? (room.processingShot?.needsDefender ? "Waiting for your partner's device to confirm the shot…" : "Saving your shot…") : `${esc(getDisplayName(room.turnUid, players[room.turnUid]?.name || "Your partner"))} is taking aim…`}</p>${scoreRow}<p class="battleship-turn-note">${isTurn ? "Tap a square on the target board to fire." : "Your fleet is hidden. Your turn starts after the shot."}</p></div>`;
     const ownBoard = `<section class="battleship-board-card"><h3>Your fleet <span>PRIVATE</span></h3>${renderBattleshipGrid({ room, own: true, ships: battleshipBoard?.ships || [], shots: incomingShots })}<p class="battleship-legend"><span>🚢 Ship</span><span>💥 Hit</span><span>🌊 Miss</span></p></section>`;
     const targetBoard = `<section class="battleship-board-card"><h3>${esc(getDisplayName(opponentUid, players[opponentUid]?.name || "Partner"))}'s waters <span>${isTurn ? "YOUR TURN" : "WAITING"}</span></h3>${renderBattleshipGrid({ room, own: false, clickable: isTurn, shots: myShots })}<p class="battleship-legend"><span>💥 Hit</span><span>🌊 Miss</span><span>☞ Fire</span></p></section>`;
     content.innerHTML = `${latestShotMessage}<div class="battleship-boards">${ownBoard}${targetBoard}</div><div class="battleship-actions"><button type="button" class="secondary" data-room-end>End match</button></div>`;
@@ -1713,7 +1750,7 @@ export function renderGames(el, user, profile) {
       return;
     }
     if (activeGame === "ludo") {
-      const gameInfo = ["Ludo", "Roll a six to start, race around the board, capture coins on unsafe squares, and reach home with an exact roll.", "🎲"];
+      const gameInfo = ["Ludo", "Roll a six to start, walk square by square, capture a coin to unlock your home gate, and reach home with an exact roll.", "🎲"];
       if (renderedShellGame !== activeGame) {
         el.innerHTML = activeShell(activeGame, ...gameInfo, "LIVE 2 PLAYERS");
         renderedShellGame = activeGame;
@@ -1822,10 +1859,6 @@ export function renderGames(el, user, profile) {
     return Number((question.scores || {})[uid] || 0);
   }
 
-  function gtqTotalScoreOf(uid) {
-    return guessTheQuestions.reduce((total, question) => total + (question.createdBy === uid ? 0 : gtqScoreOf(question, uid)), 0);
-  }
-
   function gtqMyAnswer(question) {
     return (question.answers || {})[user.uid] || null;
   }
@@ -1838,7 +1871,6 @@ export function renderGames(el, user, profile) {
   }
 
   function gtqCanAnswer(question) {
-    if (gtqIsCreator(question)) return false;
     const myAnswer = gtqMyAnswer(question);
     if (!myAnswer) return true;
     return myAnswer.verdict === "wrong";
@@ -1963,7 +1995,6 @@ export function renderGames(el, user, profile) {
     const doc = {
       question,
       hint: hint || undefined,
-      hints: hint ? [hint] : [],
       answer: answer || undefined,
       createdBy: user.uid,
       createdAt: Date.now(),
@@ -1988,7 +2019,7 @@ export function renderGames(el, user, profile) {
     if (!text) { toast("Type your answer first ♡"); return; }
     if (text.length > 200) { toast("Keep your answer under 200 characters."); return; }
     const question = guessTheQuestions.find(item => item.id === qId);
-    if (!question || gtqIsCreator(question) || !gtqCanAnswer(question)) return;
+    if (!question || !gtqCanAnswer(question)) return;
     const myAnswer = gtqMyAnswer(question);
     const attempts = Number((myAnswer && myAnswer.attempts) || 0) + 1;
     const autoCorrect = Boolean(question.answer) && gtqNormalize(text) === gtqNormalize(question.answer);
@@ -2011,7 +2042,7 @@ export function renderGames(el, user, profile) {
   async function markGuessTheQuestionAnswer(qId, answerUid, verdict) {
     if (!qId || !answerUid || (verdict !== "correct" && verdict !== "wrong")) return;
     const question = guessTheQuestions.find(item => item.id === qId);
-    if (!question || !gtqIsCreator(question) || answerUid === question.createdBy) return;
+    if (!question || !gtqIsCreator(question)) return;
     const answers = { ...(question.answers || {}) };
     const answer = answers[answerUid];
     if (!answer || answer.verdict != null) return;
@@ -2041,8 +2072,7 @@ export function renderGames(el, user, profile) {
     saveGuessTheQuestionsLocal();
     renderGuessTheQuestion($("#games-active-content", el));
     await gtqQueueWrite({ op: "update", qId, data: patch }, () => update(questionRef, patch));
-    void notifyPartnerSafely(ownProfileKey(profile, user), "game", `${getDisplayName(user.uid, "Your partner")} requested another clue for: ${question.question}`, `${qId}-${request.requestedAt}`, "games");
-    toast("Clue requested ♡");
+    toast("Hint requested ♡");
   }
 
   async function addGuessTheQuestionHint(qId, hintText) {
@@ -2057,11 +2087,9 @@ export function renderGames(el, user, profile) {
     const patch = { hints, hint, hintRequests, updatedAt: Date.now() };
     guessTheQuestions = guessTheQuestions.map(item => item.id === qId ? { ...item, ...patch } : item);
     saveGuessTheQuestionsLocal();
-    const extraHintInput = $("[data-gtq-hint-input]", $("#games-active-content", el));
-    if (extraHintInput) extraHintInput.value = "";
     renderGuessTheQuestion($("#games-active-content", el));
     await gtqQueueWrite({ op: "update", qId, data: patch }, () => update(gtqQRef(qId), patch));
-    toast("Clue shared with your partner ♡");
+    toast("Hint shared with your partner ♡");
   }
 
   function gtqProfiles() {
@@ -2081,36 +2109,24 @@ export function renderGames(el, user, profile) {
     const partnerUid = partner.authUid || "";
     const ownName = getDisplayName(ownUid, own.name || "You");
     const partnerName = getDisplayName(partnerUid, partner.name || "Partner");
-    const ownScore = gtqTotalScoreOf(ownUid);
-    const partnerScore = gtqTotalScoreOf(partnerUid);
-    const totalQuestions = guessTheQuestions.length;
-    const totalAnswered = guessTheQuestions.filter(q => gtqStatus(q) === "resolved").length;
-    const isLeading = ownScore > partnerScore ? "leading" : ownScore < partnerScore ? "trailing" : "tied";
-    const share = ownScore + partnerScore > 0 ? Math.round((ownScore / (ownScore + partnerScore)) * 100) : 50;
+    const ownScore = guessTheQuestions.reduce((sum, q) => sum + gtqScoreOf(q, ownUid), 0);
+    const partnerScore = guessTheQuestions.reduce((sum, q) => sum + gtqScoreOf(q, partnerUid), 0);
     return `
-      <div class="gtq-scorecard">
-        <div class="gtq-scorecard-head">
-          <span class="gtq-scorecard-title">Our Game Points ♡</span>
-          <span class="gtq-scorecard-total">${totalAnswered}/${totalQuestions} answered</span>
+      <div class="gtq-players">
+        <div class="gtq-player me">
+          ${gamePlayerAvatar(ownUid, ownName)}
+          <span class="gtq-player-name">${esc(ownName)}</span>
+          <span class="gtq-player-role">${ownUid === user.uid ? "You" : "Partner"}</span>
+          <span class="gtq-player-online ${gtqOnline(ownUid) ? "" : "offline"}"><i aria-hidden="true"></i>${gtqOnline(ownUid) ? "Online" : "Offline"}</span>
+          <span class="gtq-player-score">${ownScore}<small>points</small></span>
         </div>
-        <div class="gtq-scorecard-vs">
-          <div class="gtq-scorecard-side me${isLeading === "leading" ? " winning" : ""}">
-            ${gamePlayerAvatar(ownUid, ownName)}
-            <span class="gtq-scorecard-side-name">${esc(ownName)}</span>
-            <span class="gtq-scorecard-side-score">${ownScore}</span>
-          </div>
-          <div class="gtq-scorecard-side-heart">♡</div>
-          <div class="gtq-scorecard-side partner${isLeading === "trailing" ? " winning" : ""}">
-            ${gamePlayerAvatar(partnerUid, partnerName)}
-            <span class="gtq-scorecard-side-name">${esc(partnerName)}</span>
-            <span class="gtq-scorecard-side-score">${partnerScore}</span>
-          </div>
+        <div class="gtq-player partner">
+          ${gamePlayerAvatar(partnerUid, partnerName)}
+          <span class="gtq-player-name">${esc(partnerName)}</span>
+          <span class="gtq-player-role">${partnerUid ? "Partner" : "Partner"}</span>
+          <span class="gtq-player-online ${gtqOnline(partnerUid) ? "" : "offline"}"><i aria-hidden="true"></i>${gtqOnline(partnerUid) ? "Online" : "Offline"}</span>
+          <span class="gtq-player-score">${partnerScore}<small>points</small></span>
         </div>
-        <div class="gtq-scorecard-bar" role="img" aria-label="Win share between partners">
-          <span class="me" style="width:${share}%"></span>
-          <span class="partner" style="width:${100 - share}%"></span>
-        </div>
-        <p class="gtq-scorecard-status">${isLeading === "leading" ? "You're in the lead! 🎉" : isLeading === "trailing" ? `${esc(partnerName)} is ahead — rematch? ♡` : "It's a perfect tie! 🤝"}</p>
       </div>`;
   }
 
@@ -2120,14 +2136,12 @@ export function renderGames(el, user, profile) {
       <button type="button" class="gtq-back" data-gtq-back>← Questions List</button>
       <article class="gtq-panel">
         <div class="gtq-detail-head"><span class="gtq-from">New question</span><span class="gtq-status gtq-status-open">Open</span></div>
-        <div class="gtq-note">
-          <div class="gtq-question" style="font-size:20px;margin-bottom:6px">Send a new question</div>
-        </div>
-        <p class="games-instructions" style="margin-bottom:10px">Ask your partner anything — an emoji guess, a word puzzle, or a riddle. Add a clue and the answer so it can be checked automatically.</p>
+        <div class="gtq-question" style="font-size:22px;margin-bottom:6px">Send a new question</div>
+        <p class="games-instructions" style="margin-bottom:14px">Ask your partner anything — an emoji guess, a word puzzle, or a riddle. Add a hint and the answer so it can be checked automatically.</p>
         <div class="gtq-form">
-          <label>Question<textarea id="gtq-question-input" data-gtq-field="question" maxlength="200" placeholder="e.g. What am I thinking of right now?"></textarea></label>
-          <label>Clue (optional)<input id="gtq-hint-input" data-gtq-field="hint" maxlength="120" placeholder="A gentle clue…"></label>
-          <label>Answer (optional)<input id="gtq-answer-input" data-gtq-field="answer" maxlength="200" placeholder="The correct answer (auto-marked)"></label>
+          <label>Question<textarea id="gtq-question-input" maxlength="200" placeholder="e.g. What am I thinking of right now?"></textarea></label>
+          <label>Hint (optional)<input id="gtq-hint-input" maxlength="120" placeholder="A gentle clue…"></label>
+          <label>Answer (optional)<input id="gtq-answer-input" maxlength="200" placeholder="The correct answer (auto-marked)"></label>
           <p class="gtq-hint-text">Leave the answer blank if you want to review your partner's answer yourself.</p>
           <div class="gtq-form-actions">
             <button type="button" class="secondary" data-gtq-back>Cancel</button>
@@ -2141,64 +2155,51 @@ export function renderGames(el, user, profile) {
     if (!container) return;
     const questions = guessTheQuestions;
     if (questions.length === 0) {
-      container.innerHTML = `<section class="gtq-section"><header class="gtq-section-head"><h2>Queue Questions</h2><span>0</span></header><div class="gtq-empty">No questions yet. Send your partner the first question!</div></section><section class="gtq-section"><header class="gtq-section-head"><h2>Completed Questions</h2><span>0</span></header><div class="gtq-empty">Resolved questions will appear here.</div></section>`;
+      container.innerHTML = `<div class="gtq-empty"><p style="font-size:16px">No questions yet.<br>Send your partner the first question!</p></div>`;
       return;
     }
-      const card = question => {
-        const myAnswer = gtqMyAnswer(question);
-        const partnerUid = gtqPartnerUid(question);
-        const status = gtqStatus(question);
-        const isCreator = gtqIsCreator(question);
-        const hintRequested = Object.values(question.hintRequests || {}).some(request => request?.pending);
-        let statusLabel, statusClass;
-        if (status === "open") { statusLabel = "Open"; statusClass = "gtq-status-open"; }
-        else if (status === "answered") { statusLabel = isCreator ? "Awaiting review" : "Pending review"; statusClass = "gtq-status-answered"; }
-        else { statusLabel = "Resolved"; statusClass = "gtq-status-resolved"; }
-        if (hintRequested && isCreator) { statusLabel = "Clue requested"; statusClass = "gtq-status-hint-requested"; }
-        let attemptHtml = "";
-        if (myAnswer && myAnswer.verdict === "wrong" && myAnswer.attempts >= 2) {
-          attemptHtml = `<span class="gtq-attempts">${gtqOrdinal(myAnswer.attempts)} try</span>`;
-        }
-        const answererUid = isCreator ? partnerUid : user.uid;
-        const answererLabel = isCreator ? "Partner" : "You";
-        const answererScore = gtqScoreOf(question, answererUid);
-        const answeredByMe = !!myAnswer;
-        const canAnswer = gtqCanAnswer(question);
-        let actionLabel = "View", actionClass = "secondary";
-        if (!answeredByMe && !isCreator) actionLabel = "Answer";
-        else if (canAnswer) actionLabel = "Try again";
-        else if (isCreator && status === "answered") actionLabel = "Review answers";
-        else if (isCreator) actionLabel = "View";
-        const senderName = isCreator ? getDisplayName(user.uid, "You") : gtqPartnerName(question);
-        const fromName = esc(senderName);
-        const fromAvatar = gamePlayerAvatar(isCreator ? user.uid : partnerUid, senderName);
-        const hints = question.hints?.length ? question.hints : question.hint ? [question.hint] : [];
-        const hintsHtml = hints.map((hint, index) => `<div class="gtq-hint"><b>Clue ${index + 1}</b> · ${esc(hint)}</div>`).join("");
-        return `<article class="gtq-card gtq-card-bubble${isCreator ? " gtq-card-own" : ""}">
-          <div class="gtq-bubble">
-            <span class="gtq-bubble-from">${fromName}</span>
-            <div class="gtq-question">${esc(question.question)}</div>
-            ${hintsHtml}
-            <div class="gtq-meta">
-              <span class="gtq-score">❤️ <strong>${answererScore}</strong></span>
-              ${attemptHtml}
-            </div>
-          </div>
-          <span class="gtq-status ${statusClass}">${esc(statusLabel)}</span>
-          <button type="button" class="gtq-action ${actionClass}" data-gtq-open="${esc(question.id)}">${esc(actionLabel)}</button>
-        </article>`;
-      };
-    const pending = questions.filter(question => gtqStatus(question) !== "resolved");
-    const completed = questions.filter(question => gtqStatus(question) === "resolved");
-    const history = completed.length ? `<div class="gtq-history-list">${completed.map(question => {
-      const isCreator = gtqIsCreator(question);
+    container.innerHTML = questions.map(question => {
+      const myAnswer = gtqMyAnswer(question);
       const partnerUid = gtqPartnerUid(question);
-      const answererUid = isCreator ? partnerUid : user.uid;
-      const answererLabel = isCreator ? "Partner" : "You";
-      const senderName = isCreator ? getDisplayName(user.uid, "You") : gtqPartnerName(question);
-      return `<button type="button" class="gtq-history-row" data-gtq-open="${esc(question.id)}"><span class="gtq-history-avatar">${gamePlayerAvatar(isCreator ? user.uid : partnerUid, senderName)}</span><span class="gtq-history-copy"><strong>${esc(question.question)}</strong><small>${isCreator ? "You asked" : `${esc(senderName)} asked`} · ${answererLabel} ${gtqScoreOf(question, answererUid)}</small></span><span class="gtq-history-status">Resolved</span><span class="gtq-history-arrow" aria-hidden="true">›</span></button>`;
-    }).join("")}</div>` : `<div class="gtq-empty gtq-history-empty">No resolved questions yet.</div>`;
-    container.innerHTML = `<section class="gtq-section"><header class="gtq-section-head"><h2>Queue Questions</h2><span>${pending.length}</span></header>${pending.length ? pending.map(question => card(question)).join("") : `<div class="gtq-empty">No unanswered questions.</div>`}</section><section class="gtq-section gtq-history-section"><header class="gtq-section-head"><h2>Completed Questions</h2><span>${completed.length}</span></header>${history}</section>`;
+      const status = gtqStatus(question);
+      const isCreator = gtqIsCreator(question);
+      let statusLabel, statusClass;
+      if (status === "open") { statusLabel = "Open"; statusClass = "gtq-status-open"; }
+      else if (status === "answered") { statusLabel = isCreator ? "Awaiting your review" : "Pending review"; statusClass = "gtq-status-answered"; }
+      else { statusLabel = "Resolved"; statusClass = "gtq-status-resolved"; }
+      let attemptHtml = "";
+      if (myAnswer && myAnswer.verdict === "wrong" && myAnswer.attempts >= 2) {
+        attemptHtml = `<span class="gtq-attempts">${gtqOrdinal(myAnswer.attempts)} try</span>`;
+      }
+      const myScore = gtqScoreOf(question, user.uid);
+      const partnerScore = gtqScoreOf(question, partnerUid);
+      const answeredByMe = !!myAnswer;
+      const canAnswer = gtqCanAnswer(question);
+      let actionLabel = "View", actionClass = "secondary";
+      if (!answeredByMe) actionLabel = "Answer";
+      else if (canAnswer) actionLabel = "Try again";
+      else if (isCreator && status === "answered") actionLabel = "Review answers";
+      else if (isCreator) actionLabel = "View";
+      const fromName = isCreator ? "You" : esc(gtqPartnerName(question));
+      const fromAvatar = isCreator ? gamePlayerAvatar(user.uid, getDisplayName(user.uid, "You")) : gamePlayerAvatar(partnerUid, gtqPartnerName(question));
+      return `<article class="gtq-card${isCreator ? " gtq-card-own" : ""}">
+        <div class="gtq-card-head">
+          ${fromAvatar}
+          <div class="gtq-card-info">
+            <span class="gtq-from">${isCreator ? "From you" : `From ${fromName}`}</span>
+            <span class="gtq-status ${statusClass}">${esc(statusLabel)}</span>
+          </div>
+        </div>
+        <div class="gtq-question">${esc(question.question)}</div>
+        ${question.hint ? `<div class="gtq-hint">Hint · ${esc(question.hint)}</div>` : ""}
+        <div class="gtq-meta">
+          <span class="gtq-score">You <strong>${myScore}</strong></span>
+          <span class="gtq-score">Partner <strong>${partnerScore}</strong></span>
+          ${attemptHtml}
+        </div>
+        <button type="button" class="gtq-action ${actionClass}" data-gtq-open="${esc(question.id)}">${esc(actionLabel)}</button>
+      </article>`;
+    }).join("");
   }
 
   function renderGuessTheQuestionDetail(container, qId) {
@@ -2211,18 +2212,17 @@ export function renderGames(el, user, profile) {
     const myAnswer = gtqMyAnswer(question);
     const isCreator = gtqIsCreator(question);
     const partnerUid = gtqPartnerUid(question);
-    const senderName = isCreator ? getDisplayName(user.uid, "You") : gtqPartnerName(question);
     const status = gtqStatus(question);
     const attempts = myAnswer ? myAnswer.attempts : 0;
     const attemptHtml = (myAnswer && myAnswer.verdict === "wrong" && attempts >= 2)
       ? `<p class="gtq-attempts">${gtqOrdinal(attempts)} try</p>` : "";
 
     let answerForm = "";
-    if (status !== "resolved" && gtqCanAnswer(question)) {
+    if (gtqCanAnswer(question)) {
       answerForm = `
         <div class="gtq-answer-form">
           <label>Your answer</label>
-          <input id="gtq-answer-input" data-gtq-field="answer" data-gtq-answer maxlength="200" placeholder="Type your answer" autocomplete="off">
+          <input id="gtq-answer-input" data-gtq-answer maxlength="200" placeholder="Type your answer" autocomplete="off">
           <button type="button" class="primary" data-gtq-answer="${esc(qId)}">Submit answer</button>
         </div>
         ${attemptHtml}`;
@@ -2258,47 +2258,28 @@ export function renderGames(el, user, profile) {
       </div>`;
     }).join("") || `<p class="gtq-empty-answers">No answers yet.</p>`;
 
-    const statusLabel = status === "open" ? (isCreator ? "Waiting for partner" : "Your turn") : status === "answered" ? "Awaiting review" : "Resolved";
-    const answererUid = isCreator ? partnerUid : user.uid;
-    const answererLabel = isCreator ? "Partner" : "You";
-    const hints = question.hints?.length ? question.hints : question.hint ? [question.hint] : [];
-    const hintsHtml = hints.map((hint, index) => `<div class="gtq-clue"><b>Clue ${index + 1}</b> · ${esc(hint)}</div>`).join("");
-    const hintRequestPending = Object.values(question.hintRequests || {}).some(request => request?.pending);
-    const hintActions = status === "resolved" ? "" : isCreator
-      ? `${hintRequestPending ? `<p class="gtq-hint-requested">Your partner requested another clue.</p>` : ""}<div class="gtq-add-hint"><input data-gtq-field="extra-hint" data-gtq-hint-input maxlength="120" placeholder="Add another clue"><button type="button" class="secondary" data-gtq-add-hint="${esc(qId)}">Add Clue</button></div>`
-      : `<div class="gtq-request-hint"><strong>Don’t know the answer?</strong>${question.hintRequests?.[user.uid]?.pending ? `<span class="gtq-hint-requested">Clue requested · waiting for ${esc(gtqPartnerName(question))}</span>` : `<button type="button" class="secondary" data-gtq-request-hint="${esc(qId)}">＋ Request Another Clue</button>`}</div>`;
+    const statusLabel = status === "open" ? "Open" : status === "answered" ? "Awaiting review" : "Resolved";
     container.innerHTML = `
       <button type="button" class="gtq-back" data-gtq-back>← Questions List</button>
       <article class="gtq-panel gtq-detail-panel">
         <div class="gtq-detail-head">
-          <span class="gtq-from">${isCreator ? "Your question" : "Question for you"}</span>
+          <span class="gtq-from">${isCreator ? "Your question" : `From ${esc(gtqPartnerName(question))}`}</span>
           <span class="gtq-status ${status === "resolved" ? "gtq-status-resolved" : status === "answered" ? "gtq-status-answered" : "gtq-status-open"}">${esc(statusLabel)}</span>
         </div>
-        <div class="gtq-note">
-          <span class="gtq-note-from">${senderName}</span>
-          <div class="gtq-question">${esc(question.question)}</div>
-        </div>
-        <div class="gtq-clues">
-          <strong class="gtq-hints-count">${hints.length} clue${hints.length !== 1 ? "s" : ""}</strong>
-          ${hintsHtml || `<p class="gtq-hint-text">No clues yet.</p>`}
-        </div>
-        ${hintActions}
+        <div class="gtq-question">${esc(question.question)}</div>
+        ${question.hint ? `<div class="gtq-hint">Hint · ${esc(question.hint)}</div>` : ""}
         ${answerForm}
         <div class="gtq-meta">
-          <span class="gtq-score">❤️ <strong>${gtqScoreOf(question, answererUid)}</strong></span>
+          <span class="gtq-score">You <strong>${gtqScoreOf(question, user.uid)}</strong></span>
+          <span class="gtq-score">Partner <strong>${gtqScoreOf(question, partnerUid)}</strong></span>
         </div>
-        <h3>Answers</h3>
-        <div class="gtq-answers gtq-answers-compact">${answersHtml}</div>
+        <h3 style="margin:14px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.18em;color:var(--muted);font-weight:900">Answers</h3>
+        <div class="gtq-answers">${answersHtml}</div>
       </article>`;
   }
 
   function renderGuessTheQuestion(content) {
     if (!content) return;
-    const savedFields = [...content.querySelectorAll("[data-gtq-field]")].map(field => ({
-      key: field.dataset.gtqField,
-      value: field.value,
-      focused: field === document.activeElement
-    }));
     content.innerHTML = "";
     if (!rtdb) {
       content.innerHTML = `<section class="gtq-page"><button class="games-back-button" type="button" data-back-games>← All games</button><h1>Questions List</h1><p class="games-instructions">Guess the Answer needs Firebase Realtime Database.</p></section>`;
@@ -2307,28 +2288,32 @@ export function renderGames(el, user, profile) {
     const page = document.createElement("div");
     page.className = "gtq-page";
     page.innerHTML = `
+      <button class="games-back-button" type="button" data-back-games>← All games</button>
+      <h1>Questions List</h1>
       ${gtqPlayersStrip()}
-      <div id="gtq-view"></div>`;
+      <button type="button" class="primary gtq-action" data-gtq-new style="width:100%;margin:0 0 16px">＋ New Question</button>
+      <div id="gtq-list"></div>
+      <div id="gtq-detail"></div>`;
     content.appendChild(page);
-    const viewContainer = $("#gtq-view", page);
-    if (gtqDetailId === "new") {
-      renderGuessTheQuestionNewForm(viewContainer);
-    } else if (gtqDetailId) {
-      renderGuessTheQuestionDetail(viewContainer, gtqDetailId);
-    } else {
-      viewContainer.innerHTML = `<button type="button" class="primary gtq-create-question" data-gtq-new>＋ Create New Question</button><div id="gtq-list"></div>`;
-      renderGuessTheQuestionList($("#gtq-list", viewContainer));
-    }
-    savedFields.forEach(({ key, value, focused }) => {
-      const field = [...content.querySelectorAll("[data-gtq-field]")].find(item => item.dataset.gtqField === key);
-      if (!field) return;
-      field.value = value;
-      if (focused) field.focus({ preventScroll: true });
-    });
-  }
 
-  function scrollGuessTheQuestionToTop() {
-    requestAnimationFrame(() => $(".gtq-page", el)?.scrollIntoView({ block: "start", behavior: "smooth" }));
+    const listContainer = document.createElement("div");
+    listContainer.id = "gtq-list";
+    page.querySelector("#gtq-list").replaceWith(listContainer);
+    page.appendChild(listContainer);
+
+    const detailContainer = document.createElement("div");
+    detailContainer.id = "gtq-detail";
+    page.appendChild(detailContainer);
+
+    renderGuessTheQuestionList(listContainer);
+    if (gtqDetailId === "new") {
+      const formContainer = document.createElement("div");
+      formContainer.id = "gtq-new";
+      detailContainer.parentNode.insertBefore(formContainer, detailContainer);
+      renderGuessTheQuestionNewForm(formContainer);
+    } else if (gtqDetailId) {
+      renderGuessTheQuestionDetail(detailContainer, gtqDetailId);
+    }
   }
 
   listenForGameResults();
@@ -2594,19 +2579,16 @@ export function renderGames(el, user, profile) {
       if (target.hasAttribute("data-gtq-back")) {
         gtqDetailId = "";
         renderGuessTheQuestion($("#games-active-content", el));
-        scrollGuessTheQuestionToTop();
         return;
       }
       if (target.hasAttribute("data-gtq-new")) {
         gtqDetailId = "new";
         renderGuessTheQuestion($("#games-active-content", el));
-        scrollGuessTheQuestionToTop();
         return;
       }
       if (target.hasAttribute("data-gtq-open")) {
         gtqDetailId = target.dataset.gtqOpen || "";
         renderGuessTheQuestion($("#games-active-content", el));
-        scrollGuessTheQuestionToTop();
         return;
       }
       if (target.hasAttribute("data-gtq-submit")) {
@@ -2621,16 +2603,6 @@ export function renderGames(el, user, profile) {
       }
       if (target.hasAttribute("data-gtq-mark")) {
         await markGuessTheQuestionAnswer(target.dataset.gtqMark, target.dataset.gtqAnswerUid, target.dataset.gtqVerdict);
-        return;
-      }
-      if (target.hasAttribute("data-gtq-request-hint")) {
-        await requestGuessTheQuestionHint(target.dataset.gtqRequestHint);
-        return;
-      }
-      if (target.hasAttribute("data-gtq-add-hint")) {
-        const content = $("#games-active-content", el);
-        const input = $("[data-gtq-hint-input]", content);
-        await addGuessTheQuestionHint(target.dataset.gtqAddHint, input?.value);
         return;
       }
     }
