@@ -6,6 +6,7 @@ import { APP_CONFIG } from "../config/app-config.js";
 import { mountFindTheWordsGame } from "./find-the-words.js";
 import { TRUE_FALSE_BANK_VERSION, TRUE_FALSE_QUESTION_BANK, pickTrueFalseQuestions } from "./true-false-question-bank.js";
 import { get, onDisconnect, onValue, push, ref, remove, runTransaction, set, update } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
+import { celebrateWin } from "./celebration.js";
 
 
 const sosGameRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sos`);
@@ -29,6 +30,8 @@ const emojiQuestions = [
 
 const battleshipRoomRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/battleshipMatches/our-little-world`);
 const battleshipBoardRef = (matchId, uid) => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/battleshipPrivate/${matchId}/${uid}`);
+let battleshipCelebratedMatchId = "";
+let sosCelebratedMatchId = "";
 const BATTLESHIP_FLEET = [
   { id: "carrier", name: "Carrier", emoji: "🚢", length: 5 },
   { id: "battleship", name: "Battleship", emoji: "🛳️", length: 4 },
@@ -706,6 +709,12 @@ function renderSosGame(content, user, gameState, presence, pendingCell, profile 
     ${playing ? "" : `<div class="sos-timer" aria-live="off"><span aria-hidden="true">♡</span><b>◷</b><span>Time Left</span><strong>${String(secondsLeft).padStart(2, "0")}</strong><span aria-hidden="true">♡</span></div>`}
     <div class="sos-actions">${startAction}${member && playing ? `<button type="button" class="secondary sos-action" data-sos-leave>Leave game</button>` : ""}</div>
   </section>`;
+  if (finished && state.matchId !== sosCelebratedMatchId) {
+    sosCelebratedMatchId = state.matchId;
+    const won = state.winnerUid === uid;
+    const winnerName = state.winnerUid ? sosPlayerName(state.winnerUid, state.players?.[state.winnerUid]?.name) : "Your partner";
+    void celebrateWin({ game: "SOS", won, draw: !state.winnerUid, winnerName, details: `${ownScore} : ${partnerScore}`, actions: [{ label: "Play again ♡", primary: true, onClick: () => { const btn = document.querySelector("[data-sos-start]"); if (btn) btn.click(); } }] });
+  }
 }
 
 function makeMemoryState() {
@@ -1283,6 +1292,13 @@ export function renderGames(el, user, profile) {
         ? winner ? `${winner} won this round!` : "It’s a tie! You both did great."
         : "Make a guess, learn a new fact, and compare your points.";
       statusEl.innerHTML = `<div class="game-panel game-room-panel true-false-status"><p class="tic-tac-toe-status">${esc(outcome)}</p>${room?.status === "finished" ? `<div class="true-false-final-scores">${room.playerUids.map(playerUid => `<span>${esc(getDisplayName(playerUid, room.players[playerUid]?.name || "Partner"))}: <b>${room.players[playerUid]?.score || 0}</b></span>`).join("")}</div>` : ""}<button type="button" class="primary" data-room-start>${room ? "Play again" : "Start a match"}</button></div>`;
+      if (room?.status === "finished" && room.matchId !== tfCelebratedMatchId) {
+        tfCelebratedMatchId = room.matchId;
+        const won = room.winnerUid === user.uid;
+        const winnerName = room.winnerUid ? getDisplayName(room.winnerUid, room.players?.[room.winnerUid]?.name || "Your partner") : "Your partner";
+        const details = `${room.players[user.uid]?.score || 0} : ${room.players[room.playerUids.find(p => p !== user.uid)]?.score || 0}`;
+        void celebrateWin({ game: "True or False", won, draw: !room.winnerUid, winnerName, details, actions: [{ label: "Play again ♡", primary: true, onClick: () => { const btn = document.querySelector("[data-room-start]"); if (btn) btn.click(); } }] });
+      }
       if (room?.status === "finished") {
         const lastQuestion = room.trueFalseQuestions[room.trueFalseQuestionIndex];
         content.innerHTML = `<article class="true-false-card true-false-finished"><p class="true-false-eyebrow">YOUR LITTLE KNOWLEDGE ROUND</p><h2>${esc(outcome)}</h2>${playerRow}<p class="true-false-statement">${esc(lastQuestion.statement)}</p><div class="true-false-correct">Correct answer: <strong>${lastQuestion.answer ? "True" : "False"}</strong></div><p class="true-false-explanation">${esc(lastQuestion.explanation)}</p><a class="true-false-source" href="${esc(lastQuestion.sourceUrl)}" target="_blank" rel="noopener noreferrer">Learn more · ${esc(lastQuestion.sourceTitle)}</a></article>`;
@@ -1665,6 +1681,13 @@ export function renderGames(el, user, profile) {
         : room?.status === "cancelled" ? "This Battleship match ended." : "Hide your fleet, take turns, and find all five ships.";
       statusEl.innerHTML = `<div class="game-panel game-room-panel battleship-status"><p class="tic-tac-toe-status">${result}</p>${scoreRow}<button type="button" class="primary" data-room-start>${room ? "Play again" : "Start a match"}</button></div>`;
       content.innerHTML = `<article class="game-panel battleship-panel"><div class="battleship-hero" aria-hidden="true">🚢 🛳️ 🚤</div><h2>Ready, captain?</h2><p class="games-instructions">Place your fleet on a private 10 × 10 board, then take turns firing at your partner's hidden ships. Each hit earns one point.</p><div class="battleship-fleet-list">${BATTLESHIP_FLEET.map(ship => `<span>${ship.emoji} ${ship.name} · ${ship.length}</span>`).join("")}</div></article>`;
+      if (room.winnerUid && room.matchId !== battleshipCelebratedMatchId) {
+        battleshipCelebratedMatchId = room.matchId;
+        const won = room.winnerUid === user.uid;
+        const winnerName = getDisplayName(room.winnerUid, players[room.winnerUid]?.name || "Your partner");
+        const details = `${players[user.uid]?.score || 0} hits · ${players[opponentUid]?.score || 0} hits`;
+        void celebrateWin({ game: "Battleship", won, draw: !room.winnerUid, winnerName, details, actions: [{ label: "Play again ♡", primary: true, onClick: () => { const btn = document.querySelector("[data-room-start]"); if (btn) btn.click(); } }] });
+      }
       return;
     }
 

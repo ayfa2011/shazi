@@ -66,9 +66,9 @@ export function renderHome(el, user, profile) {
       .home-post-panel .home-post-author strong { font-size: 13px; }
       .home-post-panel .home-post-author small { font-size: 10px; }
       .home-post-panel .home-post-text { margin: 6px 0; font-size: 13px; flex-grow: 1; }
-      .home-post-panel .home-post-photo { max-height: 140px; margin-top: 6px; border-radius: 11px; object-fit: cover; }
+      .home-post-panel .home-post-photo { width: 100%; height: clamp(150px, 28vw, 300px); max-height: none; margin-top: 6px; border-radius: 11px; object-fit: cover; display: block; }
       .home-post-panel .home-post-photo.home-post-photo--pending { background: #f2e3ea; }
-      .home-post-panel .home-post-video-frame { max-height: 140px; margin-top: 6px; border-radius: 11px; background: #f2e3ea; position: relative; overflow: hidden; display: grid; place-items: center; color: #b24166; font-weight: 800; }
+      .home-post-panel .home-post-video-frame { width: 100%; height: clamp(150px, 28vw, 300px); max-height: none; margin-top: 6px; border-radius: 11px; background: #f2e3ea; position: relative; overflow: hidden; display: grid; place-items: center; color: #b24166; font-weight: 800; }
       .home-post-panel .home-post-video-frame .home-video-play-overlay { font-size: 42px; line-height: 1; filter: drop-shadow(0 2px 4px #0003); }
       .home-post-panel .home-post-video-frame--ready { background-size: cover; background-position: 50% 50%; color: transparent; }
       .home-post-panel .home-post-actions { margin-top: 7px; padding-top: 6px; border-top: 1px solid #f3f4f6; }
