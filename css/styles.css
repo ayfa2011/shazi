@@ -364,6 +364,7 @@ input:focus,textarea:focus{border-color:var(--pink);box-shadow:0 0 0 4px #ef6d9f
 .gtq-scorecard-title{margin:0;font-size:16px;color:var(--deep);font-weight:900;letter-spacing:.02em}
 .gtq-scorecard-total{font-size:11px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.1em}
 .gtq-scorecard-vs{display:flex;align-items:center;justify-content:center;gap:14px;margin:0 0 14px;flex-wrap:wrap}
+.gtq-scorecard-side .game-player-avatar{width:40px;height:40px;max-width:40px;max-height:40px;border:2px solid #fff;border-radius:50%;object-fit:cover}
 .gtq-scorecard-side{display:flex;flex-direction:column;align-items:center;gap:8px;min-width:120px;text-align:center}
 .gtq-scorecard-side.winning .gtq-scorecard-side-score{color:#bf175c;font-weight:900}
 .gtq-scorecard-side .gtq-scorecard-side-name{font-size:12px;font-weight:900;color:var(--deep);overflow-wrap:anywhere;text-align:center}
@@ -516,7 +517,7 @@ input:focus,textarea:focus{border-color:var(--pink);box-shadow:0 0 0 4px #ef6d9f
 .gtq-card{padding:8px}
 .gtq-add-hint{flex-direction:column}
 .gtq-add-hint button{width:100%}
-.gtq-scorecard-side .game-player-avatar{width:40px;height:40px}
+.gtq-scorecard-side .game-player-avatar{width:40px;height:40px;max-width:40px;max-height:40px;border:2px solid #fff;border-radius:50%;object-fit:cover}
 .gtq-scorecard-side .gtq-scorecard-side-score{font-size:18px}
 }
 

@@ -466,7 +466,7 @@ export function renderHome(el, user, profile) {
   function postMediaHtml(post) {
     if (!post) return "";
     if (post.photoUrl) {
-      return `<img src="${esc(post.photoUrl)}" class="home-post-photo" alt="Shared photo" loading="eager">`;
+      return `<img src="${esc(post.photoUrl)}" class="home-post-photo" alt="Shared photo" loading="eager" onerror="this.style.display='none'">`;
     }
     if (isVideoPost(post)) {
       const fileId = post.telegramVideoFileId || post.telegramFileId || "";
@@ -476,7 +476,7 @@ export function renderHome(el, user, profile) {
       </div>`;
     }
     if (post.telegramFileId) {
-      return `<img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="home-post-photo home-post-photo--pending" alt="Shared photo" loading="lazy">`;
+      return `<img data-telegram-file-id="${esc(post.telegramFileId)}" data-telegram-mime="${esc(post.photoMimeType || "image/jpeg")}" class="home-post-photo home-post-photo--pending" alt="Shared photo" loading="lazy" onerror="this.style.display='none'">`;
     }
     return "";
   }
