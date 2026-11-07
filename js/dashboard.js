@@ -736,76 +736,73 @@ export function renderHome(el, user, profile) {
 
     try {
       const people = Object.entries(APP_CONFIG.profiles);
+      const snapAssignment = snap ? assignmentFor(snap) : null;
+      const snapCompletedBy = snapAssignment?.completedBy || [];
+      const allSnapDone = people.length > 0 && people.every(([key, person]) => snapCompletedBy.some(p => p.profileKey === key || (person.authUid && p.uid === person.authUid)));
       const snapHtml = snap ? `
-        <article class="habit-card snap-challenge-card">
-          <div class="habit-card-head">
-            <span class="habit-icon" aria-label="Snapchat">📸</span>
-            <div class="habit-copy">
+        <article class="challenge-card snap-challenge-card">
+          <div class="challenge-card-head">
+            <span class="snap-brand-mark" aria-label="Snapchat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.1c-2.1 0-3.7 1.7-3.7 4.2 0 .9.1 1.6.2 2.2-.5.4-1.2.1-1.9-.3-.6-.3-1.1-.6-1.4-.2-.4.5.1 1 .7 1.3.7.4 1.6.7 2.2.6-.1.8-.5 1.5-1.3 2.2-.6.5-1.3.8-2.1 1-.6.2-.7.7-.1 1 .6.3 1.6.3 2.1.8.4.4.4 1.1 1.1 1.2.6.1 1-.3 1.6-.2.7.1 1.4.8 2.6.8s1.9-.7 2.6-.8c.6-.1 1 .3 1.6.2.7-.1.7-.8 1.1-1.2.5-.5 1.5-.5 2.1-.8.6-.3.5-.8-.1-1-.8-.2-1.5-.5-2.1-1-.8-.7-1.2-1.4-1.3-2.2.6.1 1.5-.2 2.2-.6.6-.3 1.1-.8.7-1.3-.3-.4-.8-.1-1.4.2-.7.4-1.4.7-1.9.3.1-.6.2-1.3.2-2.2 0-2.5-1.6-4.2-3.7-4.2Z"/></svg></span>
+            <div class="challenge-head-copy">
               <h2>Daily Snap</h2>
               <small>Share your daily moments with each other 💗</small>
             </div>
           </div>
-          <div class="habit-snap-grid">
-            ${people.map(([key, person]) => {
-              const assignment = snap ? assignmentFor(snap) : null;
-              const completedBy = assignment?.completedBy || [];
-              const sent = completedBy.some(p => p.profileKey === key || (person.authUid && p.uid === person.authUid));
-              const isMine = key === questionProfileKey;
-              const avatar = person.avatar ? `<img src="${esc(person.avatar)}" alt="" loading="lazy" decoding="async">` : esc((person.name || "♡")[0]);
-              return `<section class="habit-snap-person ${sent ? "is-sent" : "is-pending"}">
-                <header class="habit-snap-person-header"><strong>${esc(person.name || "Partner")}</strong><span class="habit-snap-pill ${sent ? "sent" : "pending"}">${sent ? "✓ Sent" : "◷ Not Sent"}</span></header>
-                <div class="habit-snap-state">
-                  ${sent ? `<span class="habit-snap-avatar">✓</span>` : `<span class="habit-snap-avatar">${avatar}</span>`}
-                  <div class="habit-snap-state-copy">
-                    <strong>${sent ? "Snap sent today" : "Snap not sent yet"}</strong>
-                    <small>${sent ? (isMine ? "You're all caught up" : "Your partner is all caught up") : (isMine ? "Send your daily moment" : "Waiting for your partner")}</small>
+          <div class="snap-widget">
+            <div class="snap-people-grid">
+              ${people.map(([key, person]) => {
+                const sent = snapCompletedBy.some(p => p.profileKey === key || (person.authUid && p.uid === person.authUid));
+                const isMine = key === questionProfileKey;
+                const avatar = person.avatar ? `<img src="${esc(person.avatar)}" alt="">` : esc((person.name || "♡")[0]);
+                return `<section class="snap-person-card ${sent ? "is-sent" : "is-pending"}">
+                  <header class="snap-person-head"><strong>${esc(person.name || "Partner")}</strong><span class="snap-status-pill ${sent ? "sent" : "pending"}">${sent ? "✓ Sent" : "◷ Not Sent"}</span></header>
+                  <div class="snap-person-state">${sent ? `<span class="snap-sent-check" role="img" aria-label="Snap sent">✓</span>` : `<span class="snap-avatar">${avatar}</span>`}<div class="snap-state-copy"><strong>${sent ? "Snap sent today" : "Snap not sent yet"}</strong><small>${sent ? (isMine ? "You're all caught up" : "Your partner is all caught up") : (isMine ? "Send your daily moment" : "Waiting for your partner")}</small></div>
+                    ${isMine && !sent ? `<button type="button" class="snap-send-button" data-action="snap-complete" data-id="${esc(snapAssignment?.id || "")}">Send Snap</button>` : ""}
                   </div>
-                </div>
-                ${isMine && !sent ? `<button type="button" class="habit-snap-btn" data-action="snap-complete" data-id="${esc(assignment?.id || "")}">Send Snap</button>` : ""}
-              </section>`;
-            }).join("")}
+                </section>`;
+              }).join("")}
+            </div>
+            ${allSnapDone ? `<div class="water-celebrate">You both sent today's Snap 💛</div>` : ""}
           </div>
         </article>
       ` : "";
 
-      const waterHtml = water ? `
-        <article class="habit-card water-challenge-card">
-          <div class="habit-card-head">
-            <span class="habit-icon">💧</span>
-            <div class="habit-copy">
+      const waterHtml = water ? (() => {
+        const waterAssignment = assignmentFor(water);
+        const bothDone = people.every(([k]) => waterCountFor(k) >= 8);
+        return `
+        <article class="challenge-card water-challenge-card">
+          <div class="challenge-card-head">
+            <span class="water-heading-icon" aria-hidden="true">💧</span>
+            <div class="challenge-head-copy">
               <h2>Drink Water</h2>
               <small>8 glasses a day, together 💗</small>
             </div>
           </div>
-          <div class="habit-water-grid">
-            ${people.map(([key, person]) => {
-              const count = waterCountFor(key);
-              const isMine = key === questionProfileKey;
-              const assignment = water ? assignmentFor(water) : null;
-              const glassAsset = person.name?.toLowerCase() === "shazy" ? "Girl.png" : "Boy.png";
-              return `<section class="habit-water-person ${isMine ? "is-mine" : ""}">
-                <div class="habit-water-person-title"><strong>${esc(person.name)}${isMine ? " · You" : ""}</strong></div>
-                <div class="habit-water-person-main">
-                  <div class="habit-water-glass-wrap" aria-hidden="true">
-                    <div class="habit-water-glass-fill" style="--water-level:${count / 8 * 82}%"></div>
-                    <img src="./Asset/${glassAsset}" alt="" class="habit-water-glass-img" loading="lazy" decoding="async">
+          <div class="water-widget">
+            <div class="water-bottles">
+              ${people.map(([key, person]) => {
+                const count = waterCountFor(key);
+                const isMine = key === questionProfileKey;
+                const isShazy = person.name?.toLowerCase() === "shazy";
+                const glassAsset = isShazy ? "Girl.png" : "Boy.png";
+                return `<section class="water-person-progress ${isMine ? "is-mine" : ""} ${isShazy ? "water-profile-shazy" : "water-profile-keby"}" aria-label="${esc(person.name)}: ${count} of 8 glasses">
+                  <div class="water-person-title"><strong>${esc(person.name)}${isMine ? " · You" : ""}</strong><span aria-hidden="true">${isShazy ? "💗" : "💙"}</span></div>
+                  <div class="water-person-main">
+                    <div class="water-glass-wrap" aria-hidden="true"><div class="water-glass-fill" style="--water-level:${count / 8 * 82}%"></div><img src="./Asset/${glassAsset}" alt="" loading="lazy" decoding="async"></div>
+                    <div class="water-person-details"><div class="water-count"><strong>${count}</strong><span>/ 8<br>glasses</span>${isMine ? `<div class="water-count-controls"><button type="button" class="water-count-minus" data-action="water-remove" data-id="${esc(waterAssignment?.id || "")}" aria-label="Remove one glass" ${!waterTrackersReady || !assignmentsReady || count <= 0 ? "disabled" : ""}>−</button><button type="button" class="water-count-plus" data-action="water-add" data-id="${esc(waterAssignment?.id || "")}" aria-label="Add one glass" ${!waterTrackersReady || !assignmentsReady || count >= 8 ? "disabled" : ""}>＋</button></div>` : ""}</div>
+                      <div class="water-progress-track" role="progressbar" aria-label="${esc(person.name)} daily water progress" aria-valuemin="0" aria-valuemax="8" aria-valuenow="${count}"><span style="width:${count / 8 * 100}%"></span></div>
+                      <small class="water-progress-caption">${count >= 8 ? "Daily goal complete ✓" : `${8 - count} glasses to go`}</small>
+                    </div>
                   </div>
-                  <div class="habit-water-details">
-                    <div class="habit-water-count"><strong>${count}</strong><span>/ 8<br>glasses</span></div>
-                    <div class="habit-water-track" role="progressbar" aria-valuemin="0" aria-valuemax="8" aria-valuenow="${count}"><div class="habit-water-track-bar" style="width:${count / 8 * 100}%"></div></div>
-                    <small class="habit-water-caption">${count >= 8 ? "Daily goal complete ✓" : `${8 - count} glasses to go`}</small>
-                  </div>
-                </div>
-                ${isMine ? `<div class="habit-water-controls">
-                  <button type="button" class="habit-water-btn" data-action="water-remove" data-id="${esc(assignment?.id || "")}" aria-label="Remove one glass" ${!waterTrackersReady || !assignmentsReady || count <= 0 ? "disabled" : ""}>−</button>
-                  <button type="button" class="habit-water-btn" data-action="water-add" data-id="${esc(assignment?.id || "")}" aria-label="Add one glass" ${!waterTrackersReady || !assignmentsReady || count >= 8 ? "disabled" : ""}>＋</button>
-                </div>` : ""}
-              </section>`;
-            }).join("")}
+                </section>`;
+              }).join("")}
+            </div>
+            ${bothDone ? `<div class="water-celebrate">Hydrated together 💧✨</div>` : ""}
           </div>
-          ${people.every(([k]) => waterCountFor(k) >= 8) ? `<div class="habit-celebrate">Hydrated together 💧✨</div>` : ""}
         </article>
-      ` : "";
+      `;
+      })() : "";
 
       host.innerHTML = snapHtml + waterHtml;
 
