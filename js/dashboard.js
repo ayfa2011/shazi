@@ -4,7 +4,7 @@ import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate,
 import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 import { formatSpecialDayDate, specialDayCountdown } from "./special-day-utils.js";
-import { ensureDailyQuestion, watchQuestionParticipants, watchQuestionAnswer, submitQuestionAnswer, getQuestionAnswer } from "./question-service.js";
+import { ensureDailyQuestion, getQuestionParticipants, getQuestionAnswer, watchQuestionParticipants, watchQuestionAnswer, submitQuestionAnswer } from "./question-service.js";
 import { challengeDays } from "./challenge-bank.js";
 import { getCachedTelegramMediaUrl, getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
 
@@ -38,7 +38,7 @@ export function renderHome(el, user, profile) {
   dayRolloverTimer = scheduleDubaiDayRollover(() => {
     if (isCurrent()) window.App?.navigate("home");
   });
-  let dailyQuestion = null, questionParticipants = {}, ownAnswer = null, partnerAnswer = null;
+  let dailyQuestion = null, questionParticipants = {}, ownAnswer = null, partnerAnswer = null, questionStatusReady = false;
   const commentsByPost = new Map();
 
   el.innerHTML = `
@@ -210,7 +210,6 @@ export function renderHome(el, user, profile) {
       .home-feed-skeleton{display:grid;gap:9px}
       .home-skeleton-card{display:grid;gap:10px;padding:11px;border:1px solid var(--line);border-radius:16px;background:#fff}
       .home-question-body { padding:18px 20px; display:flex; flex-direction:column; gap:14px; }
-      .today-section .section-head h2.home-today-question-heading { font-size:26px; font-weight:700; line-height:1.2; }
       .home-question-text { margin:0; font-family:"Playfair Display",Georgia,serif; font-size:20px; font-weight:600; color:#6a2c42; line-height:1.5; padding:16px 18px; border-radius:16px; background:linear-gradient(135deg,#fff,#fdfafb); border:1px solid #f4d6e2; box-shadow:0 4px 14px rgba(142,59,90,0.06); }
       .home-question-answers { display:flex; flex-direction:column; gap:10px; }
       .home-question-answer { display:flex; align-items:center; gap:10px; padding:12px 16px; border:1px solid #f3d9e5; border-radius:14px; background:#fff; color:#5a3a4a; font-size:14px; box-shadow:0 2px 8px rgba(0,0,0,0.03); width:100%; }
@@ -231,6 +230,13 @@ export function renderHome(el, user, profile) {
       .section-head { display:flex; align-items:center; justify-content:space-between; margin:0 0 18px; }
       .section-head .eyebrow { font-family:"Playfair Display",Georgia,serif; font-size:13px; font-weight:600; color:#b84c6e; letter-spacing:.16em; text-transform:uppercase; margin:0; }
       .section-head h2 { font-family:"Playfair Display",Georgia,serif; font-size:22px; font-weight:600; color:#6a2c42; margin:0; letter-spacing:.01em; }
+      .home-section-head { align-items:flex-start; flex-direction:column; gap:3px; margin-bottom:12px; }
+      .section-head.home-section-head h2.home-section-title { display:flex; align-items:center; gap:9px; margin:0; color:#6a2c42; font:800 clamp(23px,4vw,27px)/1.15 "DM Sans",system-ui,sans-serif; letter-spacing:-.025em; }
+      .home-section-title .heading-mark { width:30px; height:30px; display:grid; place-items:center; flex:none; border-radius:10px; font-size:16px; letter-spacing:0; }
+      .home-section-title.is-question .heading-mark { background:#ffe8f1; }
+      .home-section-title.is-habit .heading-mark { background:#fff0f6; }
+      .home-section-title.is-challenge .heading-mark { background:#f9e9f1; }
+      .home-section-subtitle { margin:0 0 0 39px; color:#967d8b; font-size:12px; font-weight:500; line-height:1.4; }
 
       .today-section { margin:24px 0 20px; box-sizing:border-box; overflow:visible; }
       .today-cards { display:flex; flex-direction:column; gap:0; margin:0; padding:0; }
@@ -303,7 +309,6 @@ export function renderHome(el, user, profile) {
       .home-view-more-challenges { padding:10px 18px; border:1px solid #f4d6e2; border-radius:12px; background:#fff; color:#8e3b5a; font-size:12px; font-weight:600; cursor:pointer; flex:none; transition:all .2s ease; }
       .home-view-more-challenges:hover { background:#fce4ec; border-color:#eec3d7; color:#6a2c42; transform:translateY(-1px); }
       .home-challenge-create-panel { margin:0 0 14px; padding:12px; border:1px solid #f0cad9; border-radius:16px; background:linear-gradient(135deg,#fff7fb,#ffedf4); box-shadow:0 5px 18px rgba(142,59,90,.07); }
-      .home-challenge-create-title { display:flex; align-items:center; gap:8px; margin:0 0 10px; color:#6a2c42; font-size:14px; font-weight:800; }
       .home-challenge-kind-options { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
       .home-challenge-kind-btn { min-height:40px; padding:8px 12px; border:1px solid #e9a9c3; border-radius:12px; background:#fff; color:#8e3b5a; font-size:12px; font-weight:800; cursor:pointer; }
       .home-challenge-kind-btn:hover { background:#ffe8f1; border-color:#d96a96; }
@@ -419,8 +424,9 @@ export function renderHome(el, user, profile) {
       </section>
 
       <section class="today-section">
-        <div class="section-head">
-          <div><h2 class="home-today-question-heading">Today Question</h2></div>
+        <div class="section-head home-section-head">
+          <h2 class="home-section-title is-question"><span class="heading-mark" aria-hidden="true">💌</span>Today Question</h2>
+          <p class="home-section-subtitle">A little question for two hearts ♡</p>
         </div>
         <div class="today-cards">
           <article class="card today-question" id="home-question-card">
@@ -441,19 +447,19 @@ export function renderHome(el, user, profile) {
       </section>
 
       <section class="habit-section">
-        <div class="section-head">
-          <div><p class="eyebrow">Daily Habit</p></div>
-          <h2>Build habits together</h2>
+        <div class="section-head home-section-head">
+          <h2 class="home-section-title is-habit"><span class="heading-mark" aria-hidden="true">✨</span>Daily Habit</h2>
+          <p class="home-section-subtitle">Build habits together</p>
         </div>
         <div id="home-daily-habit" class="habit-cards"></div>
       </section>
 
       <section class="challenge-pun-section">
-        <div class="section-head">
-          <div><p class="eyebrow">Challenge / Punishment</p></div>
+        <div class="section-head home-section-head">
+          <h2 class="home-section-title is-challenge"><span class="heading-mark" aria-hidden="true">💝</span>Challenge / Punishment</h2>
+          <p class="home-section-subtitle">Send a playful challenge</p>
         </div>
         <div class="home-challenge-create-panel" aria-label="Send a playful challenge or punishment">
-          <p class="home-challenge-create-title"><span aria-hidden="true">💌</span> Send a playful challenge</p>
           <div class="home-challenge-kind-options" role="group" aria-label="Choose what to send">
             <button type="button" class="home-challenge-kind-btn" data-home-challenge-kind="challenge">💝 Challenge</button>
             <button type="button" class="home-challenge-kind-btn punishment" data-home-challenge-kind="punishment">😈 Punishment</button>
@@ -636,7 +642,7 @@ export function renderHome(el, user, profile) {
     const status = $("#home-question-status", el);
     if (form) {
       if (answeredByMe) form.remove();
-      else form.hidden = false;
+      else form.hidden = !questionStatusReady;
       if (status) {
         if (answeredByMe && !bothAnswered) status.textContent = "Answered! Your answer is locked until your partner answers ♡";
         else if (bothAnswered) status.textContent = "You both answered. Answers revealed above ♡";
@@ -677,11 +683,22 @@ export function renderHome(el, user, profile) {
   ensureDailyQuestion(todayKey()).then(questionRecord => {
     if (!isCurrent()) return;
     dailyQuestion = questionRecord;
+    const questionDay = todayKey();
+    Promise.all([getQuestionParticipants(questionDay), getQuestionAnswer(questionDay, questionProfileKey)]).then(([participants, answer]) => {
+      if (!isCurrent()) return;
+      questionParticipants = { ...questionParticipants, ...(participants || {}) };
+      if (answer) ownAnswer = answer;
+      questionStatusReady = true;
+      renderQuestionWidget();
+    }).catch(error => {
+      if (!isCurrent()) return;
+      console.error("Today's Question answer status could not be loaded:", error);
+    });
     renderQuestionWidget();
     stopQuestionParticipants?.();
     stopQuestionParticipants = watchQuestionParticipants(todayKey(), status => {
       if (!isCurrent()) return;
-      questionParticipants = status;
+      questionParticipants = { ...questionParticipants, ...(status || {}) };
       renderQuestionWidget();
     }, error => {
       if (!isCurrent()) return;
@@ -692,7 +709,10 @@ export function renderHome(el, user, profile) {
     stopOwnAnswer?.(); stopPartnerAnswer?.();
     stopOwnAnswer = watchQuestionAnswer(todayKey(), questionProfileKey, answer => {
       if (!isCurrent()) return;
-      ownAnswer = answer;
+      if (answer) {
+        ownAnswer = answer;
+        questionParticipants[questionProfileKey] ||= { profileKey: questionProfileKey };
+      }
       renderQuestionWidget();
     });
     if (partnerKey && questionParticipants[partnerKey]) {

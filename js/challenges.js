@@ -67,7 +67,7 @@ export function renderChallenges(el, user, profile) {
         <h1>Challenges</h1>
       </header>
 
-      <button type="button" class="give-challenge-btn" id="give-challenge-btn" aria-haspopup="dialog" aria-controls="give-challenge-modal-root">
+      <button type="button" class="give-challenge-btn" id="give-challenge-btn">
         <span class="give-icon" aria-hidden="true">💌</span>
         <span class="give-copy">
           <strong>Give a Challenge / Punishment</strong>
@@ -88,18 +88,24 @@ export function renderChallenges(el, user, profile) {
 
   /* ─── Give Challenge / Punishment ───────────────── */
   function openGiveModal(editing = null, preferredKind = "") {
-    giveModalRoot.querySelector(".challenge-compose-layer")?.remove();
+    document.body.classList.remove("challenge-hub-open");
+    el.innerHTML = `<section class="challenge-page challenge-compose-page-shell">
+      <button type="button" class="challenge-compose-back" data-close-give>‹ Back to Challenges</button>
+      <div id="challenge-compose-page-root"></div>
+    </section>`;
     const composeRoot = document.createElement("div");
     const draftKey = `challenge-draft-${ownKey}`;
     const savedDraft = !editing ? (() => { try { return JSON.parse(localStorage.getItem(draftKey) || "null"); } catch { return null; } })() : null;
+    const savedCustomDate = typeof savedDraft?.customDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(savedDraft.customDate) && savedDraft.customDate >= todayKey()
+      ? savedDraft.customDate : "";
+    const savedDuration = [1, 3, 7].includes(Number(savedDraft?.durationDays)) ? Number(savedDraft.durationDays) : null;
     const editingKind = editing?.kind === "punishment" ? "punishment" : editing ? "challenge" : preferredKind || savedDraft?.kind || "challenge";
-    composeRoot.className = "challenge-compose-layer";
+    composeRoot.className = "challenge-compose-layer challenge-compose-page";
     composeRoot.innerHTML = `
-      <div class="challenge-modal challenge-compose-modal" role="dialog" aria-modal="true">
-        <section class="challenge-modal-card">
+      <div class="challenge-compose-card">
           <header class="challenge-modal-head">
             <h2>${editing ? "Edit" : "Send"} ${editingKind === "punishment" ? "Punishment" : "Challenge"}</h2>
-            <button type="button" class="challenge-modal-close" data-close-give aria-label="Close">×</button>
+            <span class="challenge-compose-mark" aria-hidden="true">♡</span>
           </header>
           <form class="challenge-form" id="give-challenge-form">
             ${editing || preferredKind ? "" : `
@@ -116,12 +122,12 @@ export function renderChallenges(el, user, profile) {
             ${editing ? "" : `
               <label>Deadline
                 <select name="duration">
-                  <option value="1" ${savedDraft?.durationDays === 1 ? "selected" : ""}>1 day</option>
-                  <option value="3" ${savedDraft?.durationDays === 3 ? "selected" : ""}>3 days</option>
-                  <option value="7" ${!savedDraft?.durationDays || savedDraft?.durationDays === 7 ? "selected" : ""}>1 week</option>
-                  <option value="custom" ${savedDraft?.customDate ? "selected" : ""}>Choose a date…</option>
+                  <option value="1" ${savedDuration === 1 ? "selected" : ""}>1 day</option>
+                  <option value="3" ${savedDuration === 3 ? "selected" : ""}>3 days</option>
+                  <option value="7" ${(!savedDuration && !savedCustomDate) || savedDuration === 7 ? "selected" : ""}>1 week</option>
+                  <option value="custom" ${savedCustomDate ? "selected" : ""}>Choose a date…</option>
                 </select>
-                <input type="date" name="customDate" value="${esc(savedDraft?.customDate || "")}" aria-label="Choose deadline date" ${savedDraft?.customDate ? "" : "hidden"}>
+                <input type="date" name="customDate" min="${todayKey()}" value="${esc(savedCustomDate)}" aria-label="Choose deadline date" ${savedCustomDate ? "" : "hidden"}>
               </label>
               <label>Proof required
                 <select name="proofType">
@@ -147,10 +153,9 @@ export function renderChallenges(el, user, profile) {
               </button>
             </div>
           </form>
-        </section>
       </div>
     `;
-    giveModalRoot.append(composeRoot);
+    $("#challenge-compose-page-root", el).append(composeRoot);
 
     const form = $("#give-challenge-form", composeRoot);
     let kind = editingKind === "punishment" ? "punishment" : "challenge";
@@ -158,7 +163,11 @@ export function renderChallenges(el, user, profile) {
     let selectedReference = null;
     let mediaRecorder = null;
     const durationInput = form.elements.duration;
-    if (durationInput) durationInput.onchange = () => { form.elements.customDate.hidden = durationInput.value !== "custom"; };
+    if (durationInput) durationInput.onchange = () => {
+      const dateInput = form.elements.customDate;
+      dateInput.hidden = durationInput.value !== "custom";
+      if (durationInput.value === "custom") dateInput.min = todayKey();
+    };
     if (form.elements.reference) form.elements.reference.onchange = () => { selectedReference = form.elements.reference.files?.[0] || null; };
     const recordButton = composeRoot.querySelector("[data-record-voice]");
     if (recordButton) recordButton.onclick = async () => {
@@ -182,7 +191,20 @@ export function renderChallenges(el, user, profile) {
     };
     composeRoot.querySelector("[data-save-draft]")?.addEventListener("click", () => {
       const draft = { title: form.elements.title.value, description: form.elements.description.value, kind, durationDays: durationInput.value === "custom" ? null : Number(durationInput.value), customDate: form.elements.customDate.value, proofType: form.elements.proofType.value, rewardPoints: Number(form.elements.rewardPoints.value || 0), voiceData: recordedVoice };
-      localStorage.setItem(draftKey, JSON.stringify(draft)); toast("Draft saved on this device.");
+      try {
+        localStorage.setItem(draftKey, JSON.stringify(draft));
+        toast("Draft saved on this device.");
+      } catch (error) {
+        if (draft.voiceData) {
+          try {
+            localStorage.setItem(draftKey, JSON.stringify({ ...draft, voiceData: "" }));
+            toast("Draft saved. The voice note was too large to store and needs to be recorded again.");
+            return;
+          } catch { /* show the storage error below */ }
+        }
+        console.error("Could not save challenge draft:", error);
+        toast("Could not save the draft on this device. Check available browser storage and try again.");
+      }
     });
     composeRoot.querySelector("[data-preview]")?.addEventListener("click", () => {
       const preview = composeRoot.querySelector(".challenge-compose-preview");
@@ -192,10 +214,8 @@ export function renderChallenges(el, user, profile) {
       preview.innerHTML = `<strong>${esc(form.elements.title.value || "Your title")}</strong><p>${esc(form.elements.description.value || "Your description")}</p><small>${kind === "punishment" ? "Punishment" : "Challenge"} · ${esc(deadlineText)} · ${esc(form.elements.proofType.value)} proof${points ? ` · ${points} points` : ""}</small>`;
     });
 
-    composeRoot.querySelectorAll("[data-close-give]").forEach(b => b.onclick = () => composeRoot.remove());
-    composeRoot.querySelector(".challenge-modal").onclick = event => {
-      if (event.target === composeRoot.querySelector(".challenge-modal")) composeRoot.remove();
-    };
+    composeRoot.querySelectorAll("[data-close-give]").forEach(b => b.onclick = () => window.App?.navigate("challenges"));
+    $("[data-close-give]", el).onclick = () => window.App?.navigate("challenges");
     form.elements.title?.focus();
 
     form.querySelectorAll("[data-kind]").forEach(button => {
@@ -227,14 +247,17 @@ export function renderChallenges(el, user, profile) {
         if (editing) {
           await transitionCustomChallenge(editing.id, { uid: user.uid, profileKey: ownKey }, "edit", { title, description, kind });
           toast("Updated ♡");
-          composeRoot.remove();
+          window.App?.navigate("challenges");
           return;
         }
         const createdAt = Date.now();
         let deadlineAt;
         if (form.elements.duration.value === "custom") {
-          const chosen = new Date(`${form.elements.customDate.value}T23:59:00`);
-          if (!form.elements.customDate.value || chosen.getTime() <= createdAt) throw new Error("Choose a future deadline.");
+          const [year, month, day] = (form.elements.customDate.value || "").split("-").map(Number);
+          const chosen = year && month && day ? new Date(year, month - 1, day, 23, 59, 59, 999) : new Date(NaN);
+          if (!Number.isFinite(chosen.getTime()) || chosen.getFullYear() !== year || chosen.getMonth() !== month - 1 || chosen.getDate() !== day || chosen.getTime() <= createdAt) {
+            throw new Error("Choose today or a future deadline date.");
+          }
           deadlineAt = chosen.getTime();
         } else deadlineAt = createdAt + Number(form.elements.duration.value || 7) * 86400000;
         const durationDays = Math.max(1, Math.ceil((deadlineAt - createdAt) / 86400000));
@@ -272,7 +295,7 @@ export function renderChallenges(el, user, profile) {
           `${profile.name} sent ${kind === "punishment" ? "a punishment" : "a challenge"}: ${title}`.slice(0, 240),
           customRef.id, "challenges");
         toast(kind === "punishment" ? "Punishment sent 😈" : "Challenge sent ♡");
-        composeRoot.remove();
+        window.App?.navigate("challenges");
       } catch (error) {
         console.error(error);
         toast(error.message || "Could not send.");
@@ -316,7 +339,7 @@ export function renderChallenges(el, user, profile) {
     giveModalRoot.innerHTML = "";
     document.body.classList.remove("challenge-hub-open");
   }
-  $("#give-challenge-btn", el).onclick = openChallengeHub;
+  $("#give-challenge-btn", el).onclick = () => openGiveModal();
 
   /* ─── Assignment / water helpers ────────────────── */
   function assignmentFor(challenge) {
@@ -582,12 +605,13 @@ export function renderChallenges(el, user, profile) {
     const mediaData = proof?.telegramFileId ? proof : item.referenceMedia?.telegramFileId ? item.referenceMedia : item;
     const mediaId = mediaData.telegramFileId || "";
     const mediaMime = mediaData.videoMimeType || mediaData.audioMimeType || mediaData.photoMimeType || mediaData.mimeType || "image/jpeg";
+    const photoUrl = typeof mediaData.photoUrl === "string" && !["null", "undefined"].includes(mediaData.photoUrl.trim().toLowerCase()) ? mediaData.photoUrl : "";
     const image = mediaId ? mediaMime.startsWith("video/")
       ? `<video class="custom-photo" controls data-telegram-file-id="${esc(mediaId)}" data-telegram-mime="${esc(mediaMime)}"></video>`
       : mediaMime.startsWith("audio/")
         ? `<audio controls data-telegram-file-id="${esc(mediaId)}" data-telegram-mime="${esc(mediaMime)}"></audio>`
         : `<img class="custom-photo" data-telegram-file-id="${esc(mediaId)}" data-telegram-mime="${esc(mediaMime)}" alt="Challenge media">`
-      : mediaData.photoUrl ? `<img class="custom-photo" src="${esc(mediaData.photoUrl)}" alt="Challenge media">` : "";
+      : photoUrl ? `<img class="custom-photo" src="${esc(photoUrl)}" alt="Challenge media">` : "";
     const actions = received && item.status === "upcoming"
       ? `<div class="custom-actions"><button class="custom-accept" data-custom-action="accept" data-id="${esc(item.id)}">Accept</button></div>`
       : received && item.status === "in-progress"
@@ -996,8 +1020,8 @@ export function renderChallenges(el, user, profile) {
 
   function onChallengeEscape(event) {
     if (event.key === "Escape") {
-      const compose = giveModalRoot.querySelector(".challenge-compose-layer");
-      if (compose) { compose.remove(); return; }
+      const compose = el.querySelector(".challenge-compose-page");
+      if (compose) { window.App?.navigate("challenges"); return; }
       if (giveModalRoot.querySelector(".challenge-hub-page")) { closeChallengeHub(); return; }
       modalRoot.querySelector("[data-close-modal]")?.click();
     }

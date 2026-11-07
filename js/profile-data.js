@@ -17,10 +17,13 @@ export function applyCoupleProfiles(data = {}) {
 
     for (const field of ["name", "bio", "avatar", "driveFileId", "authUid", "avatarTelegramFileId", "avatarMimeType", "avatarPosition"]) {
       if (typeof saved[field] !== "string") continue;
-      if (field === "bio" && !saved.bio && saved.bioConfigured !== true && profile.bio) continue;
-      if (field === "avatar" && !saved.avatar && profile.avatar) continue;
-      if (profile[field] !== saved[field]) changed = true;
-      profile[field] = saved[field];
+      const incoming = ["avatar", "avatarTelegramFileId"].includes(field) && ["null", "undefined"].includes(saved[field].trim().toLowerCase())
+        ? "" : saved[field];
+      if (field === "bio" && !incoming && saved.bioConfigured !== true && profile.bio) continue;
+      const currentAvatarIsSentinel = ["null", "undefined"].includes(String(profile.avatar || "").trim().toLowerCase());
+      if (field === "avatar" && !incoming && profile.avatar && !currentAvatarIsSentinel) continue;
+      if (profile[field] !== incoming) changed = true;
+      profile[field] = incoming;
     }
     if (previousAvatarFileId !== (profile.avatarTelegramFileId || "")) {
       profile.avatarPreviewDataUrl = "";
