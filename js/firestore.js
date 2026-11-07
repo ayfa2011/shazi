@@ -177,6 +177,13 @@ export async function deletePost(postId) {
 
 // Optimized backend listener filter
 export function watchItems(type, cb, onError, limitVal = 100, options = {}) {
+  // Accept both legacy (type, cb, onError, options) and current
+  // (type, cb, onError, limit, options) call forms.
+  if (limitVal && typeof limitVal === "object") {
+    options = limitVal;
+    limitVal = 100;
+  }
+  options ||= {};
   let q = query(root(), where("type", "==", type), orderBy("createdAt", "desc"));
   // A default bound keeps a fast-growing collection from loading every document
   // into memory on each snapshot. Omit (or pass null) for an uncapped watch.

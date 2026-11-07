@@ -65,7 +65,7 @@ export function renderChallengeDetail(el, user, profile) {
     console.error("Challenge detail sync failed:", error);
     const loading = $("#challenge-detail-loading", el);
     if (loading) loading.textContent = "Could not load challenge details.";
-  }, undefined, null);
+  }, {});
 }
 
 function renderDetailContent(el, user, profile) {

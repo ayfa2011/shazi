@@ -151,7 +151,7 @@
    Keby gets the blue tint and Shazy the pink tint, exactly like the water
    card, so the two habit sections read as one system. */
 .snap-person-card {
-  position: relative; flex: 1; min-width: 0; padding: 10px; border-radius: 16px;
+  position: relative; flex: 1; min-width: 0; padding: 8px; border-radius: 16px;
   border: 1px solid #cce6fb; background: linear-gradient(145deg, #fff, #f8fcff);
   display: flex; flex-direction: column; gap: 6px;
 }
@@ -160,7 +160,7 @@
 /* Title row = .water-person-title: name + emoji centred, badge top-right */
 .snap-person-title {
   position: relative; display: flex; align-items: center; justify-content: center;
-  gap: 6px; margin-bottom: 6px; min-height: 20px;
+  gap: 6px; margin-bottom: 0; min-height: 20px;
   color: #173e70; font-size: 14px; overflow-wrap: anywhere;
 }
 .snap-person-title strong { font-weight: 700; padding: 0 46px; text-align: center; }
@@ -178,19 +178,19 @@
 .snap-status-pill.pending { background: #fff0f4; color: #907784; }
 /* Body = .water-person-main: fixed visual + flexible details column */
 .snap-person-main {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  min-width: 0; min-height: clamp(80px, 12vw, 108px);
+  display: flex; align-items: center; justify-content: flex-start; gap: 8px;
+  width: 100%; height: 50px; min-width: 0; min-height: 50px; box-sizing: border-box;
 }
 .snap-visual { flex: none; display: grid; place-items: center; }
 .snap-avatar {
-  width: clamp(56px, 8vw, 76px); height: clamp(80px, 12vw, 108px);
+  width: 56px; height: 50px;
   display: grid; place-items: center; overflow: hidden; border-radius: 16px;
   background: linear-gradient(145deg, #eef8f1, #e2f2e8); color: #288455;
   font: 800 26px/1 "DM Sans", sans-serif;
 }
 .snap-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .snap-sent-check {
-  width: clamp(56px, 8vw, 76px); height: clamp(80px, 12vw, 108px);
+  width: 56px; height: 50px;
   display: grid; place-items: center; border-radius: 16px;
   background: #31a66b; color: #fff; font: 800 34px/1 "DM Sans", sans-serif;
 }
@@ -201,16 +201,14 @@
 .snap-person-details {
   display: flex; flex-direction: column;
   justify-content: center; gap: 4px; min-width: 0; flex: 1;
-  padding-bottom: 34px;
+  padding-bottom: 0;
 }
 .snap-state-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .snap-state-copy strong { color: #29232a; font-size: 12px; line-height: 1.25; }
 .snap-state-copy small { color: #907e87; font-size: 10px; line-height: 1.25; }
-/* Action = the water progress bar slot: full width of the details column,
-   pinned to its bottom so it never adds a row. */
+/* A fixed-height action slot keeps sent and unsent cards the same size. */
 .snap-send-button {
-  position: absolute; left: 10px; right: 10px; bottom: 10px;
-  width: auto; min-height: 30px; padding: 0 10px; box-sizing: border-box;
+  position: static; display: block; width: 100%; min-height: 28px; padding: 0 10px; box-sizing: border-box;
   border: 0; border-radius: 10px; background: #fffc00; color: #171717;
   font: 800 12px "DM Sans", sans-serif; cursor: pointer;
   box-shadow: 0 2px 8px rgba(23, 23, 23, 0.12);
@@ -218,22 +216,20 @@
 .snap-send-button:hover:not(:disabled) { opacity: 0.9; }
 .snap-send-button:disabled { opacity: 0.55; cursor: wait; }
 /* The partner card reserves the same slot so both cards stay equal */
-.snap-action-spacer { display: none; }
+.snap-action-spacer { display: grid; }
 
 /* Keep both habit grids stretching their cards to a shared height */
 .snap-people-grid, .water-bottles { align-items: stretch; }
 .snap-person-card { justify-content: flex-start; }
 
-/* The snap body matches the water body's 108px glass height exactly, so
-   the two habit sections end at the same overall height. */
-.snap-person-card .snap-person-main { min-height: clamp(80px, 12vw, 108px); }
+/* Keep the snap body and sent/unsent visuals compact and identical. */
+.snap-person-card .snap-person-main { min-height: 50px; }
 .snap-person-card .snap-avatar,
-.snap-person-card .snap-sent-check { height: clamp(80px, 12vw, 108px); }
-/* The water card carries a caption line under its body; the snap card has
-   none, so trim the body by that line to keep both cards level. */
-.snap-person-card .snap-person-main { min-height: clamp(74px, 11vw, 102px); }
+.snap-person-card .snap-sent-check { height: 50px; }
+/* Preserve the fixed body height at all breakpoints. */
+.snap-person-card .snap-person-main { min-height: 50px; }
 .snap-person-card .snap-avatar,
-.snap-person-card .snap-sent-check { height: clamp(74px, 11vw, 102px); }
+.snap-person-card .snap-sent-check { height: 50px; }
 
 /* ── Snap copy: two short lines, never truncated mid-word ── */
 .snap-person-card .snap-state-copy strong { font-size: 11px; }
@@ -253,8 +249,8 @@
 /* ── Symmetry: the partner card has no button, so it shows a quiet
    placeholder in the same slot. Both columns then read identically. ── */
 .snap-action-spacer {
-  position: absolute; left: 10px; right: 10px; bottom: 10px;
-  display: grid; place-items: center; min-height: 30px;
+  position: static; width: 100%; box-sizing: border-box;
+  display: grid; place-items: center; min-height: 28px;
   border-radius: 10px; background: #f7f4f5; border: 1px dashed #e6dbe1;
   color: #a08d97; font: 700 10px "DM Sans", sans-serif;
   letter-spacing: .02em; white-space: nowrap;
@@ -829,10 +825,10 @@ body.challenge-hub-open { overflow: hidden; overscroll-behavior: none; }
   .challenge-head-copy h2 { font-size: 14px; }
   .challenge-icon { width: 34px; height: 34px; font-size: 17px; }
   .give-challenge-btn { padding: 11px 14px; }
-  .snap-person-card { padding: 9px 7px; border-radius: 16px; }
+  .snap-person-card { padding: 8px; border-radius: 16px; }
   .snap-person-head > strong { font-size: 13px; }
-  .snap-avatar, .snap-sent-check { width: 66px; height: 100px; }
-  .snap-send-button { font-size: 12px; padding: 0 6px; min-height: 32px; }
+  .snap-avatar, .snap-sent-check { width: 56px; height: 50px; }
+  .snap-send-button { font-size: 11px; padding: 0 6px; min-height: 28px; }
   .water-person-progress { padding: 9px 7px; border-radius: 16px; }
   .water-glass-wrap { width: 66px; height: 100px; }
   .water-count strong { font-size: clamp(24px, 3vw, 32px); }

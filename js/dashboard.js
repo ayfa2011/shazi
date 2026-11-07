@@ -4,7 +4,7 @@ import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate,
 import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 import { formatSpecialDayDate, specialDayCountdown } from "./special-day-utils.js";
-import { ensureDailyQuestion, watchQuestionParticipants, watchQuestionAnswer, submitQuestionAnswer } from "./question-service.js";
+import { ensureDailyQuestion, watchQuestionParticipants, watchQuestionAnswer, submitQuestionAnswer, getQuestionAnswer } from "./question-service.js";
 import { challengeDays } from "./challenge-bank.js";
 import { getCachedTelegramMediaUrl, getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
 
@@ -210,6 +210,7 @@ export function renderHome(el, user, profile) {
       .home-feed-skeleton{display:grid;gap:9px}
       .home-skeleton-card{display:grid;gap:10px;padding:11px;border:1px solid var(--line);border-radius:16px;background:#fff}
       .home-question-body { padding:18px 20px; display:flex; flex-direction:column; gap:14px; }
+      .today-section .section-head h2.home-today-question-heading { font-size:26px; font-weight:700; line-height:1.2; }
       .home-question-text { margin:0; font-family:"Playfair Display",Georgia,serif; font-size:20px; font-weight:600; color:#6a2c42; line-height:1.5; padding:16px 18px; border-radius:16px; background:linear-gradient(135deg,#fff,#fdfafb); border:1px solid #f4d6e2; box-shadow:0 4px 14px rgba(142,59,90,0.06); }
       .home-question-answers { display:flex; flex-direction:column; gap:10px; }
       .home-question-answer { display:flex; align-items:center; gap:10px; padding:12px 16px; border:1px solid #f3d9e5; border-radius:14px; background:#fff; color:#5a3a4a; font-size:14px; box-shadow:0 2px 8px rgba(0,0,0,0.03); width:100%; }
@@ -283,7 +284,7 @@ export function renderHome(el, user, profile) {
       .habit-celebrate { margin-top:8px; padding:10px 14px; border-radius:10px; background:#fff0f6; color:#b84c6e; font-size:11px; font-weight:700; text-align:center; letter-spacing:.05em; }
 
       .challenge-pun-section { margin:32px 0 28px; box-sizing:border-box; overflow:visible; }
-      .challenge-pun-section .section-head { display:flex; align-items:center; justify-content:space-between; margin:0 0 18px; }
+      .challenge-pun-section .section-head { display:flex; align-items:center; justify-content:space-between; margin:0 0 8px; }
       .challenge-pun-list { display:flex; flex-direction:column; gap:12px; }
       .challenge-card { padding:18px 20px; border:1px solid #f3d9e5; border-radius:20px; background:#fff; box-shadow:0 4px 16px rgba(142,59,90,0.06); cursor:pointer; transition:all .25s ease; display:flex; flex-direction:column; gap:12px; }
       .challenge-card:hover { transform:translateY(-2px); box-shadow:0 10px 28px rgba(142,59,90,0.1); border-color:#eec3d7; }
@@ -301,6 +302,12 @@ export function renderHome(el, user, profile) {
       .challenge-empty { padding:24px; text-align:center; color:#a58392; font-size:13px; }
       .home-view-more-challenges { padding:10px 18px; border:1px solid #f4d6e2; border-radius:12px; background:#fff; color:#8e3b5a; font-size:12px; font-weight:600; cursor:pointer; flex:none; transition:all .2s ease; }
       .home-view-more-challenges:hover { background:#fce4ec; border-color:#eec3d7; color:#6a2c42; transform:translateY(-1px); }
+      .home-challenge-create-panel { margin:0 0 14px; padding:12px; border:1px solid #f0cad9; border-radius:16px; background:linear-gradient(135deg,#fff7fb,#ffedf4); box-shadow:0 5px 18px rgba(142,59,90,.07); }
+      .home-challenge-create-title { display:flex; align-items:center; gap:8px; margin:0 0 10px; color:#6a2c42; font-size:14px; font-weight:800; }
+      .home-challenge-kind-options { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+      .home-challenge-kind-btn { min-height:40px; padding:8px 12px; border:1px solid #e9a9c3; border-radius:12px; background:#fff; color:#8e3b5a; font-size:12px; font-weight:800; cursor:pointer; }
+      .home-challenge-kind-btn:hover { background:#ffe8f1; border-color:#d96a96; }
+      .home-challenge-kind-btn.punishment { border-color:#d996ae; background:#fff2f7; color:#a23865; }
 
       /* New status badges and featured challenge styles */
       .challenge-status { font-size:9px; padding:3px 9px; border-radius:8px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; flex:none; }
@@ -413,7 +420,7 @@ export function renderHome(el, user, profile) {
 
       <section class="today-section">
         <div class="section-head">
-          <div><p class="eyebrow">Today Question</p></div>
+          <div><h2 class="home-today-question-heading">Today Question</h2></div>
         </div>
         <div class="today-cards">
           <article class="card today-question" id="home-question-card">
@@ -444,8 +451,13 @@ export function renderHome(el, user, profile) {
       <section class="challenge-pun-section">
         <div class="section-head">
           <div><p class="eyebrow">Challenge / Punishment</p></div>
-          <h2>Send a playful challenge</h2>
-          <button type="button" class="home-view-more-challenges" id="home-view-more-challenges">＋ New Challenge</button>
+        </div>
+        <div class="home-challenge-create-panel" aria-label="Send a playful challenge or punishment">
+          <p class="home-challenge-create-title"><span aria-hidden="true">💌</span> Send a playful challenge</p>
+          <div class="home-challenge-kind-options" role="group" aria-label="Choose what to send">
+            <button type="button" class="home-challenge-kind-btn" data-home-challenge-kind="challenge">💝 Challenge</button>
+            <button type="button" class="home-challenge-kind-btn punishment" data-home-challenge-kind="punishment">😈 Punishment</button>
+          </div>
         </div>
         <div id="home-challenge-punishment" class="challenge-pun-list"></div>
       </section>
@@ -600,7 +612,7 @@ export function renderHome(el, user, profile) {
     if (!questionText || !dailyQuestion) return;
     questionText.textContent = dailyQuestion.question;
     const bothAnswered = Boolean(questionParticipants[questionProfileKey] && questionParticipants[partnerProfileKey]);
-    const answeredByMe = Boolean(questionParticipants[questionProfileKey]);
+    const answeredByMe = Boolean(questionParticipants[questionProfileKey] || ownAnswer?.answer);
     if (answers) {
       const people = Object.entries(APP_CONFIG.profiles);
       answers.innerHTML = people.map(([key, person]) => {
@@ -623,7 +635,8 @@ export function renderHome(el, user, profile) {
     const form = $("#home-question-answer-form", el);
     const status = $("#home-question-status", el);
     if (form) {
-      form.hidden = answeredByMe;
+      if (answeredByMe) form.remove();
+      else form.hidden = false;
       if (status) {
         if (answeredByMe && !bothAnswered) status.textContent = "Answered! Your answer is locked until your partner answers ♡";
         else if (bothAnswered) status.textContent = "You both answered. Answers revealed above ♡";
@@ -647,6 +660,13 @@ export function renderHome(el, user, profile) {
       renderQuestionWidget();
       toast("Your answer is locked until both of you answer ♡");
     } catch (error) {
+      if (String(error?.message || "").toLowerCase().includes("already answered")) {
+        try { ownAnswer = await getQuestionAnswer(todayKey(), questionProfileKey); } catch { /* answer listener will refresh it */ }
+        questionParticipants[questionProfileKey] ||= { profileKey: questionProfileKey };
+        renderQuestionWidget();
+        toast("You have already answered today's question ♡");
+        return;
+      }
       console.error("Could not save today's answer:", error);
       toast(error.message || "Could not save your answer.");
       submit.disabled = false;
@@ -881,8 +901,7 @@ export function renderHome(el, user, profile) {
     if (!host) return;
     const pending = pendingCustomChallenges();
     if (!pending.length) {
-      host.innerHTML = `<div class="challenge-empty">💌 No challenges yet. Send your partner a playful challenge to get started.<br><button type="button" class="challenge-card-btn primary" data-action="create" style="margin-top:10px;max-width:240px">＋ New Challenge</button></div>`;
-      host.querySelector('[data-action="create"]').onclick = () => window.App.navigate("challenges");
+      host.innerHTML = `<div class="challenge-empty">💌 No challenges yet. Choose Challenge or Punishment above to get started.</div>`;
       return;
     }
     const featured = pending[0];
@@ -1169,7 +1188,12 @@ export function renderHome(el, user, profile) {
     scheduleHabitRender();
   }, error => console.error("Water sync failed:", error), 120);
 
-  $("#home-view-more-challenges", el).onclick = () => window.App.navigate("challenges");
+  el.querySelectorAll("[data-home-challenge-kind]").forEach(button => {
+    button.onclick = () => {
+      sessionStorage.setItem("challenge-compose-kind", button.dataset.homeChallengeKind);
+      window.App.navigate("challenges");
+    };
+  });
 
   renderChallengeCards();
   renderHabit();

@@ -87,12 +87,12 @@ export function renderChallenges(el, user, profile) {
   const giveModalRoot = $("#give-challenge-modal-root", el);
 
   /* ─── Give Challenge / Punishment ───────────────── */
-  function openGiveModal(editing = null) {
+  function openGiveModal(editing = null, preferredKind = "") {
     giveModalRoot.querySelector(".challenge-compose-layer")?.remove();
-    const editingKind = editing?.kind === "punishment" ? "punishment" : "challenge";
     const composeRoot = document.createElement("div");
     const draftKey = `challenge-draft-${ownKey}`;
     const savedDraft = !editing ? (() => { try { return JSON.parse(localStorage.getItem(draftKey) || "null"); } catch { return null; } })() : null;
+    const editingKind = editing?.kind === "punishment" ? "punishment" : editing ? "challenge" : preferredKind || savedDraft?.kind || "challenge";
     composeRoot.className = "challenge-compose-layer";
     composeRoot.innerHTML = `
       <div class="challenge-modal challenge-compose-modal" role="dialog" aria-modal="true">
@@ -102,10 +102,10 @@ export function renderChallenges(el, user, profile) {
             <button type="button" class="challenge-modal-close" data-close-give aria-label="Close">×</button>
           </header>
           <form class="challenge-form" id="give-challenge-form">
-            ${editing ? "" : `
+            ${editing || preferredKind ? "" : `
               <div class="kind-toggle" role="tablist">
-              <button type="button" data-kind="challenge" class="${savedDraft?.kind !== "punishment" ? "selected" : ""}">💝 Challenge</button>
-              <button type="button" data-kind="punishment" class="punishment ${savedDraft?.kind === "punishment" ? "selected" : ""}">😈 Punishment</button>
+              <button type="button" data-kind="challenge" class="${editingKind !== "punishment" ? "selected" : ""}">💝 Challenge</button>
+              <button type="button" data-kind="punishment" class="punishment ${editingKind === "punishment" ? "selected" : ""}">😈 Punishment</button>
               </div>`}
             <label>Title
             <input type="text" name="title" maxlength="80" required value="${esc(editing?.title || savedDraft?.title || "")}" placeholder="e.g. Make me a cup of tea">
@@ -153,7 +153,7 @@ export function renderChallenges(el, user, profile) {
     giveModalRoot.append(composeRoot);
 
     const form = $("#give-challenge-form", composeRoot);
-    let kind = editingKind === "punishment" || savedDraft?.kind === "punishment" ? "punishment" : "challenge";
+    let kind = editingKind === "punishment" ? "punishment" : "challenge";
     let recordedVoice = savedDraft?.voiceData || "";
     let selectedReference = null;
     let mediaRecorder = null;
@@ -988,7 +988,7 @@ export function renderChallenges(el, user, profile) {
     if (!isCurrent()) return;
     customAllChallenges = items;
     scheduleRender();
-  }, error => console.error("Custom challenges failed:", error), null);
+  }, error => console.error("Custom challenges failed:", error), {});
 
   function onProfilesUpdated() { partnerProfiles = APP_CONFIG.profiles; render(); }
   removeProfilesListener = () => window.removeEventListener("couple-profiles-updated", onProfilesUpdated);
@@ -1045,6 +1045,9 @@ export function renderChallenges(el, user, profile) {
   }
 
   bindActions();
+  const requestedComposeKind = sessionStorage.getItem("challenge-compose-kind");
+  sessionStorage.removeItem("challenge-compose-kind");
+  if (requestedComposeKind === "challenge" || requestedComposeKind === "punishment") openGiveModal(null, requestedComposeKind);
   prepareTodayChallenges();
   countdownTimer = window.setInterval(() => {
     el.querySelectorAll("[data-countdown-deadline]").forEach(node => {
