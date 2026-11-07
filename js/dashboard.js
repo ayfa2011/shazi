@@ -1,6 +1,6 @@
 import { $, esc, toast, todayKey, scheduleDubaiDayRollover } from "./utils.js";
 import { isVideoPost } from "./components.js";
-import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, toggleDiaryCommentLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, watchItems, notifyPartnerSafely, ensureChallengeAssignment, completeChallengeAssignment, changeDailyWaterProgress, addItem, transitionCustomChallenge } from "./firestore.js";
+import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, toggleDiaryCommentLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, watchItems, notifyPartnerSafely, ensureChallengeAssignment, completeChallengeAssignment, changeDailyWaterProgress, addItem, transitionCustomChallenge, watchChallengeAssignments } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 import { formatSpecialDayDate, specialDayCountdown } from "./special-day-utils.js";
