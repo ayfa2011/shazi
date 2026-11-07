@@ -4,7 +4,7 @@ import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate,
 import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 import { formatSpecialDayDate, specialDayCountdown } from "./special-day-utils.js";
-import { ensureDailyQuestion, watchQuestionParticipants, watchQuestionAnswer } from "./question-service.js";
+import { ensureDailyQuestion, watchQuestionParticipants, watchQuestionAnswer, submitQuestionAnswer } from "./question-service.js";
 import { challengeDays } from "./challenge-bank.js";
 import { getCachedTelegramMediaUrl, getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
 
@@ -215,6 +215,15 @@ export function renderHome(el, user, profile) {
       .home-question-answer { display:flex; align-items:center; gap:10px; padding:12px 16px; border:1px solid #f3d9e5; border-radius:14px; background:#fff; color:#5a3a4a; font-size:14px; box-shadow:0 2px 8px rgba(0,0,0,0.03); width:100%; }
       .home-question-answer-name { font-family:"Playfair Display",Georgia,serif; font-weight:600; color:#8e3b5a; flex-shrink:0; font-size:13px; letter-spacing:.02em; }
       .home-question-answer-text { flex:1; }
+      .home-question-answer-form { display:grid; gap:9px; }
+      .home-question-answer-form textarea { width:100%; min-height:86px; padding:12px; border:1px solid #f0ccda; border-radius:13px; background:#fffafd; color:#60283f; font:600 14px/1.45 system-ui,sans-serif; resize:vertical; }
+      .home-question-answer-form textarea:focus { outline:none; border-color:#e89cb5; box-shadow:0 0 0 3px #e89cb526; }
+      .home-question-form-row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+      .home-question-status { color:#a58392; font-size:11px; }
+      .home-question-form-row button { padding:9px 16px; border:none; border-radius:999px; background:linear-gradient(135deg,#e85c91,#c73d76); color:#fff; font-size:13px; font-weight:700; cursor:pointer; transition:all .2s ease; }
+      .home-question-form-row button:hover { transform:translateY(-1px); box-shadow:0 6px 16px rgba(199,61,118,0.3); }
+      .home-question-form-row button:disabled { opacity:.6; cursor:default; transform:none; }
+      .home-question-answer.locked .home-question-answer-text { filter:blur(5px); user-select:none; }
       .home-see-history-btn { padding:8px 16px; border:1px solid #f4d6e2; border-radius:10px; background:#fff; color:#8e3b5a; font-size:12px; font-weight:600; cursor:pointer; align-self:flex-start; transition:all .2s ease; white-space:nowrap; max-width:fit-content; }
       .home-see-history-btn:hover { background:#fce4ec; border-color:#eec3d7; color:#6a2c42; transform:translateY(-1px); }
 
@@ -409,8 +418,15 @@ export function renderHome(el, user, profile) {
             <div class="home-question-body">
               <p class="home-question-text" id="home-question-text">Loading today's question…</p>
               <div class="home-question-answers" id="home-question-answers"></div>
+              <form class="home-question-answer-form" id="home-question-answer-form" hidden>
+                <textarea name="answer" maxlength="1200" placeholder="Write your answer…" required></textarea>
+                <div class="home-question-form-row">
+                  <span class="home-question-status" id="home-question-status"></span>
+                  <button class="primary" type="submit">Answer Now ♡</button>
+                </div>
+              </form>
+              <button type="button" class="home-see-history-btn" id="home-see-history">See History</button>
             </div>
-            <button type="button" class="home-see-history-btn" id="home-see-history">See History</button>
           </article>
         </div>
       </section>
@@ -438,6 +454,7 @@ export function renderHome(el, user, profile) {
   const dateButton = $("#relationship-date", el);
   const dateInput = $("#relationship-date-input", el);
   const questionProfileKey = getProfileKey(profile);
+  const partnerProfileKey = Object.keys(APP_CONFIG.profiles).find(key => key !== questionProfileKey) || "";
   let startDate = "";
 
   stopSpecialDays = watchItems("specialDay", items => {
@@ -576,21 +593,60 @@ export function renderHome(el, user, profile) {
     const answers = $("#home-question-answers", el);
     if (!questionText || !dailyQuestion) return;
     questionText.textContent = dailyQuestion.question;
+    const bothAnswered = Boolean(questionParticipants[questionProfileKey] && questionParticipants[partnerProfileKey]);
+    const answeredByMe = Boolean(questionParticipants[questionProfileKey]);
     if (answers) {
       const people = Object.entries(APP_CONFIG.profiles);
       answers.innerHTML = people.map(([key, person]) => {
         const isMine = key === questionProfileKey;
         const answer = isMine ? ownAnswer : partnerAnswer;
         const answered = Boolean(questionParticipants[key]);
+        const locked = !isMine && !bothAnswered;
         const display = answer?.answer || "";
-        const showText = display ? esc(display) + " ♡" : (isMine && answered ? "Your answer will appear here." : "Waiting for your partner.");
-        return `<div class="home-question-answer answer-card" data-profile-key="${esc(key)}"><span class="home-question-answer-name">${esc(person.name)}:</span><span class="home-question-answer-text">${showText}</span></div>`;
+        let showText;
+        if (display && bothAnswered) showText = esc(display) + " ♡";
+        else if (display) showText = esc(display);
+        else if (isMine && answered) showText = "Your answer will appear here.";
+        else showText = "Waiting for your partner.";
+        return `<div class="home-question-answer answer-card${locked ? " locked" : ""}" data-profile-key="${esc(key)}"><span class="home-question-answer-name">${esc(person.name)}:</span><span class="home-question-answer-text">${showText}</span></div>`;
       }).join("");
       answers.querySelectorAll(".answer-card").forEach(card => {
         card.onclick = () => window.App.navigate("questions");
       });
     }
+    const form = $("#home-question-answer-form", el);
+    const status = $("#home-question-status", el);
+    if (form) {
+      form.hidden = answeredByMe;
+      if (status) {
+        if (answeredByMe && !bothAnswered) status.textContent = "Answered! Your answer is locked until your partner answers ♡";
+        else if (bothAnswered) status.textContent = "You both answered. Answers revealed above ♡";
+        else status.textContent = "";
+      }
+    }
   }
+
+  const answerForm = () => $("#home-question-answer-form", el);
+  answerForm()?.addEventListener("submit", async event => {
+    event.preventDefault();
+    const answer = event.target.elements.answer.value.trim();
+    if (!answer) return toast("Write an answer before submitting.");
+    const submit = event.target.querySelector("button");
+    submit.disabled = true;
+    submit.textContent = "Saving…";
+    try {
+      await submitQuestionAnswer(todayKey(), questionProfileKey, answer);
+      ownAnswer = { answer, answeredAt: new Date() };
+      questionParticipants[questionProfileKey] = { profileKey: questionProfileKey };
+      renderQuestionWidget();
+      toast("Your answer is locked until both of you answer ♡");
+    } catch (error) {
+      console.error("Could not save today's answer:", error);
+      toast(error.message || "Could not save your answer.");
+      submit.disabled = false;
+      submit.textContent = "Answer Now ♡";
+    }
+  });
 
   ensureDailyQuestion(todayKey()).then(questionRecord => {
     if (!isCurrent()) return;
