@@ -1,13 +1,15 @@
 import { $, esc, toast, todayKey, scheduleDubaiDayRollover } from "./utils.js";
 import { isVideoPost } from "./components.js";
-import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, toggleDiaryCommentLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, watchItems, notifyPartnerSafely } from "./firestore.js";
+import { watchDiaryPosts, watchRelationshipStartDate, saveRelationshipStartDate, watchDrawingMessages, toggleDiaryLike, toggleDiaryCommentLike, watchDiaryComments, addDiaryComment, updateDiaryComment, deleteDiaryComment, watchItems, notifyPartnerSafely, ensureChallengeAssignment, completeChallengeAssignment, changeDailyWaterProgress, addItem, transitionCustomChallenge } from "./firestore.js";
 import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getDisplayName, getProfileKey } from "./profile-data.js";
 import { formatSpecialDayDate, specialDayCountdown } from "./special-day-utils.js";
-import { ensureDailyQuestion, watchQuestionParticipants } from "./question-service.js";
-import { getCachedTelegramMediaUrl, getTelegramMediaUrl } from "../src/services/telegramService.js";
+import { ensureDailyQuestion, watchQuestionParticipants, watchQuestionAnswer } from "./question-service.js";
+import { challengeDays } from "./challenge-bank.js";
+import { getCachedTelegramMediaUrl, getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
 
-let stopPosts = null, stopRelationship = null, stopDrawings = null, stopQuestionParticipants = null, stopSpecialDays = null, counterTimer = null, dayRolloverTimer = null, homeRenderToken = 0, postCommentStops = new Map();
+let stopPosts = null, stopRelationship = null, stopDrawings = null, stopQuestionParticipants = null, stopSpecialDays = null, stopOwnAnswer = null, stopPartnerAnswer = null, stopChallenges = null, stopWaterChallenges = null, stopCustomChallenges = null, counterTimer = null, dayRolloverTimer = null, homeRenderToken = 0, postCommentStops = new Map();
+let assignments = [], assignmentsReady = false, waterTrackers = [], waterTrackersReady = false, customAllChallenges = [], challengeRenderScheduled = null;
 
 function feedSkeletonMarkup(count = 2) {
   const card = `<div class="home-skeleton-card" aria-hidden="true">
@@ -36,7 +38,7 @@ export function renderHome(el, user, profile) {
   dayRolloverTimer = scheduleDubaiDayRollover(() => {
     if (isCurrent()) window.App?.navigate("home");
   });
-  let dailyQuestion = null, questionParticipants = {};
+  let dailyQuestion = null, questionParticipants = {}, ownAnswer = null, partnerAnswer = null;
   const commentsByPost = new Map();
 
   el.innerHTML = `
@@ -45,6 +47,9 @@ export function renderHome(el, user, profile) {
         max-width: 1050px;
         margin: 0 auto;
         font-family: system-ui, -apple-system, sans-serif;
+        padding: 20px 0 40px;
+        box-sizing: border-box;
+        overflow: visible;
       }
       .home-post-panel {
         padding: 16px;
@@ -204,6 +209,161 @@ export function renderHome(el, user, profile) {
       }
       .home-feed-skeleton{display:grid;gap:9px}
       .home-skeleton-card{display:grid;gap:10px;padding:11px;border:1px solid var(--line);border-radius:16px;background:#fff}
+      .home-question-body { padding:20px; display:flex; flex-direction:column; gap:16px; }
+      .home-question-text { margin:0; font-family:"Playfair Display",Georgia,serif; font-size:20px; font-weight:600; color:#6a2c42; line-height:1.5; padding:18px 20px; border-radius:18px; background:linear-gradient(135deg,#fff,#fdfafb); border:1px solid #f4d6e2; box-shadow:0 4px 16px rgba(142,59,90,0.06); }
+      .home-question-answers { display:flex; flex-direction:column; gap:10px; }
+      .home-question-answer { display:flex; align-items:center; gap:10px; padding:12px 16px; border:1px solid #f3d9e5; border-radius:14px; background:#fff; color:#5a3a4a; font-size:14px; box-shadow:0 2px 8px rgba(0,0,0,0.03); }
+      .home-question-answer-name { font-family:"Playfair Display",Georgia,serif; font-weight:600; color:#8e3b5a; flex-shrink:0; font-size:13px; letter-spacing:.02em; }
+      .home-question-answer-text { flex:1; }
+      .home-see-history-btn { margin-top:6px; padding:10px 18px; border:1px solid #f4d6e2; border-radius:12px; background:#fff; color:#8e3b5a; font-size:12px; font-weight:600; cursor:pointer; align-self:flex-start; transition:all .2s ease; }
+      .home-see-history-btn:hover { background:#fce4ec; border-color:#eec3d7; color:#6a2c42; transform:translateY(-1px); }
+
+      .section-head { display:flex; align-items:center; justify-content:space-between; margin:0 0 22px; }
+      .section-head .eyebrow { font-family:"Playfair Display",Georgia,serif; font-size:11px; font-weight:600; color:#b84c6e; letter-spacing:.16em; text-transform:uppercase; margin:0 0 4px; display:block; }
+      .section-head h2 { font-family:"Playfair Display",Georgia,serif; font-size:24px; font-weight:600; color:#6a2c42; margin:0; letter-spacing:.01em; }
+
+      .today-section { margin:32px 0 24px; box-sizing:border-box; overflow:visible; }
+      .today-cards { display:flex; flex-direction:column; gap:0; margin:0; padding:0; }
+      .today-question { position:relative; padding:24px; border:1px solid #f4d6e2; border-radius:22px; background:#fff; box-shadow:0 6px 24px rgba(142,59,90,0.08); min-height:auto; overflow:visible; transition:all .3s ease; }
+      .today-question:hover { transform:translateY(-2px); box-shadow:0 10px 32px rgba(142,59,90,0.12); border-color:#eec3d7; }
+      .today-question::before { content:"♡"; position:absolute; top:-10px; left:20px; width:20px; height:20px; background:#fff; border:1px solid #f4d6e2; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; color:#e89cb5; z-index:2; box-shadow:0 2px 8px rgba(0,0,0,0.06); }
+
+      .habit-section { margin:32px 0 24px; box-sizing:border-box; overflow:visible; }
+      .habit-cards { display:flex; flex-direction:column; gap:14px; }
+      .habit-card { padding:20px; border:1px solid #f3d9e5; border-radius:20px; background:linear-gradient(135deg,#fff,#fdfafb); box-shadow:0 4px 16px rgba(142,59,90,0.06); display:flex; flex-direction:column; gap:14px; transition:all .25s ease; }
+      .habit-card:hover { transform:translateY(-1px); box-shadow:0 8px 24px rgba(142,59,90,0.1); border-color:#eec3d7; }
+      .habit-card-head { display:flex; align-items:center; gap:12px; }
+      .habit-card-head .habit-icon { font-size:22px; flex:none; filter:drop-shadow(0 2px 4px rgba(232,156,181,0.25)); }
+      .habit-card-head .habit-copy { min-width:0; }
+      .habit-card-head .habit-copy h2 { font-family:"Playfair Display",Georgia,serif; margin:0; font-size:17px; color:#6a2c42; font-weight:600; }
+      .habit-card-head .habit-copy small { margin:0; color:#a58392; font-size:11px; letter-spacing:.05em; text-transform:uppercase; font-weight:600; }
+      .habit-snap-grid { display:grid; gap:10px; }
+      .habit-snap-person { padding:12px 14px; border:1px solid #f3d9e5; border-radius:14px; background:#fff; color:#5a3a4a; display:flex; align-items:center; gap:10px; transition:all .2s ease; }
+      .habit-snap-person.is-sent { border-color:#eec3d7; background:#fff0f6; }
+      .habit-snap-person-header { display:flex; justify-content:space-between; align-items:center; gap:8px; width:100%; }
+      .habit-snap-person-header strong { font-family:"Playfair Display",Georgia,serif; font-weight:600; color:#8e3b5a; font-size:13px; }
+      .habit-snap-pill { font-size:9px; padding:3px 9px; border-radius:8px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+      .habit-snap-pill.sent { background:#eec3d7; color:#6a2c42; }
+      .habit-snap-pill.pending { background:#f1e3ea; color:#a58392; }
+      .habit-snap-state { display:flex; align-items:center; gap:8px; }
+      .habit-snap-avatar { width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,#fce4ec,#f8e1ec); color:#8e3b5a; font-size:13px; font-weight:800; display:grid; place-items:center; flex:none; box-shadow:0 2px 6px rgba(232,156,181,0.3); }
+      .habit-snap-state-copy { min-width:0; }
+      .habit-snap-state-copy strong { display:block; font-size:12px; color:#6a2c42; font-weight:600; }
+      .habit-snap-state-copy small { display:block; font-size:11px; color:#a58392; }
+      .habit-snap-btn { margin-top:8px; padding:8px 14px; border:1px solid #f4d6e2; border-radius:10px; background:#fff; color:#8e3b5a; font-size:11px; font-weight:700; cursor:pointer; align-self:flex-start; transition:all .2s ease; }
+      .habit-snap-btn:hover { background:#fce4ec; border-color:#eec3d7; color:#6a2c42; transform:translateY(-1px); }
+      .habit-water-grid { display:flex; gap:12px; }
+      .habit-water-person { flex:1; padding:12px 14px; border:1px solid #f3d9e5; border-radius:14px; background:#fff; color:#5a3a4a; display:flex; flex-direction:column; gap:8px; transition:all .2s ease; }
+      .habit-water-person:hover { border-color:#eec3d7; background:#fdfafb; }
+      .habit-water-person-title { display:flex; justify-content:space-between; align-items:center; margin-bottom:2px; }
+      .habit-water-person-title strong { font-family:"Playfair Display",Georgia,serif; font-weight:600; color:#8e3b5a; font-size:13px; }
+      .habit-water-person-main { display:flex; gap:12px; align-items:flex-start; }
+      .habit-water-glass-wrap { position:relative; width:52px; height:52px; border-radius:16px; background:#fff0f6; display:grid; place-items:center; flex:none; overflow:hidden; border:2px solid #f3d9e5; box-shadow:inset 0 1px 3px rgba(0,0,0,0.04); }
+      .habit-water-glass-fill { position:absolute; inset:0; border-radius:12px; background:linear-gradient(180deg,#e89cb5,#d76f8c); transform:scaleY(0.5); transform-origin:center bottom; transition:transform .5s cubic-bezier(.4,0,.2,1); }
+      .habit-water-glass-img { width:100%; height:100%; object-fit:cover; opacity:0; position:absolute; inset:0; border-radius:12px; }
+      .habit-water-details { min-width:0; }
+      .habit-water-count { font-size:12px; }
+      .habit-water-count strong { font-family:"Playfair Display",Georgia,serif; font-size:17px; color:#6a2c42; font-weight:600; }
+      .habit-water-track { margin-top:6px; height:5px; background:#f1e3ea; border-radius:3px; overflow:hidden; }
+      .habit-water-track-bar { height:100%; background:linear-gradient(90deg,#e89cb5,#c73d76); width:0%; transition:width .5s cubic-bezier(.4,0,.2,1); }
+      .habit-water-caption { margin-top:4px; font-size:10px; color:#a58392; }
+      .habit-water-controls { margin-top:6px; display:flex; gap:8px; }
+      .habit-water-btn { width:28px; height:28px; border:1px solid #f4d6e2; border-radius:10px; background:#fff; color:#8e3b5a; font-size:13px; font-weight:800; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .2s ease; }
+      .habit-water-btn:hover { background:#fce4ec; border-color:#eec3d7; color:#6a2c42; transform:translateY(-1px); }
+      .habit-water-btn:disabled { opacity:0.45; cursor:not-allowed; }
+      .habit-celebrate { margin-top:8px; padding:10px 14px; border-radius:10px; background:#fff0f6; color:#b84c6e; font-size:11px; font-weight:700; text-align:center; letter-spacing:.05em; }
+
+      .challenge-pun-section { margin:32px 0 28px; box-sizing:border-box; overflow:visible; }
+      .challenge-pun-section .section-head { display:flex; align-items:center; justify-content:space-between; margin:0 0 18px; }
+      .challenge-pun-list { display:flex; flex-direction:column; gap:12px; }
+      .challenge-card { padding:18px 20px; border:1px solid #f3d9e5; border-radius:20px; background:#fff; box-shadow:0 4px 16px rgba(142,59,90,0.06); cursor:pointer; transition:all .25s ease; display:flex; flex-direction:column; gap:12px; }
+      .challenge-card:hover { transform:translateY(-2px); box-shadow:0 10px 28px rgba(142,59,90,0.1); border-color:#eec3d7; }
+      .challenge-card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:4px; }
+      .challenge-card-type { font-size:10px; padding:4px 10px; border-radius:8px; font-weight:700; flex:none; letter-spacing:.08em; text-transform:uppercase; }
+      .challenge-card-type.challenge { background:#eec3d7; color:#6a2c42; border:1px solid #f1b8d0; }
+      .challenge-card-type.punishment { background:#f1c4d6; color:#8e3b5a; border:1px solid #e8a9c3; }
+      .challenge-card-title { font-family:"Playfair Display",Georgia,serif; font-size:15px; font-weight:600; color:#6a2c42; margin:0 0 6px; flex:1; line-height:1.4; }
+      .challenge-card-desc { font-size:13px; color:#8c737d; margin:0 0 10px; line-height:1.5; flex:1; }
+      .challenge-card-meta { display:flex; gap:12px; font-size:11px; color:#a58392; margin-bottom:8px; }
+      .challenge-card-meta span { white-space:nowrap; }
+      .challenge-card-actions { display:flex; gap:8px; }
+      .challenge-card-btn { flex:1; padding:9px 12px; border:1px solid #f4d6e2; border-radius:10px; background:#fff; color:#8e3b5a; font-size:11px; font-weight:700; cursor:pointer; transition:all .2s ease; }
+      .challenge-card-btn:hover { background:#fce4ec; border-color:#eec3d7; color:#6a2c42; transform:translateY(-1px); }
+      .challenge-empty { padding:24px; text-align:center; color:#a58392; font-size:13px; }
+      .home-view-more-challenges { padding:10px 18px; border:1px solid #f4d6e2; border-radius:12px; background:#fff; color:#8e3b5a; font-size:12px; font-weight:600; cursor:pointer; flex:none; transition:all .2s ease; }
+      .home-view-more-challenges:hover { background:#fce4ec; border-color:#eec3d7; color:#6a2c42; transform:translateY(-1px); }
+
+      /* New status badges and featured challenge styles */
+      .challenge-status { font-size:9px; padding:3px 9px; border-radius:8px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; flex:none; }
+      .challenge-status.status-upcoming { background:#f1e3ea; color:#a58392; border:1px solid #ead3dd; }
+      .challenge-status.status-in-progress { background:#eec3d7; color:#6a2c42; border:1px solid #f1b8d0; }
+      .challenge-status.status-accepted { background:#dcebf7; color:#4a7c9c; border:1px solid #b8d4e8; }
+      .challenge-status.status-completed { background:#e8f0e8; color:#4a7c5a; border:1px solid #bcd4bc; }
+
+      .challenge-card.featured { border:2px solid #eec3d7; box-shadow:0 8px 32px rgba(142,59,90,0.1); position:relative; overflow:hidden; }
+      .challenge-card.featured::before { content:""; position:absolute; top:0; left:0; right:0; height:3px; background:linear-gradient(90deg,#e89cb5,#c73d76,#b84c6e); }
+      .challenge-card.featured .challenge-card-actions { gap:10px; }
+
+      .challenge-card-btn.primary { background:linear-gradient(135deg,#e89cb5,#c73d76); color:#fff; border:none; font-weight:700; }
+      .challenge-card-btn.primary:hover { filter:brightness(0.95); transform:translateY(-1px); box-shadow:0 4px 12px rgba(199,61,118,0.3); }
+      .challenge-card-btn.outline { background:transparent; border:1px solid #f4d6e2; color:#8e3b5a; font-weight:600; }
+      .challenge-card-btn.outline:hover { background:#fce4ec; border-color:#eec3d7; color:#6a2c42; transform:translateY(-1px); }
+
+      .challenge-rest { display:flex; flex-direction:column; gap:10px; margin-top:4px; }
+
+      /* Subtle entrance animation */
+      @keyframes fadeInUp {
+        from { opacity:0; transform:translateY(8px); }
+        to { opacity:1; transform:translateY(0); }
+      }
+      .today-question, .habit-card, .challenge-card { animation:fadeInUp 0.5s ease both; }
+      .challenge-card.featured { animation:fadeInUp 0.6s ease both; }
+
+      /* Decorative heart pulse */
+      .today-question::before { animation:pulse 3s ease-in-out infinite; }
+      @keyframes pulse {
+        0%,100% { transform:scale(1); opacity:0.8; }
+        50% { transform:scale(1.15); opacity:1; }
+      }
+      /* Send Challenge Modal */
+      .home-send-modal { position:fixed; inset:0; z-index:1500; display:flex; align-items:center; justify-content:center; padding:16px; background:#25151dcc; }
+      .home-send-modal-backdrop { position:absolute; inset:0; background:rgba(37,21,29,0.6); }
+      .home-send-modal-card { width:min(100%,520px); padding:24px; border:1px solid #f0d7e2; border-radius:24px; background:linear-gradient(145deg,#fff,#fff6fa); box-shadow:0 24px 64px #25151d55; position:relative; max-height:90vh; overflow-y:auto; }
+      .home-send-modal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+      .home-send-modal-head h2 { margin:0; color:#873456; font-size:22px; }
+      .home-send-modal-close { width:36px; height:36px; border-radius:50%; border:0; background:#ffe8f1; color:#873456; font-size:22px; cursor:pointer; }
+      .home-send-form label { display:flex; flex-direction:column; gap:8px; margin-bottom:16px; font-size:13px; color:#8c737d; font-weight:600; }
+      .home-send-form select, .home-send-form input[type="number"], .home-send-form textarea, .home-send-form input[type="text"] { padding:12px; border:1px solid #efd0de; border-radius:14px; background:#fffafd; color:#60283f; font:14px/1.5 system-ui,sans-serif; }
+      .home-send-form textarea { min-height:100px; resize:vertical; }
+      .home-send-file-row { display:flex; gap:10px; align-items:center; margin-top:8px; }
+      .home-send-file-preview { width:80px; height:80px; border-radius:12px; background:#fff0f6; border:2px dashed #efd0de; display:grid; place-items:center; overflow:hidden; }
+      .home-send-file-preview img, .home-send-file-preview video { width:100%; height:100%; object-fit:cover; }
+      .home-send-file-actions { display:flex; gap:8px; }
+      .home-send-file-btn { padding:10px 16px; border:1px solid #f4d6e2; border-radius:999px; background:#fff4f8; color:var(--deep); font-size:12px; font-weight:600; cursor:pointer; }
+      .home-send-file-btn:hover { background:#ffe8f1; }
+      .home-send-modal-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:24px; }
+      .home-send-modal-cancel { min-height:44px; padding:10px 18px; border-radius:999px; border:0; background:#f6edf1; color:#765a68; font-weight:700; cursor:pointer; }
+      .home-send-modal-send { min-height:44px; padding:10px 22px; border-radius:999px; border:0; background:linear-gradient(135deg,#e85c91,#c73d76); color:#fff; font-weight:700; cursor:pointer; }
+      /* Challenge Detail Modal */
+      .home-detail-modal { position:fixed; inset:0; z-index:1500; display:flex; align-items:center; justify-content:center; padding:16px; background:#25151dcc; }
+      .home-detail-modal-backdrop { position:absolute; inset:0; background:rgba(37,21,29,0.6); }
+      .home-detail-modal-card { width:min(100%,520px); padding:24px; border:1px solid #f0d7e2; border-radius:24px; background:linear-gradient(145deg,#fff,#fff6fa); box-shadow:0 24px 64px #25151d55; position:relative; max-height:90vh; overflow-y:auto; }
+      .home-detail-modal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+      .home-detail-modal-head h2 { margin:0; color:#873456; font-size:22px; }
+      .home-detail-modal-close { width:36px; height:36px; border-radius:50%; border:0; background:#ffe8f1; color:#873456; font-size:22px; cursor:pointer; }
+      .home-detail-type { display:inline-flex; padding:4px 10px; border-radius:999px; font-size:11px; font-weight:700; margin-bottom:16px; }
+      .home-detail-type.challenge { background:#e85c91; color:#fff; }
+      .home-detail-type.punishment { background:#c73d76; color:#fff; }
+      .home-detail-desc { font-size:15px; color:#60283f; line-height:1.6; margin-bottom:16px; }
+      .home-detail-media { margin-bottom:16px; }
+      .home-detail-media video, .home-detail-media img { width:100%; max-height:200px; border-radius:14px; object-fit:cover; background:#f2e3ea; }
+      .home-detail-actions { display:flex; flex-direction:column; gap:10px; margin-top:20px; }
+      .home-detail-btn { width:100%; padding:12px; border:1px solid #f4d6e2; border-radius:14px; background:#fff4f8; color:var(--deep); font-size:14px; font-weight:600; cursor:pointer; }
+      .home-detail-btn:hover { background:#ffe8f1; }
+      .home-detail-btn.primary { background:linear-gradient(135deg,#e85c91,#c73d76); color:#fff; }
+      .home-detail-btn.primary:hover { filter:brightness(0.95); }
+      .home-detail-media-upload { display:flex; flex-direction:column; gap:10px; margin-top:12px; }
+      .home-detail-media-file { width:100%; height:120px; border:2px dashed #efd0de; border-radius:14px; background:#fffafd; display:grid; place-items:center; cursor:pointer; }
     </style>
 
     <div class="home-container">
@@ -242,16 +402,35 @@ export function renderHome(el, user, profile) {
 
       <section class="today-section">
         <div class="section-head">
-          <div><p class="eyebrow">A LITTLE SOMETHING FOR TODAY</p><h2>Grow closer, every day</h2></div>
+          <div><p class="eyebrow">🤍 A Little Something for Today</p></div>
+          <h2>Grow closer, every day</h2>
         </div>
-        <div class="today-cards today-cards--image">
-          <article class="card today-question today-image-card">
-            <button type="button" class="today-image-btn" id="home-question-link" aria-label="Answer now"><img src="./Asset/Question.png?v=6" alt="Today's Question - Share, talk, and get closer" loading="lazy" decoding="async"></button>
-          </article>
-          <article class="card today-challenge today-image-card" id="home-daily-challenge" role="link" tabindex="0" aria-label="Open Daily Challenges">
-            <button type="button" class="today-image-btn" id="home-challenge-link" aria-label="Take the challenge"><img src="./Asset/Challenge.png?v=6" alt="Daily Challenge - Small steps, big memories" loading="lazy" decoding="async"></button>
+        <div class="today-cards">
+          <article class="card today-question" id="home-question-card">
+            <div class="home-question-body">
+              <p class="home-question-text" id="home-question-text">Loading today's question…</p>
+              <div class="home-question-answers" id="home-question-answers"></div>
+            </div>
+            <button type="button" class="home-see-history-btn" id="home-see-history">See History →</button>
           </article>
         </div>
+      </section>
+
+      <section class="habit-section">
+        <div class="section-head">
+          <div><p class="eyebrow">Daily Habit</p></div>
+          <h2>Build habits together</h2>
+        </div>
+        <div id="home-daily-habit" class="habit-cards"></div>
+      </section>
+
+      <section class="challenge-pun-section">
+        <div class="section-head">
+          <div><p class="eyebrow">Challenge / Punishment</p></div>
+          <h2>Send a playful challenge</h2>
+          <button type="button" class="home-view-more-challenges" id="home-view-more-challenges">View All →</button>
+        </div>
+        <div id="home-challenge-punishment" class="challenge-pun-list"></div>
       </section>
     </div>
   `;
@@ -395,15 +574,19 @@ export function renderHome(el, user, profile) {
 
   function renderQuestionWidget() {
     const questionText = $("#home-question-text", el);
-    const category = $("#home-question-category", el);
-    const button = $("#home-question-link", el);
-    if (!button || !dailyQuestion) return;
-    if (questionText) questionText.textContent = dailyQuestion.question;
-    if (category) {
-      category.textContent = dailyQuestion.category;
-      category.hidden = false;
+    const answers = $("#home-question-answers", el);
+    if (!questionText || !dailyQuestion) return;
+    questionText.textContent = dailyQuestion.question;
+    if (answers) {
+      const people = Object.entries(APP_CONFIG.profiles);
+      answers.innerHTML = people.map(([key, person]) => {
+        const isMine = key === questionProfileKey;
+        const answer = isMine ? ownAnswer : partnerAnswer;
+        const answered = Boolean(questionParticipants[key]);
+        const display = answer?.answer || "";
+        return `<div class="home-question-answer"><span class="home-question-answer-name">${esc(person.name)}:</span><span class="home-question-answer-text">${display ? esc(display) + " ♡" : (isMine && answered ? "Your answer will appear here." : "Waiting for your partner.")}</span></div>`;
+      }).join("");
     }
-    button.setAttribute("aria-label", questionParticipants[questionProfileKey] ? "View answers" : "Answer now");
   }
 
   ensureDailyQuestion(todayKey()).then(questionRecord => {
@@ -420,31 +603,468 @@ export function renderHome(el, user, profile) {
       console.error("Today's Question status could not be synced:", error);
       toast("Today's Question status could not be synced.");
     });
+    const partnerKey = Object.keys(APP_CONFIG.profiles).find(key => key !== questionProfileKey) || "";
+    stopOwnAnswer?.(); stopPartnerAnswer?.();
+    stopOwnAnswer = watchQuestionAnswer(todayKey(), questionProfileKey, answer => {
+      if (!isCurrent()) return;
+      ownAnswer = answer;
+      renderQuestionWidget();
+    });
+    if (partnerKey && questionParticipants[partnerKey]) {
+      stopPartnerAnswer = watchQuestionAnswer(todayKey(), partnerKey, answer => {
+        if (!isCurrent()) return;
+        partnerAnswer = answer;
+        renderQuestionWidget();
+      });
+    } else {
+      partnerAnswer = null;
+      renderQuestionWidget();
+    }
   }).catch(error => {
     if (!isCurrent()) return;
     console.error("Today's Question could not be prepared:", error);
     const questionText = $("#home-question-text", el);
     if (questionText) questionText.textContent = "Today's Question is unavailable right now.";
-    const category = $("#home-question-category", el);
-    if (category) category.hidden = true;
   });
 
   $("#open-drawing", el).onclick = () => window.App.navigate("drawing");
   $("#view-more-posts", el).onclick = () => window.App.navigate("gallery");
-  $("#home-question-link", el).onclick = () => window.App.navigate("questions");
-  const challengeCard = $("#home-daily-challenge", el);
-  const openChallenges = () => window.App.navigate("challenges");
-  challengeCard.onclick = openChallenges;
-  challengeCard.onkeydown = event => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      openChallenges();
-    }
-  };
-  $("#home-challenge-link", el).onclick = event => {
+  $("#home-question-card", el).onclick = () => window.App.navigate("questions");
+  $("#home-see-history", el).onclick = event => {
     event.stopPropagation();
-    openChallenges();
+    window.App.navigate("questions");
   };
+
+  /* ── Daily Habit: Send Snap + Drink Water ────────────────────── */
+  function assignmentFor(challenge) {
+    const stored = assignments.find(item => item.id === challenge.id);
+    const participantCount = Math.max(1, Object.keys(APP_CONFIG.profiles).length);
+    const base = stored ? {
+      ...stored,
+      acceptedBy: Array.isArray(stored.acceptedBy) ? stored.acceptedBy : [],
+      skippedBy: Array.isArray(stored.skippedBy) ? stored.skippedBy : stored.skippedBy ? [stored.skippedBy] : [],
+      completedBy: Array.isArray(stored.completedBy) ? stored.completedBy : []
+    } : { ...challenge, status: "upcoming", acceptedBy: [], skippedBy: [], completedBy: [] };
+    if ((base.completedBy || []).length >= participantCount) return { ...base, status: "completed" };
+    if ((base.skippedBy || []).length >= participantCount) return { ...base, status: "skipped" };
+    if ((base.acceptedBy || []).length || (base.completedBy || []).length) return { ...base, status: "in-progress" };
+    return { ...base, status: "upcoming" };
+  }
+
+  function waterCountFor(key) {
+    const records = waterTrackers.filter(item => item.dayKey === todayKey() && item.profileKey === key);
+    return Math.max(0, Math.min(8, Number(records.find(item => item.id === `water-${todayKey()}-${key}`)?.count || 0)));
+  }
+
+  function renderHabit() {
+    const host = $("#home-daily-habit", el);
+    if (!host) return;
+    const dayChallenges = challengeDays(todayKey(), 1);
+    const snap = dayChallenges.find(c => c.challengeId === "send-snap");
+    const water = dayChallenges.find(c => c.challengeId === "drink-water");
+
+    const people = Object.entries(APP_CONFIG.profiles);
+    const snapHtml = snap ? `
+      <article class="habit-card snap-challenge-card">
+        <div class="habit-card-head">
+          <span class="habit-icon" aria-label="Snapchat">📸</span>
+          <div class="habit-copy">
+            <h2>Daily Snap</h2>
+            <small>Share your daily moments with each other 💗</small>
+          </div>
+        </div>
+        <div class="habit-snap-grid">
+          ${people.map(([key, person]) => {
+            const assignment = snap ? assignmentFor(snap) : null;
+            const completedBy = assignment?.completedBy || [];
+            const sent = completedBy.some(p => p.profileKey === key || (person.authUid && p.uid === person.authUid));
+            const isMine = key === questionProfileKey;
+            const avatar = person.avatar ? `<img src="${esc(person.avatar)}" alt="" loading="lazy" decoding="async">` : esc((person.name || "♡")[0]);
+            return `<section class="habit-snap-person ${sent ? "is-sent" : "is-pending"}">
+              <header class="habit-snap-person-header"><strong>${esc(person.name || "Partner")}</strong><span class="habit-snap-pill ${sent ? "sent" : "pending"}">${sent ? "✓ Sent" : "◷ Not Sent"}</span></header>
+              <div class="habit-snap-state">
+                ${sent ? `<span class="habit-snap-avatar">✓</span>` : `<span class="habit-snap-avatar">${avatar}</span>`}
+                <div class="habit-snap-state-copy">
+                  <strong>${sent ? "Snap sent today" : "Snap not sent yet"}</strong>
+                  <small>${sent ? (isMine ? "You're all caught up" : "Your partner is all caught up") : (isMine ? "Send your daily moment" : "Waiting for your partner")}</small>
+                </div>
+              </div>
+              ${isMine && !sent ? `<button type="button" class="habit-snap-btn" data-action="snap-complete" data-id="${esc(assignment?.id || "")}">Send Snap</button>` : ""}
+            </section>`;
+          }).join("")}
+        </div>
+      </article>
+    ` : "";
+
+    const waterHtml = water ? `
+      <article class="habit-card water-challenge-card">
+        <div class="habit-card-head">
+          <span class="habit-icon">💧</span>
+          <div class="habit-copy">
+            <h2>Drink Water</h2>
+            <small>8 glasses a day, together 💗</small>
+          </div>
+        </div>
+        <div class="habit-water-grid">
+          ${people.map(([key, person]) => {
+            const count = key === questionProfileKey ? waterCountFor(key) : waterCountFor(key);
+            const isMine = key === questionProfileKey;
+            const assignment = water ? assignmentFor(water) : null;
+            const glassAsset = person.name?.toLowerCase() === "shazy" ? "Girl.png" : "Boy.png";
+            return `<section class="habit-water-person ${isMine ? "is-mine" : ""}">
+              <div class="habit-water-person-title"><strong>${esc(person.name)}${isMine ? " · You" : ""}</strong></div>
+              <div class="habit-water-person-main">
+                <div class="habit-water-glass-wrap" aria-hidden="true">
+                  <div class="habit-water-glass-fill" style="--water-level:${count / 8 * 82}%"></div>
+                  <img src="./Asset/${glassAsset}" alt="" class="habit-water-glass-img" loading="lazy" decoding="async">
+                </div>
+                <div class="habit-water-details">
+                  <div class="habit-water-count"><strong>${count}</strong><span>/ 8<br>glasses</span></div>
+                  <div class="habit-water-track" role="progressbar" aria-valuemin="0" aria-valuemax="8" aria-valuenow="${count}"><div class="habit-water-track-bar" style="width:${count / 8 * 100}%"></div></div>
+                  <small class="habit-water-caption">${count >= 8 ? "Daily goal complete ✓" : `${8 - count} glasses to go`}</small>
+                </div>
+              </div>
+              ${isMine ? `<div class="habit-water-controls">
+                <button type="button" class="habit-water-btn" data-action="water-remove" data-id="${esc(assignment?.id || "")}" aria-label="Remove one glass" ${!waterTrackersReady || !assignmentsReady || count <= 0 ? "disabled" : ""}>−</button>
+                <button type="button" class="habit-water-btn" data-action="water-add" data-id="${esc(assignment?.id || "")}" aria-label="Add one glass" ${!waterTrackersReady || !assignmentsReady || count >= 8 ? "disabled" : ""}>＋</button>
+              </div>` : ""}
+            </section>`;
+          }).join("")}
+        </div>
+        ${people.every(([k]) => waterCountFor(k) >= 8) ? `<div class="habit-celebrate">Hydrated together 💧✨</div>` : ""}
+      </article>
+    ` : "";
+
+    host.innerHTML = snapHtml + waterHtml;
+
+    host.querySelectorAll("[data-action]").forEach(btn => {
+      btn.onclick = async event => {
+        event.stopPropagation();
+        const action = btn.dataset.action;
+        const assignmentId = btn.dataset.id;
+        btn.disabled = true;
+        try {
+          if (action === "snap-complete") {
+            const liveAssignment = assignments.find(item => item.id === assignmentId);
+            if (liveAssignment) {
+              liveAssignment.completedBy = [...(liveAssignment.completedBy || []), { uid: user.uid, profileKey: questionProfileKey, name: profile.name }];
+            }
+            await completeChallengeAssignment(assignmentId, { uid: user.uid, profileKey: questionProfileKey, name: profile.name }, "Sent today's Snap 📸", "");
+            void notifyPartnerSafely(questionProfileKey, "challenge", `${profile.name} sent today's Snap.`, `${assignmentId}-completed`, "challenges");
+            toast("Snap marked ✓");
+            renderHabit();
+          } else if (action === "water-add" || action === "water-remove") {
+            const delta = action === "water-add" ? 1 : -1;
+            const next = await changeDailyWaterProgress(todayKey(), { uid: user.uid, profileKey: questionProfileKey, name: profile.name }, delta, waterCountFor(questionProfileKey));
+            toast(next >= 8 ? "Daily water goal complete! 💧" : `Glass ${next}/8 saved.`);
+            if (delta > 0 && next === 8) void notifyPartnerSafely(questionProfileKey, "challenge", `${profile.name} completed today's water goal.`, `water-${todayKey()}-${questionProfileKey}`, "challenges");
+            renderHabit();
+          }
+        } catch (error) {
+          console.error(error);
+          toast(error.message || "Could not update this.");
+          btn.disabled = false;
+        }
+      };
+    });
+  }
+
+  function scheduleHabitRender() {
+    if (challengeRenderScheduled) return;
+    challengeRenderScheduled = requestAnimationFrame(() => {
+      challengeRenderScheduled = null;
+      renderHabit();
+    });
+  }
+
+  /* ── Challenge / Punishment ─────────────────────────────────── */
+  let customChallenges = [], customChallengesReady = false;
+
+  function pendingCustomChallenges() {
+    return customChallenges.filter(item => item.status === "upcoming" || item.status === "in-progress");
+  }
+
+  function renderChallengeCards() {
+    const host = $("#home-challenge-punishment", el);
+    if (!host) return;
+    const pending = pendingCustomChallenges();
+    if (!pending.length) {
+      host.innerHTML = `<div class="challenge-empty">No challenges yet. Send your partner a playful challenge to get started.</div>`;
+      return;
+    }
+    const featured = pending[0];
+    const rest = pending.slice(1);
+    const featuredIsPunishment = featured.kind === "punishment";
+    const featuredDeadline = featured.deadlineAt ? new Date(featured.deadlineAt) : null;
+    const featuredDaysLeft = featuredDeadline ? Math.max(0, Math.ceil((featuredDeadline.getTime() - Date.now()) / 86400000)) : 0;
+    const featuredMine = featured.authorKey === questionProfileKey;
+    const featuredStatus = featured.status;
+
+    const featuredHtml = `
+      <article class="challenge-card featured" data-challenge-id="${esc(featured.id)}">
+        <div class="challenge-card-head">
+          <span class="challenge-card-type ${featuredIsPunishment ? "punishment" : "challenge"}">${featuredIsPunishment ? "Punishment" : "Challenge"}</span>
+          <span class="challenge-status status-${featuredStatus}">${featuredStatus.charAt(0).toUpperCase() + featuredStatus.slice(1)}</span>
+        </div>
+        <h3 class="challenge-card-title">${esc(featured.title || featured.description?.slice(0, 50) || "Challenge")}</h3>
+        <p class="challenge-card-desc">${esc(featured.description || "")}</p>
+        <div class="challenge-card-meta">
+          <span>By ${esc(featured.authorName || "Partner")}</span>
+          ${featuredDeadline ? `<span>⏳ ${featuredDaysLeft} day${featuredDaysLeft !== 1 ? "s" : ""} left</span>` : ""}
+        </div>
+        <div class="challenge-card-actions">
+          ${!featuredMine && (featuredStatus === "upcoming" || featuredStatus === "in-progress")
+            ? `<button type="button" class="challenge-card-btn primary" data-action="accept">Accept Challenge</button>`
+            : ""}
+          ${featuredMine && (featuredStatus === "accepted" || featuredStatus === "in-progress")
+            ? `<button type="button" class="challenge-card-btn primary" data-action="complete">Complete Challenge</button>`
+            : ""}
+          <button type="button" class="challenge-card-btn outline" data-action="view">View Details →</button>
+        </div>
+      </article>
+    `;
+
+    const restHtml = rest.length ? `<div class="challenge-rest">${rest.map(item => {
+      const isPunishment = item.kind === "punishment";
+      const deadline = item.deadlineAt ? new Date(item.deadlineAt) : null;
+      const daysLeft = deadline ? Math.max(0, Math.ceil((deadline.getTime() - Date.now()) / 86400000)) : 0;
+      const typeLabel = isPunishment ? "Punishment" : "Challenge";
+      const mine = item.authorKey === questionProfileKey;
+      return `
+        <article class="challenge-card" data-challenge-id="${esc(item.id)}">
+          <div class="challenge-card-head">
+            <span class="challenge-card-type ${isPunishment ? "punishment" : "challenge"}">${typeLabel}</span>
+            <span class="challenge-status status-${item.status}">${item.status.charAt(0).toUpperCase() + item.status.slice(1)}</span>
+          </div>
+          <h3 class="challenge-card-title">${esc(item.title || item.description?.slice(0, 40) || typeLabel)}</h3>
+          <p class="challenge-card-desc">${esc(item.description || "")}</p>
+          <div class="challenge-card-meta">
+            <span>By ${esc(item.authorName || "Partner")}</span>
+            ${deadline ? `<span>${daysLeft} day${daysLeft !== 1 ? "s" : ""} left</span>` : ""}
+          </div>
+          <div class="challenge-card-actions">
+            ${!mine && (item.status === "upcoming" || item.status === "in-progress")
+              ? `<button type="button" class="challenge-card-btn primary" data-action="accept">Accept Challenge</button>`
+              : ""}
+            ${mine && (item.status === "accepted" || item.status === "in-progress")
+              ? `<button type="button" class="challenge-card-btn primary" data-action="complete">Complete Challenge</button>`
+              : ""}
+            <button type="button" class="challenge-card-btn outline" data-action="view">View Details →</button>
+          </div>
+        </article>
+      `;
+    }).join("")}</div>` : "";
+
+    host.innerHTML = featuredHtml + restHtml;
+
+    host.querySelectorAll("[data-action]").forEach(btn => {
+      btn.onclick = async event => {
+        event.stopPropagation();
+        const action = btn.dataset.action;
+        const card = btn.closest(".challenge-card");
+        const id = card.dataset.challengeId;
+        const item = customChallenges.find(c => c.id === id);
+        if (!item) return;
+
+        btn.disabled = true;
+        btn.textContent = "Working…";
+
+        try {
+          if (action === "accept") {
+            await transitionCustomChallenge(id, { uid: user.uid, profileKey: questionProfileKey, name: profile.name }, "accept");
+            toast("Challenge accepted ♡");
+          } else if (action === "complete") {
+            const fileInput = document.createElement("input");
+            fileInput.type = "file";
+            fileInput.accept = "image/*,video/*,audio/*";
+            fileInput.onchange = async () => {
+              const file = fileInput.files[0];
+              if (!file) { btn.disabled = false; btn.textContent = "Complete Challenge"; return; }
+              try {
+                const timestamp = new Date().toLocaleString();
+                const label = file.type.startsWith("video/") ? "Challenge Completion Video" : (file.type.startsWith("audio/") ? "Challenge Completion Voice" : "Challenge Completion Photo");
+                const result = await sendToTelegram(file, `${label} · ${profile.name} · ${timestamp}`);
+                const photoMetadata = { ...telegramMediaReferences(result), mimeType: telegramUploadMimeType(file) };
+                if (file.type.startsWith("video/")) photoMetadata.videoMimeType = telegramUploadMimeType(file);
+                if (file.type.startsWith("image/")) photoMetadata.photoMimeType = telegramUploadMimeType(file);
+                await transitionCustomChallenge(id, { uid: user.uid, profileKey: questionProfileKey, name: profile.name }, "complete", { note: "Completed via dashboard", ...photoMetadata });
+                void notifyPartnerSafely(questionProfileKey, "challenge", `${profile.name} completed the challenge.`, `${id}-completed`, "challenges");
+                toast("Challenge completed ♡");
+              } catch (error) {
+                console.error(error);
+                toast(error.message || "Could not complete.");
+                btn.disabled = false;
+                btn.textContent = "Complete Challenge";
+              }
+            };
+            fileInput.click();
+            return;
+          } else if (action === "view") {
+            sessionStorage.setItem("challenge-detail-id", id);
+            window.App.navigate("challenge-detail");
+            btn.disabled = false;
+            return;
+          }
+          renderChallengeCards();
+        } catch (error) {
+          console.error(error);
+          toast(error.message || "Could not update challenge.");
+          btn.disabled = false;
+          btn.textContent = action === "accept" ? "Accept Challenge" : "Complete Challenge";
+        }
+      };
+    });
+  }
+
+  /* ── Send Challenge / Punishment Modal ── */
+  function openSendChallengeModal() {
+    const modal = document.createElement("div");
+    modal.className = "home-send-modal";
+    modal.innerHTML = `
+      <div class="home-send-modal-backdrop"></div>
+      <div class="home-send-modal-card">
+        <header class="home-send-modal-head">
+          <h2>Send Challenge / Punishment</h2>
+          <button type="button" class="home-send-modal-close" aria-label="Close">×</button>
+        </header>
+        <form class="home-send-form" id="home-send-form">
+          <label>
+            Type
+            <select name="type" required>
+              <option value="challenge">Challenge</option>
+              <option value="punishment">Punishment</option>
+            </select>
+          </label>
+          <label>
+            Description
+            <textarea name="description" maxlength="500" required placeholder="What is the challenge or punishment?"></textarea>
+          </label>
+          <label>
+            Reference Upload (Photo / Video / Voice Note)
+            <input type="file" name="reference" accept="image/*,video/*,audio/*" style="display:none;">
+            <div class="home-send-file-row">
+              <input type="text" name="reference-name" readonly placeholder="No file selected" style="flex:1;padding:10px;border:1px solid #efd0de;border-radius:14px;background:#fffafd;color:#60283f;">
+              <button type="button" class="home-send-file-btn" data-action="pick-file">Choose File</button>
+            </div>
+          </label>
+          <label>
+            Deadline (Days)
+            <input type="number" name="deadlineDays" min="1" max="365" value="7" required>
+          </label>
+          <div class="home-send-modal-actions">
+            <button type="button" class="home-send-modal-cancel">Cancel</button>
+            <button type="submit" class="home-send-modal-send">Send Challenge</button>
+          </div>
+        </form>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    const backdrop = modal.querySelector(".home-send-modal-backdrop");
+    const close = () => modal.remove();
+    backdrop.onclick = close;
+    modal.querySelector(".home-send-modal-close").onclick = close;
+
+    const fileInput = modal.querySelector('input[name="reference"]');
+    const fileNameInput = modal.querySelector('input[name="reference-name"]');
+    const pickBtn = modal.querySelector('[data-action=pick-file]');
+    let selectedFile = null;
+
+    pickBtn.onclick = () => fileInput.click();
+    fileInput.onchange = () => {
+      selectedFile = fileInput.files[0] || null;
+      fileNameInput.value = selectedFile ? selectedFile.name : "No file selected";
+    };
+
+    modal.querySelector(".home-send-modal-cancel").onclick = close;
+    const form = $("#home-send-form", modal);
+    form.onsubmit = async event => {
+      event.preventDefault();
+      const type = form.elements.type.value;
+      const description = form.elements.description.value.trim();
+      const deadlineDays = Number(form.elements.deadlineDays.value || 7);
+      if (!description) return toast("Enter a description first.");
+      const submit = form.querySelector('[type="submit"]');
+      submit.disabled = true;
+      submit.textContent = "Sending…";
+      try {
+        const createdAt = Date.now();
+        const deadlineAt = createdAt + deadlineDays * 86400000;
+        const recipientKey = Object.keys(APP_CONFIG.profiles).find(key => key !== questionProfileKey) || "";
+        let photoMetadata = {};
+        if (selectedFile) {
+          const timestamp = new Date().toLocaleString();
+          const label = selectedFile.type.startsWith("video/") ? "Challenge Video" : (selectedFile.type.startsWith("audio/") ? "Challenge Voice" : "Challenge Photo");
+          const result = await sendToTelegram(selectedFile, `${label} · ${profile.name} · ${timestamp}`);
+          photoMetadata = { ...telegramMediaReferences(result), mimeType: telegramUploadMimeType(selectedFile) };
+          if (selectedFile.type.startsWith("video/")) photoMetadata.videoMimeType = telegramUploadMimeType(selectedFile);
+          if (selectedFile.type.startsWith("image/")) photoMetadata.photoMimeType = telegramUploadMimeType(selectedFile);
+        }
+        await addItem("customChallenge", {
+          title: description.slice(0, 80),
+          description,
+          kind: type,
+          durationDays: deadlineDays,
+          createdAtMs: createdAt,
+          deadlineAt,
+          extensionRequested: false,
+          status: "upcoming",
+          author: user.uid,
+          authorKey: questionProfileKey,
+          authorName: profile.name,
+          recipientKey,
+          assignedAtMs: createdAt,
+          sentAtMs: createdAt,
+          sentDate: todayKey(),
+          actions: [],
+          ...photoMetadata
+        });
+        void notifyPartnerSafely(questionProfileKey, "challenge", `${profile.name} sent ${type === "punishment" ? "a punishment" : "a challenge"}: ${description.slice(0, 240)}`, "", "challenges");
+        toast(type === "punishment" ? "Punishment sent 😈" : "Challenge sent ♡");
+        modal.remove();
+      } catch (error) {
+        console.error(error);
+        toast(error.message || "Could not send.");
+        submit.disabled = false;
+        submit.textContent = "Send Challenge";
+      }
+    };
+  }
+
+  /* ── Challenge watchers ── */
+  stopCustomChallenges = watchItems("customChallenge", items => {
+    if (!isCurrent()) return;
+    customChallenges = items || [];
+    customChallengesReady = true;
+    renderChallengeCards();
+  }, error => console.error("Custom challenges sync failed:", error));
+
+  const dayKey = todayKey();
+  const monthStart = new Date(`${dayKey}T00:00:00Z`);
+  monthStart.setUTCDate(monthStart.getUTCDate() - 30);
+  const historyStartDay = monthStart.toISOString().slice(0, 10);
+
+  stopChallenges = watchChallengeAssignments(items => {
+    if (!isCurrent()) return;
+    assignments = items;
+    assignmentsReady = true;
+    scheduleHabitRender();
+  }, error => {
+    console.error("Challenge updates could not be synced:", error);
+    if (!isCurrent()) return;
+    assignmentsReady = true;
+  }, historyStartDay, 100);
+
+  stopWaterChallenges = watchItems("waterChallenge", items => {
+    if (!isCurrent()) return;
+    waterTrackers = items;
+    waterTrackersReady = true;
+    scheduleHabitRender();
+  }, error => console.error("Water sync failed:", error), 120);
+
+  $("#home-view-more-challenges", el).onclick = () => window.App.navigate("challenges");
+
+  renderChallengeCards();
+  renderHabit();
 
   el.querySelectorAll("[data-route]").forEach(button => {
     button.onclick = () => window.App.navigate(button.dataset.route);
@@ -697,6 +1317,18 @@ export function disposeHome() {
   stopDrawings = null;
   stopQuestionParticipants?.();
   stopQuestionParticipants = null;
+  stopOwnAnswer?.();
+  stopOwnAnswer = null;
+  stopPartnerAnswer?.();
+  stopPartnerAnswer = null;
+  stopChallenges?.();
+  stopChallenges = null;
+  stopCustomChallenges?.();
+  stopCustomChallenges = null;
+  stopWaterChallenges?.();
+  stopWaterChallenges = null;
+  if (challengeRenderScheduled) cancelAnimationFrame(challengeRenderScheduled);
+  challengeRenderScheduled = null;
   stopSpecialDays?.();
   stopSpecialDays = null;
   clearInterval(counterTimer);

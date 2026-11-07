@@ -19,6 +19,7 @@ import { disposeSpecialDays } from "./special-days.js";
 import { disposeNotificationCenter, initNotificationCenter } from "./notification-center.js";
 import { renderDrawing, disposeDrawing } from "./drawing.js";
 import { renderChallenges, disposeChallenges } from "./challenges.js";
+import { renderChallengeDetail, disposeChallengeDetail } from "./challenge-detail.js";
 import { initMusic } from "./music.js";
 import { firebaseReady } from "./firebase.js";
 import { getTelegramMediaUrl, getCachedTelegramMediaUrl, revokeTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
@@ -1256,7 +1257,8 @@ const titles = {
   activities: "Activities",
   more: "More",
   drawing: "Our Drawing Canvas",
-  challenges: "✨ Challenges"
+  challenges: "✨ Challenges",
+  "challenge-detail": "Challenge Details"
 };
 
 const routes = {
@@ -1272,7 +1274,8 @@ const routes = {
   activities: renderActivities,
   more: renderMore,
   drawing: renderDrawing,
-  challenges: renderChallenges
+  challenges: renderChallenges,
+  "challenge-detail": renderChallengeDetail
 };
 
 // Global App Navigation Object Definition
@@ -1298,6 +1301,7 @@ export function navigate(route = "home", { history = true } = {}) {
   if (route !== "letters") disposeLetters?.();
   if (route !== "questions") disposeQuestions?.();
   if (route !== "challenges") disposeChallenges?.();
+  if (route !== "challenge-detail") disposeChallengeDetail?.();
   if (route !== "games") disposeGames?.();
   if (route !== "bucket") disposeBucket?.();
   if (route !== "gallery-library") disposeSharedGallery();
