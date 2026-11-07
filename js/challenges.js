@@ -17,6 +17,7 @@ import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramU
 let stopChallenges = null, stopCustomChallenges = null, stopWaterChallenges = null;
 let dayRolloverTimer = null, challengeRenderToken = 0, queuedChallengeRender = 0, countdownTimer = null;
 let customAllChallenges = [], waterTrackers = [], waterTrackersReady = false;
+const pendingWaterWrites = new Map();
 let removeProfilesListener = null, removeEscapeListener = null, removeActionsListener = null;
 
 function formatCountdown(deadlineAt) {
@@ -66,15 +67,6 @@ export function renderChallenges(el, user, profile) {
         <span class="challenge-sparkle" aria-hidden="true">✨</span>
         <h1>Challenges</h1>
       </header>
-
-      <button type="button" class="give-challenge-btn" id="give-challenge-btn">
-        <span class="give-icon" aria-hidden="true">💌</span>
-        <span class="give-copy">
-          <strong>Give a Challenge / Punishment</strong>
-          <small>Send something sweet (or spicy) to your partner</small>
-        </span>
-        <span class="give-arrow" aria-hidden="true">›</span>
-      </button>
 
       <div id="challenge-list"></div>
       <div id="challenge-modal-root"></div>
@@ -214,8 +206,8 @@ export function renderChallenges(el, user, profile) {
       preview.innerHTML = `<strong>${esc(form.elements.title.value || "Your title")}</strong><p>${esc(form.elements.description.value || "Your description")}</p><small>${kind === "punishment" ? "Punishment" : "Challenge"} · ${esc(deadlineText)} · ${esc(form.elements.proofType.value)} proof${points ? ` · ${points} points` : ""}</small>`;
     });
 
-    composeRoot.querySelectorAll("[data-close-give]").forEach(b => b.onclick = () => window.App?.navigate("challenges"));
-    $("[data-close-give]", el).onclick = () => window.App?.navigate("challenges");
+    composeRoot.querySelectorAll("[data-close-give]").forEach(b => b.onclick = () => window.App?.navigate("home"));
+    $("[data-close-give]", el).onclick = () => window.App?.navigate("home");
     form.elements.title?.focus();
 
     form.querySelectorAll("[data-kind]").forEach(button => {
@@ -247,7 +239,7 @@ export function renderChallenges(el, user, profile) {
         if (editing) {
           await transitionCustomChallenge(editing.id, { uid: user.uid, profileKey: ownKey }, "edit", { title, description, kind });
           toast("Updated ♡");
-          window.App?.navigate("challenges");
+          window.App?.navigate("home");
           return;
         }
         const createdAt = Date.now();
@@ -295,7 +287,7 @@ export function renderChallenges(el, user, profile) {
           `${profile.name} sent ${kind === "punishment" ? "a punishment" : "a challenge"}: ${title}`.slice(0, 240),
           customRef.id, "challenges");
         toast(kind === "punishment" ? "Punishment sent 😈" : "Challenge sent ♡");
-        window.App?.navigate("challenges");
+        window.App?.navigate("home");
       } catch (error) {
         console.error(error);
         toast(error.message || "Could not send.");
@@ -339,7 +331,6 @@ export function renderChallenges(el, user, profile) {
     giveModalRoot.innerHTML = "";
     document.body.classList.remove("challenge-hub-open");
   }
-  $("#give-challenge-btn", el).onclick = () => openGiveModal();
 
   /* ─── Assignment / water helpers ────────────────── */
   function assignmentFor(challenge) {
@@ -370,7 +361,46 @@ export function renderChallenges(el, user, profile) {
     )[0];
   }
   function waterCountFor(key) {
-    return Math.max(0, Math.min(8, Number(waterRecordFor(key)?.count || 0)));
+    const count = Math.max(0, Math.min(8, Number(waterRecordFor(key)?.count || 0)));
+    const optimistic = key === ownKey ? pendingWaterWrites.get(`${dayKey}-${key}`) : null;
+    return optimistic ? optimistic.optimisticCount : count;
+  }
+
+  function queueWaterProgress(delta) {
+    const waterKey = `${dayKey}-${ownKey}`;
+    const currentCount = waterCountFor(ownKey);
+    const targetCount = Math.max(0, Math.min(8, currentCount + delta));
+    if (targetCount === currentCount) return;
+
+    let state = pendingWaterWrites.get(waterKey);
+    if (!state) {
+      state = { confirmedCount: currentCount, optimisticCount: currentCount, pendingDeltas: [], queue: Promise.resolve() };
+      pendingWaterWrites.set(waterKey, state);
+    }
+    state.pendingDeltas.push(delta);
+    state.optimisticCount = targetCount;
+    scheduleRender();
+
+    state.queue = state.queue.catch(() => {}).then(async () => {
+      const queuedDelta = state.pendingDeltas[0];
+      try {
+        const savedCount = await changeDailyWaterProgress(dayKey, { uid: user.uid, profileKey: ownKey, name: profile.name }, queuedDelta, state.confirmedCount);
+        state.confirmedCount = savedCount;
+        const trackerId = `water-${dayKey}-${ownKey}`;
+        const local = waterTrackers.find(item => item.id === trackerId);
+        if (local) { local.count = savedCount; local.updatedAtMs = Date.now(); }
+        else waterTrackers.push({ id: trackerId, type: "waterChallenge", dayKey, profileKey: ownKey, uid: user.uid, name: profile.name, count: savedCount, updatedAtMs: Date.now() });
+        if (queuedDelta > 0 && savedCount === 8) void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed today's water goal.`, trackerId, "challenges");
+      } catch (error) {
+        console.error("Could not update today's water progress:", error);
+        toast(error.message || "Could not update water progress.");
+      } finally {
+        state.pendingDeltas.shift();
+        state.optimisticCount = Math.max(0, Math.min(8, state.confirmedCount + state.pendingDeltas.reduce((sum, value) => sum + value, 0)));
+        if (!state.pendingDeltas.length) pendingWaterWrites.delete(waterKey);
+        scheduleRender();
+      }
+    });
   }
 
   function reconcileTodayPoints() {
@@ -602,6 +632,7 @@ export function renderChallenges(el, user, profile) {
     const date = Number(item.sentAtMs || item.assignedAtMs || item.createdAtMs || 0);
     const deadline = item.deadlineAt ? new Date(item.deadlineAt) : null;
     const proof = item.proof || null;
+    const canEdit = !received && (item.status === "upcoming" || item.status === "in-progress");
     const mediaData = proof?.telegramFileId ? proof : item.referenceMedia?.telegramFileId ? item.referenceMedia : item;
     const mediaId = mediaData.telegramFileId || "";
     const mediaMime = mediaData.videoMimeType || mediaData.audioMimeType || mediaData.photoMimeType || mediaData.mimeType || "image/jpeg";
@@ -627,7 +658,6 @@ export function renderChallenges(el, user, profile) {
           ? `<p class="custom-note">Proof submitted. Please review it in details.</p><div class="custom-actions"><button class="custom-accept" data-custom-action="approve-proof" data-id="${esc(item.id)}">Approve proof</button><button class="custom-edit" data-custom-action="request-revision" data-id="${esc(item.id)}">Ask for another proof</button></div>`
         : !received && (item.status === "upcoming" || item.status === "in-progress")
           ? `<div class="custom-actions">
-              <button class="custom-edit" data-custom-action="edit" data-id="${esc(item.id)}">Edit</button>
               <button class="custom-delete" data-custom-action="delete" data-id="${esc(item.id)}">Delete</button>
             </div>`
           : "";
@@ -636,7 +666,9 @@ export function renderChallenges(el, user, profile) {
       <article class="custom-card ${isPunishment ? "kind-punishment" : ""} ${item.status === "completed" ? "is-completed" : ""}">
         <div class="custom-head">
           <span class="custom-icon" aria-hidden="true">${isPunishment ? "😈" : "💝"}</span>
-          <h3 class="custom-title">${esc(item.title || (isPunishment ? "Punishment" : "Challenge"))}</h3>
+          <h3 class="custom-title">${canEdit
+            ? `<button type="button" class="custom-title-edit" data-custom-action="edit" data-id="${esc(item.id)}" aria-label="Edit ${esc(item.title || (isPunishment ? "Punishment" : "Challenge"))}">${esc(item.title || (isPunishment ? "Punishment" : "Challenge"))}</button>`
+            : esc(item.title || (isPunishment ? "Punishment" : "Challenge"))}</h3>
           <span class="custom-tag ${status}">${tagText}</span>
         </div>
         ${item.description ? `<p class="custom-desc">${esc(item.description)}</p>` : ""}
@@ -842,14 +874,8 @@ export function renderChallenges(el, user, profile) {
         const action = button.dataset.action;
         if (action === "water-add" || action === "water-remove") {
           const delta = action === "water-add" ? 1 : -1;
-          const next = await changeDailyWaterProgress(dayKey, { uid: user.uid, profileKey: ownKey, name: profile.name }, delta, waterCountFor(ownKey));
-          const trackerId = `water-${dayKey}-${ownKey}`;
-          const local = waterTrackers.find(i => i.id === trackerId);
-          if (local) { local.count = next; local.updatedAtMs = Date.now(); }
-          else waterTrackers.push({ id: trackerId, type: "waterChallenge", dayKey, profileKey: ownKey, uid: user.uid, name: profile.name, count: next, updatedAtMs: Date.now() });
-          scheduleRender();
-          if (delta > 0 && next === 8) void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed today's water goal.`, `water-${dayKey}-${ownKey}`, "challenges");
-          toast(next >= 8 ? "Daily water goal complete! 💧" : `Glass ${next}/8 saved.`);
+          queueWaterProgress(delta);
+          return;
         } else if (action === "snap-complete") {
           const liveAssignment = assignments.find(item => item.id === assignmentId);
           if (liveAssignment) {
@@ -1021,7 +1047,7 @@ export function renderChallenges(el, user, profile) {
   function onChallengeEscape(event) {
     if (event.key === "Escape") {
       const compose = el.querySelector(".challenge-compose-page");
-      if (compose) { window.App?.navigate("challenges"); return; }
+      if (compose) { window.App?.navigate("home"); return; }
       if (giveModalRoot.querySelector(".challenge-hub-page")) { closeChallengeHub(); return; }
       modalRoot.querySelector("[data-close-modal]")?.click();
     }
@@ -1069,9 +1095,14 @@ export function renderChallenges(el, user, profile) {
   }
 
   bindActions();
+  const requestedEditItem = sessionStorage.getItem("challenge-compose-edit-item");
+  sessionStorage.removeItem("challenge-compose-edit-item");
   const requestedComposeKind = sessionStorage.getItem("challenge-compose-kind");
   sessionStorage.removeItem("challenge-compose-kind");
-  if (requestedComposeKind === "challenge" || requestedComposeKind === "punishment") openGiveModal(null, requestedComposeKind);
+  if (requestedEditItem) {
+    try { openGiveModal(JSON.parse(requestedEditItem)); }
+    catch (error) { console.error("Could not open challenge editor:", error); toast("Could not open that challenge for editing."); }
+  } else if (requestedComposeKind === "challenge" || requestedComposeKind === "punishment") openGiveModal(null, requestedComposeKind);
   prepareTodayChallenges();
   countdownTimer = window.setInterval(() => {
     el.querySelectorAll("[data-countdown-deadline]").forEach(node => {

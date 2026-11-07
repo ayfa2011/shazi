@@ -106,11 +106,13 @@ function renderNotifications(items, profileKey, knownIds, hasLoaded) {
   const badge = $("#notification-count", notificationRoot);
   const markAll = $("#notification-mark-all", notificationRoot);
   const enable = $("#notification-enable", notificationRoot);
+  const toggle = $("#notification-toggle", notificationRoot);
   if (!list || !badge) return;
 
   const unread = items.filter(item => !item.readAt);
   badge.textContent = unread.length > 99 ? "99+" : String(unread.length);
   badge.hidden = unread.length === 0;
+  if (toggle) toggle.setAttribute("aria-label", unread.length ? `${unread.length} unread notifications` : "Notifications");
   if (markAll) markAll.hidden = unread.length === 0;
   if (enable) {
     enable.textContent = enableButtonText();
@@ -151,8 +153,8 @@ export function initNotificationCenter(user, profile, navigate) {
   currentRouteHandler = navigate;
   root.innerHTML = `<button id="notification-toggle" class="icon-btn notification-toggle" type="button" aria-label="Notifications" aria-expanded="false" aria-controls="notification-panel" title="Notifications">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>
-    <span id="notification-count" class="notification-count" hidden>0</span>
   </button>
+  <span id="notification-count" class="notification-count" hidden>0</span>
   <section id="notification-panel" class="notification-panel hidden" aria-label="Notifications">
     <header class="notification-panel-head"><div><h3>Notifications</h3><p>Little updates from your world ♡</p></div><button id="notification-mark-all" class="notification-mark-all" type="button" hidden>Mark all read</button></header>
     <div id="notification-list" class="notification-list" aria-live="polite"><p class="notification-empty">Loading notifications…</p></div>

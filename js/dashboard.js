@@ -10,6 +10,7 @@ import { getCachedTelegramMediaUrl, getTelegramMediaUrl, sendToTelegram, telegra
 
 let stopPosts = null, stopRelationship = null, stopDrawings = null, stopQuestionParticipants = null, stopSpecialDays = null, stopOwnAnswer = null, stopPartnerAnswer = null, stopChallenges = null, stopWaterChallenges = null, stopCustomChallenges = null, counterTimer = null, dayRolloverTimer = null, homeRenderToken = 0, postCommentStops = new Map();
 let assignments = [], assignmentsReady = false, waterTrackers = [], waterTrackersReady = false, customAllChallenges = [], challengeRenderScheduled = null;
+const pendingWaterWrites = new Map();
 
 function feedSkeletonMarkup(count = 2) {
   const card = `<div class="home-skeleton-card" aria-hidden="true">
@@ -292,6 +293,11 @@ export function renderHome(el, user, profile) {
       .challenge-pun-section { margin:32px 0 28px; box-sizing:border-box; overflow:visible; }
       .challenge-pun-section .section-head { display:flex; align-items:center; justify-content:space-between; margin:0 0 8px; }
       .challenge-pun-list { display:flex; flex-direction:column; gap:12px; }
+      .home-challenge-filters { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin:0 0 12px; }
+      .home-challenge-filter { min-width:0; min-height:34px; padding:6px 4px; border:1px solid #f0d8e2; border-radius:10px; background:#fff; color:#806774; font-size:10px; font-weight:700; line-height:1; white-space:nowrap; cursor:pointer; }
+      .home-challenge-filter b { margin-left:2px; color:#a05070; font-size:9px; }
+      .home-challenge-filter[aria-pressed="true"] { border-color:#df91b0; background:#ffe8f1; color:#8e3b5a; box-shadow:inset 0 0 0 1px #f3c7d8; }
+      .home-challenge-filter[aria-pressed="true"] b { color:#8e3b5a; }
       .challenge-card { padding:18px 20px; border:1px solid #f3d9e5; border-radius:20px; background:#fff; box-shadow:0 4px 16px rgba(142,59,90,0.06); cursor:pointer; transition:all .25s ease; display:flex; flex-direction:column; gap:12px; }
       .challenge-card:hover { transform:translateY(-2px); box-shadow:0 10px 28px rgba(142,59,90,0.1); border-color:#eec3d7; }
       .challenge-card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:4px; }
@@ -299,6 +305,9 @@ export function renderHome(el, user, profile) {
       .challenge-card-type.challenge { background:#eec3d7; color:#6a2c42; border:1px solid #f1b8d0; }
       .challenge-card-type.punishment { background:#f1c4d6; color:#8e3b5a; border:1px solid #e8a9c3; }
       .challenge-card-title { font-family:"Playfair Display",Georgia,serif; font-size:15px; font-weight:600; color:#6a2c42; margin:0 0 6px; flex:1; line-height:1.4; }
+      .challenge-card-title-edit { display:block; width:100%; padding:0; border:0; background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+      .challenge-card-title-edit:hover { color:#8e3b5a; text-decoration:underline; text-underline-offset:3px; }
+      .challenge-card-title-edit:focus-visible { outline:2px solid #d876a0; outline-offset:3px; border-radius:3px; }
       .challenge-card-desc { font-size:13px; color:#8c737d; margin:0 0 10px; line-height:1.5; flex:1; }
       .challenge-card-meta { display:flex; gap:12px; font-size:11px; color:#a58392; margin-bottom:8px; }
       .challenge-card-meta span { white-space:nowrap; }
@@ -458,6 +467,12 @@ export function renderHome(el, user, profile) {
         <div class="section-head home-section-head">
           <h2 class="home-section-title is-challenge"><span class="heading-mark" aria-hidden="true">💝</span>Challenge / Punishment</h2>
           <p class="home-section-subtitle">Send a playful challenge</p>
+        </div>
+        <div class="home-challenge-filters" role="group" aria-label="Filter challenges">
+          <button type="button" class="home-challenge-filter" data-home-challenge-filter="received" aria-pressed="false">Received <b data-challenge-filter-count="received">0</b></button>
+          <button type="button" class="home-challenge-filter" data-home-challenge-filter="sent" aria-pressed="false">Sent <b data-challenge-filter-count="sent">0</b></button>
+          <button type="button" class="home-challenge-filter" data-home-challenge-filter="pending" aria-pressed="true">Pending <b data-challenge-filter-count="pending">0</b></button>
+          <button type="button" class="home-challenge-filter" data-home-challenge-filter="finished" aria-pressed="false">Finished <b data-challenge-filter-count="finished">0</b></button>
         </div>
         <div class="home-challenge-create-panel" aria-label="Send a playful challenge or punishment">
           <div class="home-challenge-kind-options" role="group" aria-label="Choose what to send">
@@ -757,7 +772,47 @@ export function renderHome(el, user, profile) {
 
   function waterCountFor(key) {
     const records = waterTrackers.filter(item => item.dayKey === todayKey() && item.profileKey === key);
-    return Math.max(0, Math.min(8, Number(records.find(item => item.id === `water-${todayKey()}-${key}`)?.count || 0)));
+    const count = Math.max(0, Math.min(8, Number(records.find(item => item.id === `water-${todayKey()}-${key}`)?.count || 0)));
+    const optimistic = key === questionProfileKey ? pendingWaterWrites.get(`${todayKey()}-${key}`) : null;
+    return optimistic ? optimistic.optimisticCount : count;
+  }
+
+  function queueWaterProgress(delta) {
+    const day = todayKey();
+    const waterKey = `${day}-${questionProfileKey}`;
+    const currentCount = waterCountFor(questionProfileKey);
+    const targetCount = Math.max(0, Math.min(8, currentCount + delta));
+    if (targetCount === currentCount) return;
+
+    let state = pendingWaterWrites.get(waterKey);
+    if (!state) {
+      state = { confirmedCount: currentCount, optimisticCount: currentCount, pendingDeltas: [], queue: Promise.resolve() };
+      pendingWaterWrites.set(waterKey, state);
+    }
+    state.pendingDeltas.push(delta);
+    state.optimisticCount = targetCount;
+    renderHabit();
+
+    state.queue = state.queue.catch(() => {}).then(async () => {
+      const queuedDelta = state.pendingDeltas[0];
+      try {
+        const savedCount = await changeDailyWaterProgress(day, { uid: user.uid, profileKey: questionProfileKey, name: profile.name }, queuedDelta, state.confirmedCount);
+        state.confirmedCount = savedCount;
+        const trackerId = `water-${day}-${questionProfileKey}`;
+        const local = waterTrackers.find(item => item.id === trackerId);
+        if (local) { local.count = savedCount; local.updatedAtMs = Date.now(); }
+        else waterTrackers.push({ id: trackerId, type: "waterChallenge", dayKey: day, profileKey: questionProfileKey, uid: user.uid, name: profile.name, count: savedCount, updatedAtMs: Date.now() });
+        if (queuedDelta > 0 && savedCount === 8) void notifyPartnerSafely(questionProfileKey, "challenge", `${profile.name} completed today's water goal.`, `water-${day}-${questionProfileKey}`, "challenges");
+      } catch (error) {
+        console.error("Could not update today's water progress:", error);
+        toast(error.message || "Could not update water progress.");
+      } finally {
+        state.pendingDeltas.shift();
+        state.optimisticCount = Math.max(0, Math.min(8, state.confirmedCount + state.pendingDeltas.reduce((sum, value) => sum + value, 0)));
+        if (!state.pendingDeltas.length) pendingWaterWrites.delete(waterKey);
+        if (isCurrent()) renderHabit();
+      }
+    });
   }
 
   function renderHabit() {
@@ -875,10 +930,8 @@ export function renderHome(el, user, profile) {
               renderHabit();
             } else if (action === "water-add" || action === "water-remove") {
               const delta = action === "water-add" ? 1 : -1;
-              const next = await changeDailyWaterProgress(todayKey(), { uid: user.uid, profileKey: questionProfileKey, name: profile.name }, delta, waterCountFor(questionProfileKey));
-              toast(next >= 8 ? "Daily water goal complete! 💧" : `Glass ${next}/8 saved.`);
-              if (delta > 0 && next === 8) void notifyPartnerSafely(questionProfileKey, "challenge", `${profile.name} completed today's water goal.`, `water-${todayKey()}-${questionProfileKey}`, "challenges");
-              renderHabit();
+              queueWaterProgress(delta);
+              return;
             }
           } catch (error) {
             console.error(error);
@@ -903,35 +956,65 @@ export function renderHome(el, user, profile) {
 
   /* ── Challenge / Punishment ─────────────────────────────────── */
   let customChallenges = [], customChallengesReady = false;
+  let showAllCustomChallenges = false;
+  let challengeFilter = "pending";
 
-  function pendingCustomChallenges() {
-    return customChallenges.filter(item => item.status !== "completed")
-      .sort((a, b) => {
-        const aDeadline = Number(a.deadlineAt || Number.MAX_SAFE_INTEGER);
-        const bDeadline = Number(b.deadlineAt || Number.MAX_SAFE_INTEGER);
-        const aOverdue = aDeadline < Date.now() ? 0 : 1;
-        const bOverdue = bDeadline < Date.now() ? 0 : 1;
-        if (aOverdue !== bOverdue) return aOverdue - bOverdue;
-        return aOverdue ? bDeadline - aDeadline : aDeadline - bDeadline;
-      });
+  function isMineChallenge(item) {
+    return item.authorKey === questionProfileKey || item.author === user.uid;
+  }
+
+  function isReceivedChallenge(item) {
+    return item.recipientKey === questionProfileKey || (!item.recipientKey && !isMineChallenge(item));
+  }
+
+  function challengeItemsForFilter(filter = challengeFilter) {
+    if (filter === "finished") return customChallenges.filter(item => item.status === "completed");
+    if (filter === "received") return customChallenges.filter(item => isReceivedChallenge(item) && item.status !== "completed");
+    if (filter === "sent") return customChallenges.filter(item => isMineChallenge(item) && item.status !== "completed");
+    return customChallenges.filter(item => item.status !== "completed");
   }
 
   function renderChallengeCards() {
     const host = $("#home-challenge-punishment", el);
     if (!host) return;
-    const pending = pendingCustomChallenges();
-    if (!pending.length) {
-      host.innerHTML = `<div class="challenge-empty">💌 No challenges yet. Choose Challenge or Punishment above to get started.</div>`;
+    const counts = {
+      received: customChallenges.filter(item => isReceivedChallenge(item) && item.status !== "completed").length,
+      sent: customChallenges.filter(item => isMineChallenge(item) && item.status !== "completed").length,
+      pending: customChallenges.filter(item => item.status !== "completed").length,
+      finished: customChallenges.filter(item => item.status === "completed").length
+    };
+    Object.entries(counts).forEach(([filter, count]) => {
+      const countNode = el.querySelector(`[data-challenge-filter-count="${filter}"]`);
+      if (countNode) countNode.textContent = String(count);
+    });
+    el.querySelectorAll("[data-home-challenge-filter]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.homeChallengeFilter === challengeFilter)));
+
+    const items = challengeItemsForFilter().sort((a, b) => {
+      if (challengeFilter === "finished") return Number(b.completedAtMs || b.updatedAtMs || b.createdAtMs || 0) - Number(a.completedAtMs || a.updatedAtMs || a.createdAtMs || 0);
+      const aDeadline = Number(a.deadlineAt || Number.MAX_SAFE_INTEGER);
+      const bDeadline = Number(b.deadlineAt || Number.MAX_SAFE_INTEGER);
+      const aOverdue = aDeadline < Date.now() ? 0 : 1;
+      const bOverdue = bDeadline < Date.now() ? 0 : 1;
+      if (aOverdue !== bOverdue) return aOverdue - bOverdue;
+      return aOverdue ? bDeadline - aDeadline : aDeadline - bDeadline;
+    });
+    if (!items.length) {
+      const emptyText = challengeFilter === "received" ? "No challenges or punishments received yet." : challengeFilter === "sent" ? "You have not sent any challenges or punishments yet." : challengeFilter === "finished" ? "No finished challenges yet." : "💌 No pending challenges. Choose Challenge or Punishment above to get started.";
+      host.innerHTML = `<div class="challenge-empty">${emptyText}</div>`;
       return;
     }
-    const featured = pending[0];
-    const rest = pending.slice(1, 2);
+    const featured = items[0];
+    const rest = showAllCustomChallenges ? items.slice(1) : items.slice(1, 2);
     const featuredIsPunishment = featured.kind === "punishment";
     const featuredDeadline = featured.deadlineAt ? new Date(featured.deadlineAt) : null;
     const featuredDaysLeft = featuredDeadline ? Math.max(0, Math.ceil((featuredDeadline.getTime() - Date.now()) / 86400000)) : 0;
-    const featuredMine = featured.authorKey === questionProfileKey;
+    const featuredMine = isMineChallenge(featured);
     const statusLabel = item => ({ upcoming: "Pending", "in-progress": "Accepted", submitted: "Proof submitted", "extension-requested": "Extension requested" }[item.status] || item.status);
     const featuredStatus = featured.status;
+    const featuredTitle = featured.title || featured.description?.slice(0, 50) || "Challenge";
+    const featuredTitleMarkup = featuredMine && ["upcoming", "in-progress"].includes(featuredStatus)
+      ? `<button type="button" class="challenge-card-title challenge-card-title-edit" data-action="edit">${esc(featuredTitle)}</button>`
+      : esc(featuredTitle);
 
     const featuredHtml = `
       <article class="challenge-card featured" data-challenge-id="${esc(featured.id)}">
@@ -939,7 +1022,7 @@ export function renderHome(el, user, profile) {
           <span class="challenge-card-type ${featuredIsPunishment ? "punishment" : "challenge"}">${featuredIsPunishment ? "Punishment" : "Challenge"}</span>
           <span class="challenge-status status-${featuredStatus}">${statusLabel(featured)}</span>
         </div>
-        <h3 class="challenge-card-title">${esc(featured.title || featured.description?.slice(0, 50) || "Challenge")}</h3>
+        <h3 class="challenge-card-title">${featuredTitleMarkup}</h3>
         <p class="challenge-card-desc">${esc(featured.description || "")}</p>
         <div class="challenge-card-meta">
           <span>By ${esc(featured.authorName || "Partner")}</span>
@@ -962,14 +1045,18 @@ export function renderHome(el, user, profile) {
       const deadline = item.deadlineAt ? new Date(item.deadlineAt) : null;
       const daysLeft = deadline ? Math.max(0, Math.ceil((deadline.getTime() - Date.now()) / 86400000)) : 0;
       const typeLabel = isPunishment ? "Punishment" : "Challenge";
-      const mine = item.authorKey === questionProfileKey;
+      const mine = isMineChallenge(item);
+      const title = item.title || item.description?.slice(0, 40) || typeLabel;
+      const titleMarkup = mine && ["upcoming", "in-progress"].includes(item.status)
+        ? `<button type="button" class="challenge-card-title challenge-card-title-edit" data-action="edit">${esc(title)}</button>`
+        : esc(title);
       return `
         <article class="challenge-card" data-challenge-id="${esc(item.id)}">
           <div class="challenge-card-head">
             <span class="challenge-card-type ${isPunishment ? "punishment" : "challenge"}">${typeLabel}</span>
             <span class="challenge-status status-${item.status}">${statusLabel(item)}</span>
           </div>
-          <h3 class="challenge-card-title">${esc(item.title || item.description?.slice(0, 40) || typeLabel)}</h3>
+          <h3 class="challenge-card-title">${titleMarkup}</h3>
           <p class="challenge-card-desc">${esc(item.description || "")}</p>
           <div class="challenge-card-meta">
             <span>By ${esc(item.authorName || "Partner")}</span>
@@ -988,9 +1075,12 @@ export function renderHome(el, user, profile) {
       `;
     }).join("")}</div>` : "";
 
-    const viewAll = pending.length > 2 ? `<button type="button" class="home-view-more-challenges" data-challenge-view-all>View all ${pending.length} →</button>` : "";
+    const viewAll = items.length > 2 ? `<button type="button" class="home-view-more-challenges" data-challenge-view-all>${showAllCustomChallenges ? "Show less ↑" : `View all ${items.length} →`}</button>` : "";
     host.innerHTML = featuredHtml + restHtml + viewAll;
-    host.querySelector("[data-challenge-view-all]")?.addEventListener("click", () => window.App.navigate("challenges"));
+    host.querySelector("[data-challenge-view-all]")?.addEventListener("click", () => {
+      showAllCustomChallenges = !showAllCustomChallenges;
+      renderChallengeCards();
+    });
 
     host.querySelectorAll("[data-action]").forEach(btn => {
       btn.onclick = async event => {
@@ -1000,6 +1090,12 @@ export function renderHome(el, user, profile) {
         const id = card.dataset.challengeId;
         const item = customChallenges.find(c => c.id === id);
         if (!item) return;
+
+        if (action === "edit") {
+          sessionStorage.setItem("challenge-compose-edit-item", JSON.stringify(item));
+          window.App.navigate("challenges");
+          return;
+        }
 
         btn.disabled = true;
         btn.textContent = "Working…";
@@ -1212,6 +1308,14 @@ export function renderHome(el, user, profile) {
     button.onclick = () => {
       sessionStorage.setItem("challenge-compose-kind", button.dataset.homeChallengeKind);
       window.App.navigate("challenges");
+    };
+  });
+
+  el.querySelectorAll("[data-home-challenge-filter]").forEach(button => {
+    button.onclick = () => {
+      challengeFilter = button.dataset.homeChallengeFilter;
+      showAllCustomChallenges = false;
+      renderChallengeCards();
     };
   });
 

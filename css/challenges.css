@@ -157,20 +157,19 @@
 }
 .snap-person-card.is-shazy { border-color: #f4d5e2; background: linear-gradient(145deg, #fff, #fff8fb); }
 .snap-person-card.is-sent { border-color: #d8efe1; background: linear-gradient(145deg, #fff, #f6fdf8); }
-/* Title row = .water-person-title: name + emoji centred, badge top-right */
+/* Name, small icon, and status share one compact row. */
 .snap-person-title {
-  position: relative; display: flex; align-items: center; justify-content: center;
-  gap: 6px; margin-bottom: 0; min-height: 20px;
-  color: #173e70; font-size: 14px; overflow-wrap: anywhere;
+  display: flex; align-items: center; justify-content: flex-start;
+  gap: 5px; margin-bottom: 0; min-height: 20px; min-width: 0;
+  color: #173e70; font-size: 14px;
 }
-.snap-person-title strong { font-weight: 700; padding: 0 46px; text-align: center; }
-.snap-person-title > span[aria-hidden] { font-size: 14px; }
+.snap-person-title strong { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 700; padding: 0; text-align: left; white-space: nowrap; }
+.snap-person-title > span[aria-hidden] { flex: none; font-size: 13px; }
 .snap-person-card.is-shazy .snap-person-title { color: #703a58; }
 .snap-person-card.is-sent .snap-person-title { color: #1f7a42; }
-/* Badge pinned to the top-right of the title row, so both person columns
-   line up horizontally exactly like the water card's name row. */
+/* Status stays in the row at the far right, without covering the name. */
 .snap-status-pill {
-  position: absolute; top: 50%; right: 0; transform: translateY(-50%);
+  position: static; flex: none; margin-left: auto;
   padding: 3px 8px; border-radius: 999px;
   font-size: 9px; font-weight: 800; line-height: 1.4; white-space: nowrap;
 }
@@ -507,6 +506,13 @@
   font-weight: 800; color: #33242b; margin: 0;
   overflow-wrap: anywhere;
 }
+.custom-title-edit {
+  display: block; width: 100%; padding: 0; border: 0;
+  background: transparent; color: inherit; font: inherit;
+  text-align: left; overflow-wrap: anywhere; cursor: pointer;
+}
+.custom-title-edit:hover { color: #8f315d; text-decoration: underline; text-underline-offset: 3px; }
+.custom-title-edit:focus-visible { outline: 2px solid #d876a0; outline-offset: 3px; border-radius: 3px; }
 .custom-tag {
   flex: none; padding: 3px 7px; border-radius: 999px;
   font-size: 9px; font-weight: 800;

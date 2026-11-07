@@ -555,14 +555,13 @@ export async function changeDailyWaterProgress(dayKey, actor, delta, baselineCou
   const assignmentRef = doc(challengeAssignments(), `${dayKey}-drink-water`);
   let nextCount = 0;
   await runTransaction(db, async transaction => {
-    const [snapshot, assignmentSnapshot] = await Promise.all([
-      transaction.get(trackerRef),
-      transaction.get(assignmentRef)
-    ]);
-    if (!assignmentSnapshot.exists()) throw new Error("Today's water challenge is not ready yet. Please try again.");
+    const snapshot = await transaction.get(trackerRef);
     const current = snapshot.exists() ? snapshot.data() : {};
     const previousCount = Math.max(0, Math.min(8, Number(snapshot.exists() ? current.count || 0 : baselineCount || 0)));
     nextCount = Math.max(0, Math.min(8, previousCount + delta));
+    const changesCompletion = (nextCount === 8 && previousCount < 8) || (nextCount < 8 && previousCount === 8);
+    const assignmentSnapshot = changesCompletion ? await transaction.get(assignmentRef) : null;
+    if (changesCompletion && !assignmentSnapshot?.exists()) throw new Error("Today's water challenge is not ready yet. Please try again.");
     transaction.set(trackerRef, {
       ...current,
       type: "waterChallenge",
@@ -575,7 +574,7 @@ export async function changeDailyWaterProgress(dayKey, actor, delta, baselineCou
       createdAt: serverTimestamp(),
       updatedAtMs: Date.now()
     });
-    if ((nextCount === 8 && previousCount < 8) || (nextCount < 8 && previousCount === 8)) {
+    if (changesCompletion) {
       const assignment = assignmentSnapshot.data();
       const isActor = person => person.uid === actor.uid || person.profileKey === actor.profileKey;
       const completedBy = (assignment.completedBy || []).filter(person => !isActor(person));
