@@ -209,22 +209,22 @@ export function renderHome(el, user, profile) {
       }
       .home-feed-skeleton{display:grid;gap:9px}
       .home-skeleton-card{display:grid;gap:10px;padding:11px;border:1px solid var(--line);border-radius:16px;background:#fff}
-      .home-question-body { padding:20px; display:flex; flex-direction:column; gap:16px; }
-      .home-question-text { margin:0; font-family:"Playfair Display",Georgia,serif; font-size:20px; font-weight:600; color:#6a2c42; line-height:1.5; padding:18px 20px; border-radius:18px; background:linear-gradient(135deg,#fff,#fdfafb); border:1px solid #f4d6e2; box-shadow:0 4px 16px rgba(142,59,90,0.06); }
+      .home-question-body { padding:18px 20px; display:flex; flex-direction:column; gap:14px; }
+      .home-question-text { margin:0; font-family:"Playfair Display",Georgia,serif; font-size:20px; font-weight:600; color:#6a2c42; line-height:1.5; padding:16px 18px; border-radius:16px; background:linear-gradient(135deg,#fff,#fdfafb); border:1px solid #f4d6e2; box-shadow:0 4px 14px rgba(142,59,90,0.06); }
       .home-question-answers { display:flex; flex-direction:column; gap:10px; }
-      .home-question-answer { display:flex; align-items:center; gap:10px; padding:12px 16px; border:1px solid #f3d9e5; border-radius:14px; background:#fff; color:#5a3a4a; font-size:14px; box-shadow:0 2px 8px rgba(0,0,0,0.03); }
+      .home-question-answer { display:flex; align-items:center; gap:10px; padding:12px 16px; border:1px solid #f3d9e5; border-radius:14px; background:#fff; color:#5a3a4a; font-size:14px; box-shadow:0 2px 8px rgba(0,0,0,0.03); width:100%; }
       .home-question-answer-name { font-family:"Playfair Display",Georgia,serif; font-weight:600; color:#8e3b5a; flex-shrink:0; font-size:13px; letter-spacing:.02em; }
       .home-question-answer-text { flex:1; }
-      .home-see-history-btn { margin-top:6px; padding:10px 18px; border:1px solid #f4d6e2; border-radius:12px; background:#fff; color:#8e3b5a; font-size:12px; font-weight:600; cursor:pointer; align-self:flex-start; transition:all .2s ease; }
+      .home-see-history-btn { padding:8px 16px; border:1px solid #f4d6e2; border-radius:10px; background:#fff; color:#8e3b5a; font-size:12px; font-weight:600; cursor:pointer; align-self:flex-start; transition:all .2s ease; white-space:nowrap; max-width:fit-content; }
       .home-see-history-btn:hover { background:#fce4ec; border-color:#eec3d7; color:#6a2c42; transform:translateY(-1px); }
 
-      .section-head { display:flex; align-items:center; justify-content:space-between; margin:0 0 22px; }
-      .section-head .eyebrow { font-family:"Playfair Display",Georgia,serif; font-size:11px; font-weight:600; color:#b84c6e; letter-spacing:.16em; text-transform:uppercase; margin:0 0 4px; display:block; }
-      .section-head h2 { font-family:"Playfair Display",Georgia,serif; font-size:24px; font-weight:600; color:#6a2c42; margin:0; letter-spacing:.01em; }
+      .section-head { display:flex; align-items:center; justify-content:space-between; margin:0 0 18px; }
+      .section-head .eyebrow { font-family:"Playfair Display",Georgia,serif; font-size:13px; font-weight:600; color:#b84c6e; letter-spacing:.16em; text-transform:uppercase; margin:0; }
+      .section-head h2 { font-family:"Playfair Display",Georgia,serif; font-size:22px; font-weight:600; color:#6a2c42; margin:0; letter-spacing:.01em; }
 
-      .today-section { margin:32px 0 24px; box-sizing:border-box; overflow:visible; }
+      .today-section { margin:24px 0 20px; box-sizing:border-box; overflow:visible; }
       .today-cards { display:flex; flex-direction:column; gap:0; margin:0; padding:0; }
-      .today-question { position:relative; padding:24px; border:1px solid #f4d6e2; border-radius:22px; background:#fff; box-shadow:0 6px 24px rgba(142,59,90,0.08); min-height:auto; overflow:visible; transition:all .3s ease; }
+      .today-question { position:relative; padding:18px; border:1px solid #f4d6e2; border-radius:20px; background:#fff; box-shadow:0 6px 20px rgba(142,59,90,0.08); min-height:auto; overflow:visible; transition:all .3s ease; }
       .today-question:hover { transform:translateY(-2px); box-shadow:0 10px 32px rgba(142,59,90,0.12); border-color:#eec3d7; }
       .today-question::before { content:"♡"; position:absolute; top:-10px; left:20px; width:20px; height:20px; background:#fff; border:1px solid #f4d6e2; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; color:#e89cb5; z-index:2; box-shadow:0 2px 8px rgba(0,0,0,0.06); }
 
@@ -402,8 +402,7 @@ export function renderHome(el, user, profile) {
 
       <section class="today-section">
         <div class="section-head">
-          <div><p class="eyebrow">🤍 A Little Something for Today</p></div>
-          <h2>Grow closer, every day</h2>
+          <div><p class="eyebrow">Today Question</p></div>
         </div>
         <div class="today-cards">
           <article class="card today-question" id="home-question-card">
@@ -411,7 +410,7 @@ export function renderHome(el, user, profile) {
               <p class="home-question-text" id="home-question-text">Loading today's question…</p>
               <div class="home-question-answers" id="home-question-answers"></div>
             </div>
-            <button type="button" class="home-see-history-btn" id="home-see-history">See History →</button>
+            <button type="button" class="home-see-history-btn" id="home-see-history">See History</button>
           </article>
         </div>
       </section>
@@ -584,8 +583,12 @@ export function renderHome(el, user, profile) {
         const answer = isMine ? ownAnswer : partnerAnswer;
         const answered = Boolean(questionParticipants[key]);
         const display = answer?.answer || "";
-        return `<div class="home-question-answer"><span class="home-question-answer-name">${esc(person.name)}:</span><span class="home-question-answer-text">${display ? esc(display) + " ♡" : (isMine && answered ? "Your answer will appear here." : "Waiting for your partner.")}</span></div>`;
+        const showText = display ? esc(display) + " ♡" : (isMine && answered ? "Your answer will appear here." : "Waiting for your partner.");
+        return `<div class="home-question-answer answer-card" data-profile-key="${esc(key)}"><span class="home-question-answer-name">${esc(person.name)}:</span><span class="home-question-answer-text">${showText}</span></div>`;
       }).join("");
+      answers.querySelectorAll(".answer-card").forEach(card => {
+        card.onclick = () => window.App.navigate("questions");
+      });
     }
   }
 
@@ -629,7 +632,6 @@ export function renderHome(el, user, profile) {
 
   $("#open-drawing", el).onclick = () => window.App.navigate("drawing");
   $("#view-more-posts", el).onclick = () => window.App.navigate("gallery");
-  $("#home-question-card", el).onclick = () => window.App.navigate("questions");
   $("#home-see-history", el).onclick = event => {
     event.stopPropagation();
     window.App.navigate("questions");
