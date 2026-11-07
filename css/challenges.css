@@ -124,67 +124,149 @@
   white-space: nowrap;
 }
 
-/* ── SNAP card ── */
+/* ── SNAP card ───────────────────────────────────────────────────────
+   Mirrors the WATER card one-for-one: same outer widget padding, same
+   person-card padding/radius/tint, same title row, same body row, and
+   an action row that occupies the water progress-bar slot. Both person
+   cards always render that action row (button or spacer), so Keby and
+   Shazy stay identical in height and the two sections line up. */
 .snap-widget {
-  margin-top: 8px; padding: 8px 10px; border-radius: 12px;
-  border: 1px solid #f6dbe7; background: #fff7fb;
+  margin-top: 8px; padding: 8px 10px; border-radius: 14px;
+  border: 1px solid #f6dbe7; background: linear-gradient(155deg, #fff8fc, #fff2f8);
 }
 .snap-brand-mark {
-  width: 40px; height: 40px; flex: none;
+  width: 42px; height: 42px; flex: none;
   display: grid; place-items: center; border-radius: 12px;
   background: #fffc00; font-size: 16px;
 }
 .snap-brand-mark svg { width: 24px; height: 24px; fill: #171717; }
-.snap-challenge-card .challenge-card-head { margin-bottom: 12px; gap: 12px; }
-.snap-challenge-card .challenge-head-copy h2 { font-size: 18px; }
-.snap-challenge-card .challenge-head-copy small { font-size: 12px; }
+.snap-challenge-card .challenge-card-head { margin-bottom: 10px; gap: 12px; }
+.snap-challenge-card .challenge-head-copy h2 { font-size: clamp(16px, 4vw, 20px); }
+.snap-challenge-card .challenge-head-copy small { font-size: 11px; }
 .snap-people-grid {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  display: flex; justify-content: center; gap: 8px; flex-wrap: wrap;
+  align-items: stretch;
 }
+/* Person card = .water-person-progress: same padding, radius, tint, border.
+   Keby gets the blue tint and Shazy the pink tint, exactly like the water
+   card, so the two habit sections read as one system. */
 .snap-person-card {
-  min-width: 0; padding: 10px; border-radius: 16px;
-  border: 1px solid #f5e7ec; background: linear-gradient(145deg, #fff, #fff9fb);
+  position: relative; flex: 1; min-width: 0; padding: 10px; border-radius: 16px;
+  border: 1px solid #cce6fb; background: linear-gradient(145deg, #fff, #f8fcff);
+  display: flex; flex-direction: column; gap: 6px;
 }
-.snap-person-head {
-  display: flex; align-items: center; gap: 8px; min-width: 0;
+.snap-person-card.is-shazy { border-color: #f4d5e2; background: linear-gradient(145deg, #fff, #fff8fb); }
+.snap-person-card.is-sent { border-color: #d8efe1; background: linear-gradient(145deg, #fff, #f6fdf8); }
+/* Title row = .water-person-title: name + emoji centred, badge top-right */
+.snap-person-title {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  gap: 6px; margin-bottom: 6px; min-height: 20px;
+  color: #173e70; font-size: 14px; overflow-wrap: anywhere;
 }
-.snap-person-head > strong {
-  min-width: 0; flex: 1; overflow: hidden;
-  color: #29232a; font-size: 14px; text-overflow: ellipsis; white-space: nowrap;
-}
+.snap-person-title strong { font-weight: 700; padding: 0 46px; text-align: center; }
+.snap-person-title > span[aria-hidden] { font-size: 14px; }
+.snap-person-card.is-shazy .snap-person-title { color: #703a58; }
+.snap-person-card.is-sent .snap-person-title { color: #1f7a42; }
+/* Badge pinned to the top-right of the title row, so both person columns
+   line up horizontally exactly like the water card's name row. */
 .snap-status-pill {
-  flex: none; padding: 6px 10px; border-radius: 999px;
-  font-size: 10px; font-weight: 800;
-  white-space: nowrap;
+  position: absolute; top: 50%; right: 0; transform: translateY(-50%);
+  padding: 3px 8px; border-radius: 999px;
+  font-size: 9px; font-weight: 800; line-height: 1.4; white-space: nowrap;
 }
 .snap-status-pill.sent { background: #e4f5e9; color: #278052; }
 .snap-status-pill.pending { background: #fff0f4; color: #907784; }
-.snap-person-state {
-  display: flex; align-items: center; gap: 8px; margin-top: 10px;
-  min-width: 0;
+/* Body = .water-person-main: fixed visual + flexible details column */
+.snap-person-main {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  min-width: 0; min-height: clamp(80px, 12vw, 108px);
 }
+.snap-visual { flex: none; display: grid; place-items: center; }
 .snap-avatar {
-  width: 38px; height: 38px; flex: none;
-  display: grid; place-items: center; overflow: hidden; border-radius: 50%;
-  background: #e9f5eb; color: #288455; font-size: 18px;
+  width: clamp(56px, 8vw, 76px); height: clamp(80px, 12vw, 108px);
+  display: grid; place-items: center; overflow: hidden; border-radius: 16px;
+  background: linear-gradient(145deg, #eef8f1, #e2f2e8); color: #288455;
+  font: 800 26px/1 "DM Sans", sans-serif;
 }
 .snap-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.snap-state-copy { display: grid; gap: 3px; min-width: 0; flex: 1; overflow: hidden; }
-.snap-state-copy strong { color: #29232a; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.snap-state-copy small { color: #907e87; font-size: 11px; line-height: 1.2; overflow-wrap: anywhere; }
 .snap-sent-check {
-  width: 44px; height: 44px; flex: none;
-  display: grid; place-items: center; border-radius: 50%;
-  background: #31a66b; color: #fff; font: 800 30px/1 "DM Sans", sans-serif;
+  width: clamp(56px, 8vw, 76px); height: clamp(80px, 12vw, 108px);
+  display: grid; place-items: center; border-radius: 16px;
+  background: #31a66b; color: #fff; font: 800 34px/1 "DM Sans", sans-serif;
 }
+/* Details = .water-person-details: the copy column beside the visual.
+   The action button is absolutely positioned inside this column, exactly
+   like .water-count-controls sits inside .water-person-details, so it
+   adds no extra row and the card keeps the water card's height. */
+.snap-person-details {
+  display: flex; flex-direction: column;
+  justify-content: center; gap: 4px; min-width: 0; flex: 1;
+  padding-bottom: 34px;
+}
+.snap-state-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.snap-state-copy strong { color: #29232a; font-size: 12px; line-height: 1.25; }
+.snap-state-copy small { color: #907e87; font-size: 10px; line-height: 1.25; }
+/* Action = the water progress bar slot: full width of the details column,
+   pinned to its bottom so it never adds a row. */
 .snap-send-button {
-  grid-column: 1 / -1; width: 100%; min-height: 36px; padding: 0 10px;
-  border: 0; border-radius: 999px; background: #fffc00; color: #171717;
-  font: 800 13px "DM Sans", sans-serif; cursor: pointer;
+  position: absolute; left: 10px; right: 10px; bottom: 10px;
+  width: auto; min-height: 30px; padding: 0 10px; box-sizing: border-box;
+  border: 0; border-radius: 10px; background: #fffc00; color: #171717;
+  font: 800 12px "DM Sans", sans-serif; cursor: pointer;
+  box-shadow: 0 2px 8px rgba(23, 23, 23, 0.12);
 }
 .snap-send-button:hover:not(:disabled) { opacity: 0.9; }
 .snap-send-button:disabled { opacity: 0.55; cursor: wait; }
+/* The partner card reserves the same slot so both cards stay equal */
+.snap-action-spacer { display: none; }
+
+/* Keep both habit grids stretching their cards to a shared height */
+.snap-people-grid, .water-bottles { align-items: stretch; }
+.snap-person-card { justify-content: flex-start; }
+
+/* The snap body matches the water body's 108px glass height exactly, so
+   the two habit sections end at the same overall height. */
+.snap-person-card .snap-person-main { min-height: clamp(80px, 12vw, 108px); }
+.snap-person-card .snap-avatar,
+.snap-person-card .snap-sent-check { height: clamp(80px, 12vw, 108px); }
+/* The water card carries a caption line under its body; the snap card has
+   none, so trim the body by that line to keep both cards level. */
+.snap-person-card .snap-person-main { min-height: clamp(74px, 11vw, 102px); }
+.snap-person-card .snap-avatar,
+.snap-person-card .snap-sent-check { height: clamp(74px, 11vw, 102px); }
+
+/* ── Snap copy: two short lines, never truncated mid-word ── */
+.snap-person-card .snap-state-copy strong { font-size: 11px; }
+.snap-person-card .snap-state-copy small { font-size: 9px; }
+
+/* ── Snap avatar: match the water glass's visual weight and tint ── */
+.snap-person-card .snap-avatar {
+  background: linear-gradient(145deg, #eaf4ff, #dcecfd); color: #1f6fb8;
+}
+.snap-person-card.is-shazy .snap-avatar {
+  background: linear-gradient(145deg, #fff0f6, #ffe4ee); color: #c04a7c;
+}
+.snap-person-card.is-sent .snap-avatar {
+  background: linear-gradient(145deg, #e9f8ee, #d9f2e2); color: #1f7a42;
+}
+
+/* ── Symmetry: the partner card has no button, so it shows a quiet
+   placeholder in the same slot. Both columns then read identically. ── */
+.snap-action-spacer {
+  position: absolute; left: 10px; right: 10px; bottom: 10px;
+  display: grid; place-items: center; min-height: 30px;
+  border-radius: 10px; background: #f7f4f5; border: 1px dashed #e6dbe1;
+  color: #a08d97; font: 700 10px "DM Sans", sans-serif;
+  letter-spacing: .02em; white-space: nowrap;
+}
+.snap-action-spacer::after { content: "Waiting for partner"; }
+
+/* ── Copy: two short lines, never truncated mid-word ── */
+.snap-person-card .snap-state-copy strong,
+.snap-person-card .snap-state-copy small {
+  white-space: normal; overflow-wrap: anywhere;
+}
+.snap-person-card .snap-state-copy { padding-right: 0; }
 
 /* ── WATER card ── */
 .water-widget {
@@ -409,8 +491,8 @@
   overflow: hidden;
 }
 .custom-card.kind-punishment {
-  border-color: #d6d6d6;
-  background: linear-gradient(160deg, #f0f0f0, #e3e3e3);
+  border-color: #efc9d9;
+  background: linear-gradient(160deg, #fff5f9, #fbe8f0);
 }
 .custom-card.is-completed { border-color: #d9ecdf; }
 .custom-head {
@@ -438,6 +520,8 @@
 .custom-tag.pending { background: #fff3e2; color: #a56014; }
 .custom-tag.accepted { background: #e6f0ff; color: #1a58a8; }
 .custom-tag.done { background: #e8f7ee; color: #1f7a47; }
+.custom-tag.submitted { background: #fff0d7; color: #99621b; }
+.custom-tag.extension { background: #f5e7fb; color: #794394; }
 .custom-desc {
   margin: 2px 0 5px; color: #82717a;
   font-size: 11px; line-height: 1.45;
@@ -475,6 +559,7 @@
   display: block; width: 100%; max-height: 140px;
   object-fit: cover; margin-top: 6px; border-radius: 10px;
 }
+.custom-card audio { width: 100%; margin-top: 6px; }
 .custom-note {
   margin: 6px 0 0; padding: 6px 8px; border-radius: 8px;
   background: #fff7fa; color: #60283f;
@@ -633,6 +718,13 @@
   box-shadow: 0 0 0 3px rgba(239, 109, 159, 0.1);
 }
 .challenge-form textarea { min-height: 60px; resize: vertical; max-width: 100%; }
+.challenge-form input[type="date"], .challenge-form input[type="number"] {
+  width: 100%; min-height: 38px; padding: 8px 11px; box-sizing: border-box;
+  border: 1px solid #f0dce6; border-radius: 10px; background: #fff; color: #583447; font-size: 12px;
+}
+.challenge-compose-preview { padding: 12px; border: 1px solid #f0dce6; border-radius: 12px; background: #fff4f8; color: #60283f; }
+.challenge-compose-preview p { margin: 5px 0; white-space: pre-wrap; }
+.custom-search { width: 100%; min-height: 38px; margin: 8px 0 10px; padding: 8px 12px; border: 1px solid #f0dce6; border-radius: 10px; background: #fff; color: #583447; box-sizing: border-box; }
 .challenge-form input[type="file"] {
   width: 100%; min-height: 38px; padding: 7px;
   font-size: 11px; border: 1px solid #f0dce6;
@@ -737,9 +829,10 @@ body.challenge-hub-open { overflow: hidden; overscroll-behavior: none; }
   .challenge-head-copy h2 { font-size: 14px; }
   .challenge-icon { width: 34px; height: 34px; font-size: 17px; }
   .give-challenge-btn { padding: 11px 14px; }
-  .snap-person-card { padding: 10px 8px; border-radius: 16px; }
+  .snap-person-card { padding: 9px 7px; border-radius: 16px; }
   .snap-person-head > strong { font-size: 13px; }
-  .snap-send-button { font-size: 12px; padding: 0 6px; }
+  .snap-avatar, .snap-sent-check { width: 66px; height: 100px; }
+  .snap-send-button { font-size: 12px; padding: 0 6px; min-height: 32px; }
   .water-person-progress { padding: 9px 7px; border-radius: 16px; }
   .water-glass-wrap { width: 66px; height: 100px; }
   .water-count strong { font-size: clamp(24px, 3vw, 32px); }

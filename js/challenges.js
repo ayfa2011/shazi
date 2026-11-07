@@ -55,7 +55,9 @@ export function renderChallenges(el, user, profile) {
   let assignments = [], assignmentsReady = false, assignmentsError = false;
   const reconcilingDailyPoints = new Set();
   let historyFilter = "all"; // all | snap | water
-  let customFilter = "all"; // all | received | sent | active | completed
+  let challengeHistoryFilter = "all";
+  let challengeHistorySearch = "";
+  let customFilter = "all"; // all | challenges | punishments | active | completed | expired
   let hubView = "challenges";
 
   el.innerHTML = `
@@ -89,6 +91,8 @@ export function renderChallenges(el, user, profile) {
     giveModalRoot.querySelector(".challenge-compose-layer")?.remove();
     const editingKind = editing?.kind === "punishment" ? "punishment" : "challenge";
     const composeRoot = document.createElement("div");
+    const draftKey = `challenge-draft-${ownKey}`;
+    const savedDraft = !editing ? (() => { try { return JSON.parse(localStorage.getItem(draftKey) || "null"); } catch { return null; } })() : null;
     composeRoot.className = "challenge-compose-layer";
     composeRoot.innerHTML = `
       <div class="challenge-modal challenge-compose-modal" role="dialog" aria-modal="true">
@@ -100,28 +104,44 @@ export function renderChallenges(el, user, profile) {
           <form class="challenge-form" id="give-challenge-form">
             ${editing ? "" : `
               <div class="kind-toggle" role="tablist">
-                <button type="button" data-kind="challenge" class="selected">💝 Challenge</button>
-                <button type="button" data-kind="punishment" class="punishment">😈 Punishment</button>
+              <button type="button" data-kind="challenge" class="${savedDraft?.kind !== "punishment" ? "selected" : ""}">💝 Challenge</button>
+              <button type="button" data-kind="punishment" class="punishment ${savedDraft?.kind === "punishment" ? "selected" : ""}">😈 Punishment</button>
               </div>`}
             <label>Title
-              <input type="text" name="title" maxlength="80" required value="${esc(editing?.title || "")}" placeholder="e.g. Make me a cup of tea">
+            <input type="text" name="title" maxlength="80" required value="${esc(editing?.title || savedDraft?.title || "")}" placeholder="e.g. Make me a cup of tea">
             </label>
             <label>Description
-              <textarea name="description" maxlength="300" required placeholder="Add a little detail…">${esc(editing?.description || "")}</textarea>
+              <textarea name="description" maxlength="300" required placeholder="Add a little detail…">${esc(editing?.description || savedDraft?.description || "")}</textarea>
             </label>
             ${editing ? "" : `
-              <label>Time to complete
+              <label>Deadline
                 <select name="duration">
-                  <option value="1">Within 1 day</option>
-                  <option value="3">Within 3 days</option>
-                  <option value="5">Within 5 days</option>
-                  <option value="7" selected>Within 7 days</option>
-                  <option value="14">Within 2 weeks</option>
-                  <option value="30">Within 30 days</option>
+                  <option value="1" ${savedDraft?.durationDays === 1 ? "selected" : ""}>1 day</option>
+                  <option value="3" ${savedDraft?.durationDays === 3 ? "selected" : ""}>3 days</option>
+                  <option value="7" ${!savedDraft?.durationDays || savedDraft?.durationDays === 7 ? "selected" : ""}>1 week</option>
+                  <option value="custom" ${savedDraft?.customDate ? "selected" : ""}>Choose a date…</option>
                 </select>
-              </label>`}
+                <input type="date" name="customDate" value="${esc(savedDraft?.customDate || "")}" aria-label="Choose deadline date" ${savedDraft?.customDate ? "" : "hidden"}>
+              </label>
+              <label>Proof required
+                <select name="proofType">
+                  <option value="any" ${savedDraft?.proofType === "any" || !savedDraft?.proofType ? "selected" : ""}>Any (photo, video or voice)</option>
+                  <option value="photo" ${savedDraft?.proofType === "photo" ? "selected" : ""}>Photo</option><option value="video" ${savedDraft?.proofType === "video" ? "selected" : ""}>Video</option><option value="voice" ${savedDraft?.proofType === "voice" ? "selected" : ""}>Voice note</option><option value="none" ${savedDraft?.proofType === "none" ? "selected" : ""}>No proof required</option>
+                </select>
+              </label>
+              <label>Optional points / reward
+                <input type="number" name="rewardPoints" min="0" max="1000" value="${Number(savedDraft?.rewardPoints || 0)}" placeholder="0">
+              </label>
+              <label>Reference media (optional)
+                <input type="file" name="reference" accept="image/*,video/*,audio/*">
+                <button type="button" class="modal-secondary" data-record-voice>🎙 Record voice note</button>
+                <small data-record-state aria-live="polite">${savedDraft?.voiceData ? "Voice note saved in this draft" : ""}</small>
+              </label>
+              <div class="challenge-compose-preview" hidden></div>
+            `}
             <div class="challenge-modal-actions">
               <button type="button" class="modal-secondary" data-close-give>Cancel</button>
+              ${editing ? "" : `<button type="button" class="modal-secondary" data-save-draft>Save draft</button><button type="button" class="modal-secondary" data-preview>Preview</button>`}
               <button type="submit" class="modal-primary ${editingKind === "punishment" ? "punishment" : ""}">
                 ${editing ? "Save" : "Send"} ${editingKind === "punishment" ? "Punishment" : "Challenge"}
               </button>
@@ -133,7 +153,44 @@ export function renderChallenges(el, user, profile) {
     giveModalRoot.append(composeRoot);
 
     const form = $("#give-challenge-form", composeRoot);
-    let kind = editingKind;
+    let kind = editingKind === "punishment" || savedDraft?.kind === "punishment" ? "punishment" : "challenge";
+    let recordedVoice = savedDraft?.voiceData || "";
+    let selectedReference = null;
+    let mediaRecorder = null;
+    const durationInput = form.elements.duration;
+    if (durationInput) durationInput.onchange = () => { form.elements.customDate.hidden = durationInput.value !== "custom"; };
+    if (form.elements.reference) form.elements.reference.onchange = () => { selectedReference = form.elements.reference.files?.[0] || null; };
+    const recordButton = composeRoot.querySelector("[data-record-voice]");
+    if (recordButton) recordButton.onclick = async () => {
+      if (mediaRecorder?.state === "recording") { mediaRecorder.stop(); recordButton.textContent = "🎙 Record voice note"; return; }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const chunks = [];
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "audio/webm" });
+          const reader = new FileReader();
+          reader.onload = () => { recordedVoice = String(reader.result || ""); };
+          reader.readAsDataURL(blob);
+          composeRoot.querySelector("[data-record-state]").textContent = "Voice note recorded and ready to send.";
+          stream.getTracks().forEach(track => track.stop());
+        };
+        mediaRecorder.start(); recordButton.textContent = "■ Stop recording";
+        composeRoot.querySelector("[data-record-state]").textContent = "Recording…";
+      } catch { toast("Microphone access is needed to record a voice note."); }
+    };
+    composeRoot.querySelector("[data-save-draft]")?.addEventListener("click", () => {
+      const draft = { title: form.elements.title.value, description: form.elements.description.value, kind, durationDays: durationInput.value === "custom" ? null : Number(durationInput.value), customDate: form.elements.customDate.value, proofType: form.elements.proofType.value, rewardPoints: Number(form.elements.rewardPoints.value || 0), voiceData: recordedVoice };
+      localStorage.setItem(draftKey, JSON.stringify(draft)); toast("Draft saved on this device.");
+    });
+    composeRoot.querySelector("[data-preview]")?.addEventListener("click", () => {
+      const preview = composeRoot.querySelector(".challenge-compose-preview");
+      preview.hidden = false;
+      const deadlineText = durationInput.value === "custom" ? form.elements.customDate.value : `${durationInput.value} day${durationInput.value === "1" ? "" : "s"}`;
+      const points = Number(form.elements.rewardPoints.value || 0);
+      preview.innerHTML = `<strong>${esc(form.elements.title.value || "Your title")}</strong><p>${esc(form.elements.description.value || "Your description")}</p><small>${kind === "punishment" ? "Punishment" : "Challenge"} · ${esc(deadlineText)} · ${esc(form.elements.proofType.value)} proof${points ? ` · ${points} points` : ""}</small>`;
+    });
 
     composeRoot.querySelectorAll("[data-close-give]").forEach(b => b.onclick = () => composeRoot.remove());
     composeRoot.querySelector(".challenge-modal").onclick = event => {
@@ -151,6 +208,12 @@ export function renderChallenges(el, user, profile) {
         composeRoot.querySelector("h2").textContent = `${editing ? "Edit" : "Send"} ${kind === "punishment" ? "Punishment" : "Challenge"}`;
       };
     });
+    if (kind === "punishment") {
+      const submit = form.querySelector('[type="submit"]');
+      submit.classList.add("punishment");
+      submit.textContent = `${editing ? "Save" : "Send"} Punishment`;
+      composeRoot.querySelector("h2").textContent = `${editing ? "Edit" : "Send"} Punishment`;
+    }
 
     form.onsubmit = async event => {
       event.preventDefault();
@@ -167,12 +230,31 @@ export function renderChallenges(el, user, profile) {
           composeRoot.remove();
           return;
         }
-        const durationDays = Number(form.elements.duration.value || 7);
         const createdAt = Date.now();
-        const deadlineAt = createdAt + durationDays * 86400000;
+        let deadlineAt;
+        if (form.elements.duration.value === "custom") {
+          const chosen = new Date(`${form.elements.customDate.value}T23:59:00`);
+          if (!form.elements.customDate.value || chosen.getTime() <= createdAt) throw new Error("Choose a future deadline.");
+          deadlineAt = chosen.getTime();
+        } else deadlineAt = createdAt + Number(form.elements.duration.value || 7) * 86400000;
+        const durationDays = Math.max(1, Math.ceil((deadlineAt - createdAt) / 86400000));
+        let mediaMetadata = {};
+        let mediaFile = selectedReference;
+        if (!mediaFile && recordedVoice) {
+          const response = await fetch(recordedVoice);
+          mediaFile = new File([await response.blob()], "voice-note.webm", { type: response.headers.get("content-type") || "audio/webm" });
+        }
+        if (mediaFile) {
+          const result = await sendToTelegram(mediaFile, `Challenge reference · ${profile.name} · ${new Date().toLocaleString()}`);
+          mediaMetadata = { ...telegramMediaReferences(result), mimeType: telegramUploadMimeType(mediaFile) };
+          if (mediaFile.type.startsWith("video/")) mediaMetadata.videoMimeType = telegramUploadMimeType(mediaFile);
+          if (mediaFile.type.startsWith("audio/")) mediaMetadata.audioMimeType = telegramUploadMimeType(mediaFile);
+          if (mediaFile.type.startsWith("image/")) mediaMetadata.photoMimeType = telegramUploadMimeType(mediaFile);
+        }
         const recipientKey = Object.keys(APP_CONFIG.profiles).find(key => key !== ownKey) || "";
         const customRef = await addItem("customChallenge", {
-          title, description, kind, durationDays,
+          title, description, kind, durationDays, proofType: form.elements.proofType.value,
+          rewardPoints: Number(form.elements.rewardPoints.value || 0),
           createdAtMs: createdAt, deadlineAt,
           extensionRequested: false,
           status: "upcoming",
@@ -183,8 +265,9 @@ export function renderChallenges(el, user, profile) {
           assignedAtMs: createdAt,
           sentAtMs: createdAt,
           sentDate: todayKey(),
-          actions: []
+          actions: [], ...(Object.keys(mediaMetadata).length ? { referenceMedia: mediaMetadata, ...mediaMetadata } : {})
         });
+        localStorage.removeItem(draftKey);
         void notifyPartnerSafely(ownKey, "challenge",
           `${profile.name} sent ${kind === "punishment" ? "a punishment" : "a challenge"}: ${title}`.slice(0, 240),
           customRef.id, "challenges");
@@ -421,19 +504,23 @@ export function renderChallenges(el, user, profile) {
 
     const filters = [
       ["all", `All (${all.length})`],
-      ["received", `Received (${received.length})`],
-      ["sent", `Sent (${sent.length})`],
+      ["challenges", `Challenges (${all.filter(({ item }) => item.kind !== "punishment").length})`],
+      ["punishments", `Punishments (${all.filter(({ item }) => item.kind === "punishment").length})`],
       ["active", `Active (${activeCount})`],
-      ["completed", `Completed (${completedCount})`]
+      ["completed", `Completed (${completedCount})`],
+      ["expired", `Expired (${all.filter(({ item }) => item.status !== "completed" && item.deadlineAt && Number(item.deadlineAt) < Date.now()).length})`]
     ];
 
     const visible = all.filter(({ item, received: isReceived }) => {
-      if (customFilter === "received") return isReceived;
-      if (customFilter === "sent") return !isReceived;
+      if (customFilter === "challenges") return item.kind !== "punishment";
+      if (customFilter === "punishments") return item.kind === "punishment";
       if (customFilter === "active") return item.status === "upcoming" || item.status === "in-progress";
       if (customFilter === "completed") return item.status === "completed";
+      if (customFilter === "expired") return item.status !== "completed" && item.deadlineAt && Number(item.deadlineAt) < Date.now();
       return true;
     });
+    const queryText = customListsRoot.querySelector("[data-custom-search]")?.value?.trim().toLocaleLowerCase() || "";
+    const searched = queryText ? visible.filter(({ item }) => `${item.title || ""} ${item.description || ""}`.toLocaleLowerCase().includes(queryText)) : visible;
 
     customListsRoot.innerHTML = `
       <section class="custom-hub" aria-labelledby="custom-hub-title">
@@ -453,8 +540,9 @@ export function renderChallenges(el, user, profile) {
             </button>
           `).join("")}
         </div>
-        ${visible.length
-          ? `<div class="custom-list">${visible.map(({ item, received }) => customCard(item, received)).join("")}</div>`
+        <input class="custom-search" type="search" data-custom-search placeholder="Search challenges…" aria-label="Search challenges">
+        ${searched.length
+          ? `<div class="custom-list">${searched.map(({ item, received }) => customCard(item, received)).join("")}</div>`
           : `<div class="challenge-empty custom-hub-empty">
               <span class="empty-heart" aria-hidden="true">${all.length ? "♡" : "💌"}</span>
               <strong>${all.length ? "Nothing in this filter yet" : "Your little challenge story starts here"}</strong>
@@ -473,26 +561,46 @@ export function renderChallenges(el, user, profile) {
         hydrateTelegramImages();
       };
     });
+    const search = customListsRoot.querySelector("[data-custom-search]");
+    if (search) search.oninput = () => {
+      const caret = search.selectionStart;
+      const value = search.value;
+      renderCustomSection();
+      const nextSearch = customListsRoot.querySelector("[data-custom-search]");
+      nextSearch.value = value; nextSearch.focus(); nextSearch.setSelectionRange(caret, caret);
+    };
   }
 
   function customCard(item, received) {
     const kind = item.kind === "punishment" ? "punishment" : "challenge";
     const isPunishment = kind === "punishment";
-    const status = item.status === "in-progress" ? "accepted" : item.status === "completed" ? "done" : "pending";
-    const tagText = { pending: "Pending", accepted: "Accepted", done: "Completed" }[status];
+    const status = item.status === "in-progress" ? "accepted" : item.status === "completed" ? "done" : item.status === "submitted" ? "submitted" : item.status === "extension-requested" ? "extension" : "pending";
+    const tagText = { pending: "Pending", accepted: "Accepted", done: "Completed", submitted: "Proof submitted", extension: "Extension requested" }[status];
     const date = Number(item.sentAtMs || item.assignedAtMs || item.createdAtMs || 0);
     const deadline = item.deadlineAt ? new Date(item.deadlineAt) : null;
-    const image = item.photoUrl
-      ? `<img class="custom-photo" src="${esc(item.photoUrl)}" alt="Completion">`
-      : item.telegramFileId
-        ? `<img class="custom-photo" data-telegram-file-id="${esc(item.telegramFileId)}" data-telegram-mime="${esc(item.photoMimeType || "image/jpeg")}" alt="Completion">`
-        : "";
+    const proof = item.proof || null;
+    const mediaData = proof?.telegramFileId ? proof : item.referenceMedia?.telegramFileId ? item.referenceMedia : item;
+    const mediaId = mediaData.telegramFileId || "";
+    const mediaMime = mediaData.videoMimeType || mediaData.audioMimeType || mediaData.photoMimeType || mediaData.mimeType || "image/jpeg";
+    const image = mediaId ? mediaMime.startsWith("video/")
+      ? `<video class="custom-photo" controls data-telegram-file-id="${esc(mediaId)}" data-telegram-mime="${esc(mediaMime)}"></video>`
+      : mediaMime.startsWith("audio/")
+        ? `<audio controls data-telegram-file-id="${esc(mediaId)}" data-telegram-mime="${esc(mediaMime)}"></audio>`
+        : `<img class="custom-photo" data-telegram-file-id="${esc(mediaId)}" data-telegram-mime="${esc(mediaMime)}" alt="Challenge media">`
+      : mediaData.photoUrl ? `<img class="custom-photo" src="${esc(mediaData.photoUrl)}" alt="Challenge media">` : "";
     const actions = received && item.status === "upcoming"
       ? `<div class="custom-actions"><button class="custom-accept" data-custom-action="accept" data-id="${esc(item.id)}">Accept</button></div>`
       : received && item.status === "in-progress"
         ? `<div class="custom-actions">
-            <button class="custom-complete" data-custom-action="complete" data-id="${esc(item.id)}">Mark complete ♡</button>
+            <button class="custom-complete" data-custom-action="complete" data-id="${esc(item.id)}">Submit proof ♡</button>
+            <button class="custom-edit" data-custom-action="request-extension" data-id="${esc(item.id)}">Request more time</button>
           </div>`
+        : received && item.status === "extension-requested"
+          ? `<p class="custom-note">Extension requested: ${esc(item.extensionRequest?.reason || "No reason given")}</p>`
+        : !received && item.status === "extension-requested"
+          ? `<div class="custom-actions"><button class="custom-accept" data-custom-action="approve-extension" data-id="${esc(item.id)}">Approve new date</button><button class="custom-delete" data-custom-action="decline-extension" data-id="${esc(item.id)}">Decline</button></div>`
+        : !received && item.status === "submitted"
+          ? `<p class="custom-note">Proof submitted. Please review it in details.</p><div class="custom-actions"><button class="custom-accept" data-custom-action="approve-proof" data-id="${esc(item.id)}">Approve proof</button><button class="custom-edit" data-custom-action="request-revision" data-id="${esc(item.id)}">Ask for another proof</button></div>`
         : !received && (item.status === "upcoming" || item.status === "in-progress")
           ? `<div class="custom-actions">
               <button class="custom-edit" data-custom-action="edit" data-id="${esc(item.id)}">Edit</button>
@@ -514,6 +622,8 @@ export function renderChallenges(el, user, profile) {
           ${item.status === "completed" ? `<span>✓ Finished</span>` : ""}
         </div>
         ${item.note ? `<p class="custom-note">${esc(item.note)}</p>` : ""}
+        ${item.rewardPoints ? `<div class="custom-meta"><span>✨ ${Number(item.rewardPoints)} points on completion</span></div>` : ""}
+        ${item.proofType ? `<div class="custom-meta"><span>Proof: ${esc(item.proofType === "any" ? "Any media" : item.proofType)}</span></div>` : ""}
         ${image}
         ${actions}
       </article>
@@ -582,13 +692,22 @@ export function renderChallenges(el, user, profile) {
       : `<div class="challenge-empty"><span class="empty-heart">♡</span>No recent daily challenge activity yet.</div>`}
     `;
 
-    // Custom completed (all time) shown at the bottom of All view
+    // Custom assignment history with searchable type and status filters.
     if (historyFilter === "all") {
-      const completedCustom = customAllChallenges.filter(i => i.status === "completed");
-      const customHtml = completedCustom.length ? `
-        <h3 class="custom-section-title">Completed challenges & punishments</h3>
-        <div class="custom-list">${completedCustom.map(item => customCard(item, item.recipientKey === ownKey)).join("")}</div>
-      ` : "";
+      const customFilters = [["all", "All"], ["challenges", "Challenges"], ["punishments", "Punishments"], ["completed", "Completed"], ["expired", "Expired"]];
+      const customHistory = customAllChallenges.filter(item => {
+        if (challengeHistoryFilter === "challenges") return item.kind !== "punishment";
+        if (challengeHistoryFilter === "punishments") return item.kind === "punishment";
+        if (challengeHistoryFilter === "completed") return item.status === "completed";
+        if (challengeHistoryFilter === "expired") return item.status !== "completed" && item.deadlineAt && Number(item.deadlineAt) < Date.now();
+        return true;
+      }).filter(item => `${item.title || ""} ${item.description || ""}`.toLocaleLowerCase().includes(challengeHistorySearch.toLocaleLowerCase()));
+      const customHtml = `
+        <section class="custom-history-section"><h3 class="custom-section-title">Challenge & punishment history</h3>
+          <div class="history-filter" role="group" aria-label="Filter challenge history">${customFilters.map(([key, label]) => `<button type="button" data-custom-history-filter="${key}" class="${challengeHistoryFilter === key ? "selected" : ""}">${label}</button>`).join("")}</div>
+          <input class="custom-search" type="search" data-custom-history-search value="${esc(challengeHistorySearch)}" placeholder="Search history…" aria-label="Search challenge history">
+          ${customHistory.length ? `<div class="custom-list">${customHistory.map(item => customCard(item, item.recipientKey === ownKey)).join("")}</div>` : `<div class="challenge-empty">No matching challenge history yet.</div>`}
+        </section>`;
       historyRoot.innerHTML = filterSection + customHtml;
     } else {
       historyRoot.innerHTML = filterSection;
@@ -597,6 +716,11 @@ export function renderChallenges(el, user, profile) {
     historyRoot.querySelectorAll("[data-history-filter]").forEach(btn => {
       btn.onclick = () => { historyFilter = btn.dataset.historyFilter; renderHistory(); };
     });
+    historyRoot.querySelectorAll("[data-custom-history-filter]").forEach(btn => {
+      btn.onclick = () => { challengeHistoryFilter = btn.dataset.customHistoryFilter; renderHistory(); };
+    });
+    const customSearch = historyRoot.querySelector("[data-custom-history-search]");
+    if (customSearch) customSearch.oninput = () => { challengeHistorySearch = customSearch.value; renderHistory(); const next = historyRoot.querySelector("[data-custom-history-search]"); next.focus(); next.setSelectionRange(challengeHistorySearch.length, challengeHistorySearch.length); };
     hydrateTelegramImages();
   }
 
@@ -642,13 +766,41 @@ export function renderChallenges(el, user, profile) {
         if (!item) return;
         const action = customButton.dataset.customAction;
         if (action === "edit") return openGiveModal(item);
-        if (action === "complete") return openCompletionModal(item.id, item);
+        if (action === "complete") {
+          if (item.proofType === "none") {
+            try {
+              await transitionCustomChallenge(item.id, { uid: user.uid, profileKey: ownKey, name: profile.name }, "submit-proof", { note: "No proof required." });
+              void notifyPartnerSafely(ownKey, "challenge", `${profile.name} submitted “${item.title}” for review.`, `${item.id}-submitted`, "challenges");
+              toast("Sent for review ♡"); renderChallengeHub();
+            } catch (error) { toast(error.message || "Could not submit."); }
+            return;
+          }
+          return openCompletionModal(item.id, item);
+        }
         if (action === "delete" && !confirm("Delete this? This cannot be undone.")) return;
         customButton.disabled = true;
         try {
-          await transitionCustomChallenge(item.id, { uid: user.uid, profileKey: ownKey, name: profile.name }, action);
+          let extra = {};
+          if (action === "request-extension") {
+            const reason = prompt("Why do you need more time?");
+            if (reason === null) { customButton.disabled = false; return; }
+            if (!reason.trim()) throw new Error("Add a short reason for the extension request.");
+            const currentDeadline = Number(item.deadlineAt || Date.now());
+            const dateValue = prompt("Suggest a new deadline (YYYY-MM-DD)", new Date(Math.max(Date.now() + 86400000, currentDeadline + 86400000)).toISOString().slice(0, 10));
+            if (!dateValue) { customButton.disabled = false; return; }
+            const requestedDeadlineAt = new Date(`${dateValue}T23:59:00`).getTime();
+            if (!Number.isFinite(requestedDeadlineAt) || requestedDeadlineAt <= currentDeadline) throw new Error("Choose a date after the current deadline.");
+            extra = { reason, requestedDeadlineAt };
+          }
+          if (action === "approve-extension") extra.deadlineAt = Number(item.extensionRequest?.requestedDeadlineAt || 0);
+          if (action === "request-revision") extra.note = prompt("What should be added or changed?", "Please add another proof.") || "Please add another proof.";
+          await transitionCustomChallenge(item.id, { uid: user.uid, profileKey: ownKey, name: profile.name }, action, extra);
           if (action === "delete") toast("Deleted.");
           if (action === "accept") { void notifyPartnerSafely(ownKey, "challenge", `${profile.name} accepted: ${item.title}`.slice(0, 240), `${item.id}-accepted`, "challenges"); toast("Accepted ♡"); }
+          if (action === "complete") { void notifyPartnerSafely(ownKey, "challenge", `${profile.name} submitted proof for “${item.title}”.`, `${item.id}-submitted`, "challenges"); toast("Proof sent for review ♡"); }
+          if (action === "request-extension") { void notifyPartnerSafely(ownKey, "challenge", `${profile.name} requested more time for “${item.title}”.`, `${item.id}-extension`, "challenges"); toast("Extension request sent."); }
+          if (action === "approve-proof") { void notifyPartnerSafely(ownKey, "challenge", `Your proof for “${item.title}” was approved ♡`, `${item.id}-completed`, "challenges"); toast("Proof approved ♡"); }
+          if (action === "approve-extension") toast("New deadline approved 📅");
           renderChallengeHub();
         } catch (error) { toast(error.message || "Could not update."); customButton.disabled = false; }
         return;
@@ -731,8 +883,8 @@ export function renderChallenges(el, user, profile) {
             <label>Note (optional)
               <textarea name="note" maxlength="500" placeholder="Add a little note…"></textarea>
             </label>
-            <label>Photo (optional)
-              <input type="file" name="photo" accept="image/*">
+            <label>${assignment.proofType && assignment.proofType !== "none" ? `Proof (${esc(assignment.proofType)})` : "Proof (optional)"}
+              <input type="file" name="photo" accept="${assignment.proofType === "photo" ? "image/*" : assignment.proofType === "video" ? "video/*" : assignment.proofType === "voice" ? "audio/*" : "image/*,video/*,audio/*"}" ${assignment.proofType && assignment.proofType !== "none" ? "required" : ""}>
             </label>
             <img class="challenge-photo-preview hidden" id="challenge-photo-preview" alt="Preview">
             <div class="challenge-modal-actions">
@@ -752,6 +904,7 @@ export function renderChallenges(el, user, profile) {
     form.elements.photo.addEventListener("change", () => {
       selectedPhoto = form.elements.photo.files[0] || null;
       if (!selectedPhoto) { image.classList.add("hidden"); image.removeAttribute("src"); return; }
+      if (!selectedPhoto.type.startsWith("image/")) { image.classList.add("hidden"); return; }
       const reader = new FileReader();
       reader.onload = () => { image.src = reader.result; image.classList.remove("hidden"); };
       reader.readAsDataURL(selectedPhoto);
@@ -764,15 +917,20 @@ export function renderChallenges(el, user, profile) {
       try {
         let photoMetadata = {};
         if (selectedPhoto) {
+          if (assignment.proofType === "photo" && !selectedPhoto.type.startsWith("image/") || assignment.proofType === "video" && !selectedPhoto.type.startsWith("video/") || assignment.proofType === "voice" && !selectedPhoto.type.startsWith("audio/")) throw new Error(`Please submit a ${assignment.proofType} proof.`);
           const timestamp = new Date().toLocaleString();
-          const result = await sendToTelegram(selectedPhoto, `Challenge Photo · ${profile.name} · ${timestamp}`);
-          photoMetadata = { ...telegramMediaReferences(result), photoMimeType: telegramUploadMimeType(selectedPhoto), photoUrl: "" };
+          const label = selectedPhoto.type.startsWith("video/") ? "Challenge Proof Video" : selectedPhoto.type.startsWith("audio/") ? "Challenge Proof Voice" : "Challenge Proof Photo";
+          const result = await sendToTelegram(selectedPhoto, `${label} · ${profile.name} · ${timestamp}`);
+          photoMetadata = { ...telegramMediaReferences(result), mimeType: telegramUploadMimeType(selectedPhoto), photoUrl: "" };
+          if (selectedPhoto.type.startsWith("video/")) photoMetadata.videoMimeType = telegramUploadMimeType(selectedPhoto);
+          if (selectedPhoto.type.startsWith("audio/")) photoMetadata.audioMimeType = telegramUploadMimeType(selectedPhoto);
+          if (selectedPhoto.type.startsWith("image/")) photoMetadata.photoMimeType = telegramUploadMimeType(selectedPhoto);
         }
-        await transitionCustomChallenge(assignmentId, { uid: user.uid, profileKey: ownKey, name: profile.name }, "complete", { note: form.elements.note?.value?.trim() || "", ...photoMetadata });
-        void notifyPartnerSafely(ownKey, "challenge", `${profile.name} completed a challenge.`, `${assignmentId}-completed`, "challenges");
+        await transitionCustomChallenge(assignmentId, { uid: user.uid, profileKey: ownKey, name: profile.name }, "submit-proof", { note: form.elements.note?.value?.trim() || "", ...photoMetadata });
+        void notifyPartnerSafely(ownKey, "challenge", `${profile.name} submitted proof for a challenge.`, `${assignmentId}-submitted`, "challenges");
         triggerCompletionSplash();
         modalRoot.innerHTML = "";
-        toast("Completed ♡");
+        toast("Proof sent for review ♡");
       } catch (error) {
         console.error(error);
         toast(error.message || "Could not save.");
@@ -830,7 +988,7 @@ export function renderChallenges(el, user, profile) {
     if (!isCurrent()) return;
     customAllChallenges = items;
     scheduleRender();
-  }, error => console.error("Custom challenges failed:", error));
+  }, error => console.error("Custom challenges failed:", error), null);
 
   function onProfilesUpdated() { partnerProfiles = APP_CONFIG.profiles; render(); }
   removeProfilesListener = () => window.removeEventListener("couple-profiles-updated", onProfilesUpdated);
@@ -848,9 +1006,9 @@ export function renderChallenges(el, user, profile) {
   window.addEventListener("keydown", onChallengeEscape);
 
   function hydrateTelegramImages() {
-    el.querySelectorAll("img[data-telegram-file-id]").forEach(image => {
-      getTelegramMediaUrl(image.dataset.telegramFileId, image.dataset.telegramMime || "image/jpeg")
-        .then(url => { if (image.isConnected) image.src = url; })
+    el.querySelectorAll("[data-telegram-file-id]").forEach(media => {
+      getTelegramMediaUrl(media.dataset.telegramFileId, media.dataset.telegramMime || "image/jpeg")
+        .then(url => { if (media.isConnected) media.src = url; })
         .catch(error => console.error("Photo could not load:", error));
     });
   }

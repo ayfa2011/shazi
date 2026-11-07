@@ -188,16 +188,30 @@ service cloud.firestore {
           || (collectionName == 'items' && isLegacyScheduledLetterBodyMigration())
           || (collectionName == 'items' && resource.data.get('type', '') == 'customChallenge'
             && ((resource.data.get('author', '') == request.auth.uid
-                && resource.data.get('status', '') in ['upcoming', 'in-progress']
-                && request.resource.data.get('status', '') == resource.data.get('status', '')
-                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'updatedAtMs']))
+                && ((resource.data.get('status', '') in ['upcoming', 'in-progress']
+                    && request.resource.data.get('status', '') == resource.data.get('status', '')
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'kind', 'deadlineAt', 'durationDays', 'proofType', 'rewardPoints', 'updatedAtMs']))
+                  || (resource.data.get('status', '') == 'submitted'
+                    && request.resource.data.get('status', '') == 'completed'
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'completedBy', 'completedByKey', 'completedAtMs', 'proofReviewedAtMs', 'proofReviewedBy', 'updatedAtMs']))
+                  || (resource.data.get('status', '') == 'extension-requested'
+                    && request.resource.data.get('status', '') in ['upcoming', 'in-progress']
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'deadlineAt', 'durationDays', 'extensionRequested', 'extensionRequest', 'updatedAtMs']))))
               || (resource.data.get('recipientKey', '') == ownNotificationProfileKey()
                 && request.resource.data.get('author', '') == resource.data.get('author', '')
                 && request.resource.data.get('recipientKey', '') == resource.data.get('recipientKey', '')
-                && request.resource.data.get('status', '') in ['in-progress', 'completed']
-                && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'actions', 'acceptedBy', 'acceptedAtMs', 'note', 'photoUrl', 'completedBy', 'completedByKey', 'completedAtMs'])
-                && ((request.resource.data.status == 'in-progress' && resource.data.status in ['upcoming', 'in-progress'])
-                  || (request.resource.data.status == 'completed' && resource.data.status == 'in-progress')))))
+                && ((request.resource.data.get('status', '') == 'in-progress'
+                    && resource.data.get('status', '') in ['upcoming', 'in-progress']
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'actions', 'acceptedBy', 'acceptedAtMs']))
+                  || (request.resource.data.get('status', '') == 'extension-requested'
+                    && resource.data.get('status', '') in ['upcoming', 'in-progress']
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'extensionRequested', 'extensionRequest', 'actions', 'updatedAtMs']))
+                  || (request.resource.data.get('status', '') == 'submitted'
+                    && resource.data.get('status', '') == 'in-progress'
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'proof', 'note', 'photoUrl', 'telegramFileId', 'telegramFileUniqueId', 'telegramMessageId', 'telegramChatId', 'mimeType', 'photoMimeType', 'videoMimeType', 'audioMimeType', 'submittedAtMs', 'updatedAtMs', 'actions']))
+                  || (request.resource.data.get('status', '') == 'in-progress'
+                    && resource.data.get('status', '') == 'submitted'
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'proofReviewNote', 'proofRejectedAtMs', 'updatedAtMs']))))))
         );
       allow delete: if isCoupleMember()
         && coupleId == 'our-little-world'

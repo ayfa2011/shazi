@@ -307,6 +307,8 @@ export function renderHome(el, user, profile) {
       .challenge-status.status-upcoming { background:#f1e3ea; color:#a58392; border:1px solid #ead3dd; }
       .challenge-status.status-in-progress { background:#eec3d7; color:#6a2c42; border:1px solid #f1b8d0; }
       .challenge-status.status-accepted { background:#dcebf7; color:#4a7c9c; border:1px solid #b8d4e8; }
+      .challenge-status.status-submitted { background:#fff0d7; color:#99621b; border:1px solid #f0d6a9; }
+      .challenge-status.status-extension-requested { background:#f5e7fb; color:#794394; border:1px solid #e2c8ef; }
       .challenge-status.status-completed { background:#e8f0e8; color:#4a7c5a; border:1px solid #bcd4bc; }
 
       .challenge-card.featured { border:2px solid #eec3d7; box-shadow:0 8px 32px rgba(142,59,90,0.1); position:relative; overflow:hidden; }
@@ -443,7 +445,7 @@ export function renderHome(el, user, profile) {
         <div class="section-head">
           <div><p class="eyebrow">Challenge / Punishment</p></div>
           <h2>Send a playful challenge</h2>
-          <button type="button" class="home-view-more-challenges" id="home-view-more-challenges">View All →</button>
+          <button type="button" class="home-view-more-challenges" id="home-view-more-challenges">＋ New Challenge</button>
         </div>
         <div id="home-challenge-punishment" class="challenge-pun-list"></div>
       </section>
@@ -501,6 +503,10 @@ export function renderHome(el, user, profile) {
     $("#counter-hours", el).textContent = String(Math.floor(elapsed / 3600000) % 24).padStart(2, "0");
     $("#counter-minutes", el).textContent = String(Math.floor(elapsed / 60000) % 60).padStart(2, "0");
     $("#counter-seconds", el).textContent = String(Math.floor(elapsed / 1000) % 60).padStart(2, "0");
+    el.querySelectorAll("[data-home-challenge-deadline]").forEach(node => {
+      const remaining = Number(node.dataset.homeChallengeDeadline) - Date.now();
+      node.textContent = remaining < 0 ? "Overdue" : Math.ceil(remaining / 86400000) <= 1 ? "Due today" : `${Math.ceil(remaining / 86400000)} days left`;
+    });
   }
 
   dateButton.onclick = () => {
@@ -754,11 +760,16 @@ export function renderHome(el, user, profile) {
                 const sent = snapCompletedBy.some(p => p.profileKey === key || (person.authUid && p.uid === person.authUid));
                 const isMine = key === questionProfileKey;
                 const avatar = person.avatar ? `<img src="${esc(person.avatar)}" alt="">` : esc((person.name || "♡")[0]);
-                return `<section class="snap-person-card ${sent ? "is-sent" : "is-pending"}">
-                  <header class="snap-person-head"><strong>${esc(person.name || "Partner")}</strong><span class="snap-status-pill ${sent ? "sent" : "pending"}">${sent ? "✓ Sent" : "◷ Not Sent"}</span></header>
-                  <div class="snap-person-state">${sent ? `<span class="snap-sent-check" role="img" aria-label="Snap sent">✓</span>` : `<span class="snap-avatar">${avatar}</span>`}<div class="snap-state-copy"><strong>${sent ? "Snap sent today" : "Snap not sent yet"}</strong><small>${sent ? (isMine ? "You're all caught up" : "Your partner is all caught up") : (isMine ? "Send your daily moment" : "Waiting for your partner")}</small></div>
-                    ${isMine && !sent ? `<button type="button" class="snap-send-button" data-action="snap-complete" data-id="${esc(snapAssignment?.id || "")}">Send Snap</button>` : ""}
+                const isShazy = person.name?.toLowerCase() === "shazy";
+                return `<section class="snap-person-card ${sent ? "is-sent" : "is-pending"}${isShazy ? " is-shazy" : ""}">
+                  <div class="snap-person-title"><strong>${esc(person.name || "Partner")}</strong><span aria-hidden="true">${sent ? "💛" : "📸"}</span><span class="snap-status-pill ${sent ? "sent" : "pending"}">${sent ? "✓ Sent" : "◷ Not Sent"}</span></div>
+                  <div class="snap-person-main">
+                    <div class="snap-visual">${sent ? `<span class="snap-sent-check" role="img" aria-label="Snap sent">✓</span>` : `<span class="snap-avatar">${avatar}</span>`}</div>
+                    <div class="snap-person-details">
+                      <div class="snap-state-copy"><strong>${sent ? "Snap sent today" : "Snap not sent yet"}</strong><small>${sent ? (isMine ? "You're all caught up" : "Your partner is all caught up") : (isMine ? "Send your daily moment" : "Waiting for your partner")}</small></div>
+                    </div>
                   </div>
+                  ${isMine && !sent ? `<button type="button" class="snap-send-button" data-action="snap-complete" data-id="${esc(snapAssignment?.id || "")}">Send Snap</button>` : `<div class="snap-action-spacer" aria-hidden="true"></div>`}
                 </section>`;
               }).join("")}
             </div>
@@ -854,7 +865,15 @@ export function renderHome(el, user, profile) {
   let customChallenges = [], customChallengesReady = false;
 
   function pendingCustomChallenges() {
-    return customChallenges.filter(item => item.status === "upcoming" || item.status === "in-progress");
+    return customChallenges.filter(item => item.status !== "completed")
+      .sort((a, b) => {
+        const aDeadline = Number(a.deadlineAt || Number.MAX_SAFE_INTEGER);
+        const bDeadline = Number(b.deadlineAt || Number.MAX_SAFE_INTEGER);
+        const aOverdue = aDeadline < Date.now() ? 0 : 1;
+        const bOverdue = bDeadline < Date.now() ? 0 : 1;
+        if (aOverdue !== bOverdue) return aOverdue - bOverdue;
+        return aOverdue ? bDeadline - aDeadline : aDeadline - bDeadline;
+      });
   }
 
   function renderChallengeCards() {
@@ -862,35 +881,37 @@ export function renderHome(el, user, profile) {
     if (!host) return;
     const pending = pendingCustomChallenges();
     if (!pending.length) {
-      host.innerHTML = `<div class="challenge-empty">No challenges yet. Send your partner a playful challenge to get started.</div>`;
+      host.innerHTML = `<div class="challenge-empty">💌 No challenges yet. Send your partner a playful challenge to get started.<br><button type="button" class="challenge-card-btn primary" data-action="create" style="margin-top:10px;max-width:240px">＋ New Challenge</button></div>`;
+      host.querySelector('[data-action="create"]').onclick = () => window.App.navigate("challenges");
       return;
     }
     const featured = pending[0];
-    const rest = pending.slice(1);
+    const rest = pending.slice(1, 2);
     const featuredIsPunishment = featured.kind === "punishment";
     const featuredDeadline = featured.deadlineAt ? new Date(featured.deadlineAt) : null;
     const featuredDaysLeft = featuredDeadline ? Math.max(0, Math.ceil((featuredDeadline.getTime() - Date.now()) / 86400000)) : 0;
     const featuredMine = featured.authorKey === questionProfileKey;
+    const statusLabel = item => ({ upcoming: "Pending", "in-progress": "Accepted", submitted: "Proof submitted", "extension-requested": "Extension requested" }[item.status] || item.status);
     const featuredStatus = featured.status;
 
     const featuredHtml = `
       <article class="challenge-card featured" data-challenge-id="${esc(featured.id)}">
         <div class="challenge-card-head">
           <span class="challenge-card-type ${featuredIsPunishment ? "punishment" : "challenge"}">${featuredIsPunishment ? "Punishment" : "Challenge"}</span>
-          <span class="challenge-status status-${featuredStatus}">${featuredStatus.charAt(0).toUpperCase() + featuredStatus.slice(1)}</span>
+          <span class="challenge-status status-${featuredStatus}">${statusLabel(featured)}</span>
         </div>
         <h3 class="challenge-card-title">${esc(featured.title || featured.description?.slice(0, 50) || "Challenge")}</h3>
         <p class="challenge-card-desc">${esc(featured.description || "")}</p>
         <div class="challenge-card-meta">
           <span>By ${esc(featured.authorName || "Partner")}</span>
-          ${featuredDeadline ? `<span>⏳ ${featuredDaysLeft} day${featuredDaysLeft !== 1 ? "s" : ""} left</span>` : ""}
+          ${featuredDeadline ? `<span>⏳ <span data-home-challenge-deadline="${featuredDeadline.getTime()}">${featuredDeadline.getTime() < Date.now() ? "Overdue" : featuredDaysLeft ? `${featuredDaysLeft} day${featuredDaysLeft !== 1 ? "s" : ""} left` : "Due today"}</span></span>` : ""}
         </div>
         <div class="challenge-card-actions">
-          ${!featuredMine && (featuredStatus === "upcoming" || featuredStatus === "in-progress")
+          ${!featuredMine && featuredStatus === "upcoming"
             ? `<button type="button" class="challenge-card-btn primary" data-action="accept">Accept Challenge</button>`
             : ""}
-          ${featuredMine && (featuredStatus === "accepted" || featuredStatus === "in-progress")
-            ? `<button type="button" class="challenge-card-btn primary" data-action="complete">Complete Challenge</button>`
+          ${!featuredMine && featuredStatus === "in-progress"
+            ? `<button type="button" class="challenge-card-btn primary" data-action="complete">Submit Proof</button>`
             : ""}
           <button type="button" class="challenge-card-btn outline" data-action="view">View Details →</button>
         </div>
@@ -907,20 +928,20 @@ export function renderHome(el, user, profile) {
         <article class="challenge-card" data-challenge-id="${esc(item.id)}">
           <div class="challenge-card-head">
             <span class="challenge-card-type ${isPunishment ? "punishment" : "challenge"}">${typeLabel}</span>
-            <span class="challenge-status status-${item.status}">${item.status.charAt(0).toUpperCase() + item.status.slice(1)}</span>
+            <span class="challenge-status status-${item.status}">${statusLabel(item)}</span>
           </div>
           <h3 class="challenge-card-title">${esc(item.title || item.description?.slice(0, 40) || typeLabel)}</h3>
           <p class="challenge-card-desc">${esc(item.description || "")}</p>
           <div class="challenge-card-meta">
             <span>By ${esc(item.authorName || "Partner")}</span>
-            ${deadline ? `<span>${daysLeft} day${daysLeft !== 1 ? "s" : ""} left</span>` : ""}
+            ${deadline ? `<span><span data-home-challenge-deadline="${deadline.getTime()}">${deadline.getTime() < Date.now() ? "Overdue" : daysLeft ? `${daysLeft} day${daysLeft !== 1 ? "s" : ""} left` : "Due today"}</span></span>` : ""}
           </div>
           <div class="challenge-card-actions">
-            ${!mine && (item.status === "upcoming" || item.status === "in-progress")
+            ${!mine && item.status === "upcoming"
               ? `<button type="button" class="challenge-card-btn primary" data-action="accept">Accept Challenge</button>`
               : ""}
-            ${mine && (item.status === "accepted" || item.status === "in-progress")
-              ? `<button type="button" class="challenge-card-btn primary" data-action="complete">Complete Challenge</button>`
+            ${!mine && item.status === "in-progress"
+              ? `<button type="button" class="challenge-card-btn primary" data-action="complete">Submit Proof</button>`
               : ""}
             <button type="button" class="challenge-card-btn outline" data-action="view">View Details →</button>
           </div>
@@ -928,7 +949,9 @@ export function renderHome(el, user, profile) {
       `;
     }).join("")}</div>` : "";
 
-    host.innerHTML = featuredHtml + restHtml;
+    const viewAll = pending.length > 2 ? `<button type="button" class="home-view-more-challenges" data-challenge-view-all>View all ${pending.length} →</button>` : "";
+    host.innerHTML = featuredHtml + restHtml + viewAll;
+    host.querySelector("[data-challenge-view-all]")?.addEventListener("click", () => window.App.navigate("challenges"));
 
     host.querySelectorAll("[data-action]").forEach(btn => {
       btn.onclick = async event => {
@@ -947,27 +970,39 @@ export function renderHome(el, user, profile) {
             await transitionCustomChallenge(id, { uid: user.uid, profileKey: questionProfileKey, name: profile.name }, "accept");
             toast("Challenge accepted ♡");
           } else if (action === "complete") {
+            if (item.proofType === "none") {
+              await transitionCustomChallenge(id, { uid: user.uid, profileKey: questionProfileKey, name: profile.name }, "submit-proof", { note: "No proof required." });
+              void notifyPartnerSafely(questionProfileKey, "challenge", `${profile.name} submitted “${item.title}” for review.`, `${id}-submitted`, "challenges");
+              toast("Sent for review ♡");
+              renderChallengeCards();
+              return;
+            }
             const fileInput = document.createElement("input");
             fileInput.type = "file";
-            fileInput.accept = "image/*,video/*,audio/*";
+            fileInput.accept = item.proofType === "photo" ? "image/*" : item.proofType === "video" ? "video/*" : item.proofType === "voice" ? "audio/*" : "image/*,video/*,audio/*";
             fileInput.onchange = async () => {
               const file = fileInput.files[0];
-              if (!file) { btn.disabled = false; btn.textContent = "Complete Challenge"; return; }
+              if (!file && item.proofType !== "none") { btn.disabled = false; btn.textContent = "Submit Proof"; return; }
               try {
-                const timestamp = new Date().toLocaleString();
-                const label = file.type.startsWith("video/") ? "Challenge Completion Video" : (file.type.startsWith("audio/") ? "Challenge Completion Voice" : "Challenge Completion Photo");
-                const result = await sendToTelegram(file, `${label} · ${profile.name} · ${timestamp}`);
-                const photoMetadata = { ...telegramMediaReferences(result), mimeType: telegramUploadMimeType(file) };
-                if (file.type.startsWith("video/")) photoMetadata.videoMimeType = telegramUploadMimeType(file);
-                if (file.type.startsWith("image/")) photoMetadata.photoMimeType = telegramUploadMimeType(file);
-                await transitionCustomChallenge(id, { uid: user.uid, profileKey: questionProfileKey, name: profile.name }, "complete", { note: "Completed via dashboard", ...photoMetadata });
-                void notifyPartnerSafely(questionProfileKey, "challenge", `${profile.name} completed the challenge.`, `${id}-completed`, "challenges");
-                toast("Challenge completed ♡");
+                let photoMetadata = {};
+                if (file) {
+                  if (item.proofType === "photo" && !file.type.startsWith("image/") || item.proofType === "video" && !file.type.startsWith("video/") || item.proofType === "voice" && !file.type.startsWith("audio/")) throw new Error(`Please submit a ${item.proofType} proof.`);
+                  const timestamp = new Date().toLocaleString();
+                  const label = file.type.startsWith("video/") ? "Challenge Proof Video" : (file.type.startsWith("audio/") ? "Challenge Proof Voice" : "Challenge Proof Photo");
+                  const result = await sendToTelegram(file, `${label} · ${profile.name} · ${timestamp}`);
+                  photoMetadata = { ...telegramMediaReferences(result), mimeType: telegramUploadMimeType(file) };
+                  if (file.type.startsWith("video/")) photoMetadata.videoMimeType = telegramUploadMimeType(file);
+                  if (file.type.startsWith("audio/")) photoMetadata.audioMimeType = telegramUploadMimeType(file);
+                  if (file.type.startsWith("image/")) photoMetadata.photoMimeType = telegramUploadMimeType(file);
+                }
+                await transitionCustomChallenge(id, { uid: user.uid, profileKey: questionProfileKey, name: profile.name }, "submit-proof", { note: "Submitted via dashboard", ...photoMetadata });
+                void notifyPartnerSafely(questionProfileKey, "challenge", `${profile.name} submitted proof for a challenge.`, `${id}-submitted`, "challenges");
+                toast("Proof sent for review ♡");
               } catch (error) {
                 console.error(error);
                 toast(error.message || "Could not complete.");
                 btn.disabled = false;
-                btn.textContent = "Complete Challenge";
+                btn.textContent = "Submit Proof";
               }
             };
             fileInput.click();
@@ -983,7 +1018,7 @@ export function renderHome(el, user, profile) {
           console.error(error);
           toast(error.message || "Could not update challenge.");
           btn.disabled = false;
-          btn.textContent = action === "accept" ? "Accept Challenge" : "Complete Challenge";
+          btn.textContent = action === "accept" ? "Accept Challenge" : "Submit Proof";
         }
       };
     });

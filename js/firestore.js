@@ -601,6 +601,7 @@ export async function transitionCustomChallenge(id, actor, action, extra = {}) {
     const snapshot = await transaction.get(reference);
     if (!snapshot.exists() || snapshot.data().type !== "customChallenge") throw new Error("This challenge is no longer available.");
     const current = snapshot.data();
+    const isCreator = current.author === actor.uid;
     if (action === "edit" || action === "delete") {
       if (current.author !== actor.uid) throw new Error("Only the person who created this challenge can change it.");
       if (current.status === "completed") throw new Error("Completed challenges are kept as history.");
@@ -608,7 +609,7 @@ export async function transitionCustomChallenge(id, actor, action, extra = {}) {
       transaction.update(reference, { ...extra, updatedAtMs: Date.now() });
       return;
     }
-    if (current.author === actor.uid) throw new Error("You cannot act on a challenge you created.");
+    if (isCreator && ["accept", "request-extension", "submit-proof", "complete"].includes(action)) throw new Error("You cannot act on a challenge you created.");
     const actions = Array.isArray(current.actions) ? current.actions : [];
     const previous = actions.find(item => item.profileKey === actor.profileKey);
     if (action === "accept") {
@@ -617,6 +618,40 @@ export async function transitionCustomChallenge(id, actor, action, extra = {}) {
       const nextActions = actions.filter(item => item.profileKey !== actor.profileKey);
       nextActions.push({ ...actor, status: "accepted", updatedAtMs: Date.now() });
       transaction.update(reference, { status: "in-progress", actions: nextActions, acceptedBy: actor.uid, acceptedAtMs: Date.now() });
+      return;
+    }
+    if (action === "request-extension") {
+      if (isCreator) throw new Error("Only the recipient can request more time.");
+      if (current.status !== "in-progress" && current.status !== "upcoming") throw new Error("This challenge cannot be extended right now.");
+      const nextActions = actions.filter(item => item.profileKey !== actor.profileKey);
+      nextActions.push({ ...actor, status: "extension-requested", reason: String(extra.reason || "").slice(0, 300), requestedDeadlineAt: Number(extra.requestedDeadlineAt), updatedAtMs: Date.now() });
+      transaction.update(reference, { status: "extension-requested", extensionRequested: true, extensionRequest: { requestedBy: actor.uid, requestedByKey: actor.profileKey, reason: String(extra.reason || "").slice(0, 300), requestedDeadlineAt: Number(extra.requestedDeadlineAt), requestedAtMs: Date.now() }, actions: nextActions, updatedAtMs: Date.now() });
+      return;
+    }
+    if (action === "approve-extension" || action === "decline-extension") {
+      if (!isCreator) throw new Error("Only the sender can review an extension request.");
+      if (current.status !== "extension-requested") throw new Error("There is no extension request to review.");
+      if (action === "approve-extension") {
+        const requestedDeadlineAt = Number(extra.deadlineAt || current.extensionRequest?.requestedDeadlineAt || 0);
+        if (!requestedDeadlineAt || requestedDeadlineAt <= Number(current.deadlineAt || 0)) throw new Error("Choose a later deadline.");
+        transaction.update(reference, { status: current.acceptedBy ? "in-progress" : "upcoming", deadlineAt: requestedDeadlineAt, durationDays: Math.max(1, Math.ceil((requestedDeadlineAt - Number(current.createdAtMs || Date.now())) / 86400000)), extensionRequested: false, extensionRequest: { ...current.extensionRequest, reviewedAtMs: Date.now(), approved: true, reviewedBy: actor.uid }, updatedAtMs: Date.now() });
+      } else {
+        transaction.update(reference, { status: current.acceptedBy ? "in-progress" : "upcoming", extensionRequested: false, extensionRequest: { ...current.extensionRequest, reviewedAtMs: Date.now(), approved: false, reviewedBy: actor.uid }, updatedAtMs: Date.now() });
+      }
+      return;
+    }
+    if (action === "submit-proof") {
+      if (isCreator) throw new Error("Only the recipient can submit proof.");
+      if (current.status !== "in-progress") throw new Error("Accept this challenge before submitting proof.");
+      const proof = { note: String(extra.note || "").slice(0, 500), photoUrl: extra.photoUrl || "", telegramFileId: extra.telegramFileId || "", telegramFileUniqueId: extra.telegramFileUniqueId || "", telegramMessageId: extra.telegramMessageId || null, telegramChatId: extra.telegramChatId || null, mimeType: extra.mimeType || "", videoMimeType: extra.videoMimeType || "", photoMimeType: extra.photoMimeType || "", audioMimeType: extra.audioMimeType || "", submittedBy: actor.uid, submittedByKey: actor.profileKey, submittedAtMs: Date.now() };
+      transaction.update(reference, { status: "submitted", proof, note: proof.note, ...(proof.photoUrl ? { photoUrl: proof.photoUrl } : {}), ...(proof.telegramFileId ? { telegramFileId: proof.telegramFileId, telegramFileUniqueId: proof.telegramFileUniqueId, telegramMessageId: proof.telegramMessageId, telegramChatId: proof.telegramChatId, mimeType: proof.mimeType, photoMimeType: proof.photoMimeType, videoMimeType: proof.videoMimeType, audioMimeType: proof.audioMimeType } : {}), submittedAtMs: proof.submittedAtMs, updatedAtMs: Date.now(), actions: [...actions.filter(item => item.profileKey !== actor.profileKey), { ...actor, status: "submitted", updatedAtMs: Date.now() }] });
+      return;
+    }
+    if (action === "approve-proof" || action === "request-revision") {
+      if (!isCreator) throw new Error("Only the sender can review proof.");
+      if (current.status !== "submitted") throw new Error("There is no proof waiting for review.");
+      if (action === "approve-proof") transaction.update(reference, { status: "completed", completedBy: actor.uid, completedByKey: actor.profileKey, completedAtMs: Date.now(), proofReviewedAtMs: Date.now(), proofReviewedBy: actor.uid, updatedAtMs: Date.now() });
+      else transaction.update(reference, { status: "in-progress", proofReviewNote: String(extra.note || "Please add another proof.").slice(0, 300), proofRejectedAtMs: Date.now(), updatedAtMs: Date.now() });
       return;
     }
     if (action === "complete") {
