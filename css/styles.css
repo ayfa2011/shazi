@@ -2545,10 +2545,12 @@ body.home-dashboard #main-content .home-drawing-panel .home-drawing-preview {
 }
 body.home-dashboard #main-content .home-drawing-panel .home-drawing-preview img {
   display: block;
-  width: 100%;
-  height: 100%;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  flex: none;
   min-height: 0;
-  max-height: none;
   object-fit: contain;
 }
 body.home-dashboard #main-content .home-drawing-panel .home-canvas-action { flex: none; }
@@ -2562,6 +2564,58 @@ body.home-dashboard #main-content .home-drawing-panel .home-canvas-action { flex
   body.home-dashboard #main-content .home-post-panel .home-post-actions { gap: 5px; font-size: 10px; }
   body.home-dashboard #main-content .home-post-panel .home-view-more { min-height: 30px; padding: 5px; font-size: 9px; }
   body.home-dashboard #main-content .home-drawing-panel .home-canvas-action { margin: 0; padding: 5px; font-size: 10px; }
+}
+
+body.home-dashboard #main-content .home-post-panel.home-post-panel--media {
+  aspect-ratio: auto;
+  min-height: 0;
+  overflow: visible;
+}
+body.home-dashboard #main-content .home-post-panel--media .home-feed {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: visible;
+}
+body.home-dashboard #main-content .home-post-panel--media .home-post-card {
+  height: auto;
+  min-height: 0;
+  justify-content: flex-start;
+  gap: 5px;
+}
+body.home-dashboard #main-content .home-post-panel--media .home-post-header { flex: none; }
+body.home-dashboard #main-content .home-post-panel--media .home-post-photo,
+body.home-dashboard #main-content .home-post-panel--media .home-post-video-frame {
+  width: 100%;
+  height: clamp(120px, 32vw, 260px);
+  max-height: 260px;
+  margin: 0;
+  object-fit: contain;
+  background: #fff;
+}
+body.home-dashboard #main-content .home-post-panel .home-post-actions {
+  flex: none;
+  margin-top: 4px;
+  padding-top: 7px;
+}
+body.home-dashboard #main-content .home-post-panel .home-action-btn {
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 1px solid #f1d5e1;
+  border-radius: 999px;
+  background: #fff5f9;
+  color: #8f315d;
+  font-size: 12px;
+  font-weight: 700;
+  transition: background-color .18s ease, border-color .18s ease, transform .18s ease;
+}
+body.home-dashboard #main-content .home-post-panel .home-action-btn:hover {
+  transform: translateY(-1px);
+  border-color: #eaa9c3;
+  background: #ffedf4;
+}
+body.home-dashboard #main-content .home-post-panel .home-action-btn:focus-visible {
+  outline: 2px solid #c64e80;
+  outline-offset: 2px;
 }
 
 /* Partner-to-partner live chat, available above every routed page. */

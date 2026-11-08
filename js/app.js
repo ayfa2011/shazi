@@ -1060,7 +1060,7 @@ function renderPostFeed(el, user, profile) {
         const fileId = image.dataset.telegramFileId;
         const mime = image.dataset.telegramMime || "image/jpeg";
         void getCachedTelegramMediaUrl(fileId, mime).then(cachedUrl => {
-          if (image.isConnected) image.src = cachedUrl;
+          if (cachedUrl && image.isConnected) image.src = cachedUrl;
         }).catch(() => {});
       });
       hydratePostImages(fragment);

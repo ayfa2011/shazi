@@ -9,6 +9,7 @@ import { challengeDays } from "./challenge-bank.js";
 import { getCachedTelegramMediaUrl, getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
 
 let stopPosts = null, stopRelationship = null, stopDrawings = null, stopQuestionParticipants = null, stopSpecialDays = null, stopOwnAnswer = null, stopPartnerAnswer = null, stopChallenges = null, stopWaterChallenges = null, stopCustomChallenges = null, counterTimer = null, dayRolloverTimer = null, homeRenderToken = 0, postCommentStops = new Map();
+let profileUpdateListener = null;
 let assignments = [], assignmentsReady = false, waterTrackers = [], waterTrackersReady = false, customAllChallenges = [], challengeRenderScheduled = null;
 const pendingWaterWrites = new Map();
 
@@ -26,6 +27,10 @@ function feedSkeletonMarkup(count = 2) {
 export function renderHome(el, user, profile) {
   const renderToken = ++homeRenderToken;
   const isCurrent = () => renderToken === homeRenderToken && el.isConnected;
+  if (profileUpdateListener) {
+    window.removeEventListener("couple-profiles-updated", profileUpdateListener);
+    profileUpdateListener = null;
+  }
   stopPosts?.();
   stopRelationship?.();
   stopDrawings?.();
@@ -210,14 +215,16 @@ export function renderHome(el, user, profile) {
       }
       .home-feed-skeleton{display:grid;gap:9px}
       .home-skeleton-card{display:grid;gap:10px;padding:11px;border:1px solid var(--line);border-radius:16px;background:#fff}
-      .home-question-body { box-sizing:border-box; width:min(100%,760px); margin:0 auto; padding:16px 18px; display:flex; flex-direction:column; gap:12px; }
-      .home-question-text { margin:0; font-family:"Playfair Display",Georgia,serif; font-size:20px; font-weight:600; color:#6a2c42; line-height:1.5; padding:16px 18px; border-radius:16px; background:linear-gradient(135deg,#fff,#fdfafb); border:1px solid #f4d6e2; box-shadow:0 4px 14px rgba(142,59,90,0.06); }
-      .home-question-answers { display:flex; flex-direction:column; gap:10px; }
-      .home-question-answer { display:flex; align-items:center; gap:10px; padding:12px 16px; border:1px solid #f3d9e5; border-radius:14px; background:#fff; color:#5a3a4a; font-size:14px; box-shadow:0 2px 8px rgba(0,0,0,0.03); width:100%; }
+      .home-question-body { box-sizing:border-box; width:min(100%,760px); margin:0 auto; padding:12px 14px; display:flex; flex-direction:column; gap:8px; }
+      .home-question-text { margin:0; font-family:"Playfair Display",Georgia,serif; font-size:20px; font-weight:600; color:#6a2c42; line-height:1.5; padding:12px 14px; border-radius:16px; background:linear-gradient(135deg,#fff,#fdfafb); border:1px solid #f4d6e2; box-shadow:0 4px 14px rgba(142,59,90,0.06); }
+      .home-question-answers { display:flex; flex-direction:column; gap:7px; }
+      .home-question-answer { display:flex; align-items:center; gap:9px; padding:9px 12px; border:1px solid #f3d9e5; border-radius:14px; background:#fff; color:#5a3a4a; font-size:14px; box-shadow:0 2px 8px rgba(0,0,0,0.03); width:100%; }
+      .home-question-avatar { display:grid; flex:none; width:34px; height:34px; place-items:center; overflow:hidden; border:1px solid #f3d9e5; border-radius:50%; background:#fff1f6; color:#8e3b5a; font-size:13px; font-weight:700; }
+      .home-question-avatar img { display:block; width:100%; height:100%; object-fit:cover; }
       .home-question-answer-name { font-family:"Playfair Display",Georgia,serif; font-weight:600; color:#8e3b5a; flex-shrink:0; font-size:13px; letter-spacing:.02em; }
       .home-question-answer-text { flex:1; }
-      .home-question-answer-form { display:grid; gap:9px; }
-      .home-question-answer-form textarea { box-sizing:border-box; width:100%; min-height:86px; padding:12px; border:1px solid #f0ccda; border-radius:13px; background:#fffafd; color:#60283f; font:600 14px/1.45 system-ui,sans-serif; resize:vertical; }
+      .home-question-answer-form { display:grid; gap:7px; }
+      .home-question-answer-form textarea { box-sizing:border-box; width:100%; min-height:72px; padding:11px; border:1px solid #f0ccda; border-radius:13px; background:#fffafd; color:#60283f; font:600 14px/1.45 system-ui,sans-serif; resize:vertical; }
       .home-question-answer-form textarea:focus { outline:none; border-color:#e89cb5; box-shadow:0 0 0 3px #e89cb526; }
       .home-question-form-row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
       .home-question-status { color:#a58392; font-size:11px; }
@@ -225,7 +232,7 @@ export function renderHome(el, user, profile) {
       .home-question-form-row button:hover { transform:translateY(-1px); box-shadow:0 6px 16px rgba(199,61,118,0.3); }
       .home-question-form-row button:disabled { opacity:.6; cursor:default; transform:none; }
       .home-question-answer.locked .home-question-answer-text { filter:blur(5px); user-select:none; }
-      .home-see-history-btn { padding:8px 16px; border:1px solid #f4d6e2; border-radius:10px; background:#fff; color:#8e3b5a; font-size:12px; font-weight:600; cursor:pointer; align-self:flex-start; transition:all .2s ease; white-space:nowrap; max-width:fit-content; }
+      .home-see-history-btn { padding:7px 14px; border:1px solid #f4d6e2; border-radius:10px; background:#fff; color:#8e3b5a; font-size:12px; font-weight:600; cursor:pointer; align-self:flex-start; transition:all .2s ease; white-space:nowrap; max-width:fit-content; }
       .home-see-history-btn:hover { background:#fce4ec; border-color:#eec3d7; color:#6a2c42; transform:translateY(-1px); }
       .home-see-history-btn:focus-visible { outline:3px solid #d96a9666; outline-offset:2px; }
 
@@ -307,6 +314,8 @@ export function renderHome(el, user, profile) {
       .home-challenge-summary-stat span { display:block; margin-top:5px; color:#967d8b; font-size:10px; font-weight:700; }
       .challenge-card { padding:18px 20px; border:1px solid #f3d9e5; border-radius:20px; background:#fff; box-shadow:0 4px 16px rgba(142,59,90,0.06); cursor:pointer; transition:all .25s ease; display:flex; flex-direction:column; gap:12px; }
       .challenge-card:hover { transform:translateY(-2px); box-shadow:0 10px 28px rgba(142,59,90,0.1); border-color:#eec3d7; }
+      .water-challenge-card { animation:none; cursor:default; }
+      .water-challenge-card:hover { transform:none; }
       .challenge-card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:4px; }
       .challenge-card-type { font-size:10px; padding:4px 10px; border-radius:8px; font-weight:700; flex:none; letter-spacing:.08em; text-transform:uppercase; }
       .challenge-card-type.challenge { background:#eec3d7; color:#6a2c42; border:1px solid #f1b8d0; }
@@ -669,7 +678,10 @@ export function renderHome(el, user, profile) {
         else if (display) showText = esc(display);
         else if (isMine && answered) showText = "Your answer will appear here.";
         else showText = "Waiting for your partner.";
-        return `<div class="home-question-answer answer-card${locked ? " locked" : ""}" data-profile-key="${esc(key)}"><span class="home-question-answer-name">${esc(person.name)}:</span><span class="home-question-answer-text">${showText}</span></div>`;
+        const avatar = person.avatar
+          ? `<img src="${esc(person.avatar)}" alt="" loading="lazy">`
+          : esc(person.name?.[0] || "♡");
+        return `<div class="home-question-answer answer-card${locked ? " locked" : ""}" data-profile-key="${esc(key)}"><span class="home-question-avatar" aria-hidden="true">${avatar}</span><span class="home-question-answer-name">${esc(person.name)}:</span><span class="home-question-answer-text">${showText}</span></div>`;
       }).join("");
       answers.querySelectorAll(".answer-card").forEach(card => {
         card.onclick = () => window.App.navigate("questions");
@@ -687,6 +699,11 @@ export function renderHome(el, user, profile) {
       }
     }
   }
+
+  profileUpdateListener = () => {
+    if (isCurrent()) renderQuestionWidget();
+  };
+  window.addEventListener("couple-profiles-updated", profileUpdateListener);
 
   const answerForm = () => $("#home-question-answer-form", el);
   answerForm()?.addEventListener("submit", async event => {
@@ -1300,7 +1317,7 @@ export function renderHome(el, user, profile) {
     renderFeed(items);
   }, 1, partnerAuthorIds);
 
-  /* Build the media preview HTML for a feed post: text, photo, or video.
+  /* Build the media preview HTML for a feed post.
      Posts store media as a Telegram file id (photoUrl is rarely set), so
      render telegram file ids as lazy placeholders and resolve them below. */
   function postMediaHtml(post) {
@@ -1364,6 +1381,7 @@ export function renderHome(el, user, profile) {
     }
 
     if (posts.length === 0) {
+      feed.closest(".home-post-panel")?.classList.remove("home-post-panel--media");
       feed.innerHTML = `<div class="home-empty-posts">
         <span class="home-empty-posts-heart" aria-hidden="true">♡</span>
         <strong>Your moments</strong>
@@ -1383,9 +1401,11 @@ export function renderHome(el, user, profile) {
       : "Just now";
 
     const photoHtml = postMediaHtml(post);
+    const hasMedia = Boolean(photoHtml);
+    feed.closest(".home-post-panel")?.classList.toggle("home-post-panel--media", hasMedia);
 
     feed.innerHTML = `
-      <div class="home-post-card" id="home-post-${post.id}">
+      <div class="home-post-card${hasMedia ? " home-post-card--media" : ""}" id="home-post-${post.id}">
         <div class="home-post-header">
           <div class="home-post-author">
             <div class="home-avatar">${author?.avatar ? `<img src="${esc(author.avatar)}" alt="">` : esc(authorName[0])}</div>
@@ -1396,7 +1416,7 @@ export function renderHome(el, user, profile) {
           </div>
         </div>
 
-        ${post.text ? `<p class="home-post-text">${esc(post.text).replace(/\n/g, '<br>')}</p>` : ''}
+        ${!hasMedia && post.text ? `<p class="home-post-text">${esc(post.text).replace(/\n/g, '<br>')}</p>` : ''}
         ${photoHtml}
 
         <div class="home-post-actions">
@@ -1529,6 +1549,10 @@ export function renderHome(el, user, profile) {
 
 export function disposeHome() {
   homeRenderToken++;
+  if (profileUpdateListener) {
+    window.removeEventListener("couple-profiles-updated", profileUpdateListener);
+    profileUpdateListener = null;
+  }
   stopPosts?.();
   stopPosts = null;
   stopRelationship?.();

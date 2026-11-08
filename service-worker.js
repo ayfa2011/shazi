@@ -57,10 +57,13 @@ async function cacheFirstThenNetwork(request, cacheName) {
     // CSS and icon on every navigation. The next install precaches the shell.
     return cached;
   }
-  const network = await fetch(request);
-  if (network?.ok) cache.put(request, network.clone()).catch(() => {});
-  if (network) return network;
-  throw new Error(`No cached response is available for ${request.url}`);
+  try {
+    const network = await fetch(request);
+    if (network.ok) cache.put(request, network.clone()).catch(() => {});
+    return network;
+  } catch {
+    return new Response(null, { status: 503, statusText: "Offline resource unavailable" });
+  }
 }
 
 function isCodeAsset(url) {
@@ -90,10 +93,10 @@ async function networkFirstCode(request, cacheName) {
     ]);
     if (fresh && fresh.ok) cache.put(request, fresh.clone()).catch(() => {});
     return fresh;
-  } catch (error) {
+  } catch {
     const cached = await cache.match(request);
     if (cached) return cached;
-    throw error;
+    return new Response(null, { status: 503, statusText: "Offline resource unavailable" });
   }
 }
 
@@ -205,7 +208,7 @@ self.addEventListener("fetch", event => {
       }).catch(async () => {
         const cached = await caches.match(request);
         if (cached) return cached;
-        throw new Error(`No cached response is available for ${request.url}`);
+        return new Response(null, { status: 503, statusText: "Offline resource unavailable" });
       }));
       return;
     }
@@ -228,7 +231,7 @@ self.addEventListener("fetch", event => {
     }).catch(async () => {
       const cached = await caches.match(request);
       if (cached) return cached;
-      throw new Error(`No cached response is available for ${request.url}`);
+      return new Response(null, { status: 503, statusText: "Offline resource unavailable" });
     })
   );
 });

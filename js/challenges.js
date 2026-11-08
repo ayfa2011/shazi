@@ -19,6 +19,7 @@ let dayRolloverTimer = null, challengeRenderToken = 0, queuedChallengeRender = 0
 let customAllChallenges = [], waterTrackers = [], waterTrackersReady = false;
 const pendingWaterWrites = new Map();
 let removeProfilesListener = null, removeEscapeListener = null, removeActionsListener = null;
+let openVideoOverlay = null;
 
 function formatCountdown(deadlineAt) {
   if (!Number.isFinite(deadlineAt) || deadlineAt <= 0) return "Deadline not set";
@@ -52,7 +53,7 @@ export function renderChallenges(el, user, profile) {
   let partnerProfiles = APP_CONFIG.profiles;
   let assignments = [], assignmentsReady = false, assignmentsError = false;
   const reconcilingDailyPoints = new Set();
-  let customFilter = "all"; // all | challenges | punishments | active | completed | expired
+  let customFilter = "due"; // received | sent | due | completed
 
   el.innerHTML = `
     <section class="challenge-page">
@@ -503,25 +504,24 @@ export function renderChallenges(el, user, profile) {
       Number(a.item.sentAtMs || a.item.createdAtMs || a.item.assignedAtMs || 0)
     );
 
-    const activeCount = all.filter(({ item }) => item.status === "upcoming" || item.status === "in-progress").length;
-    const pendingCount = all.filter(({ item, received }) => received && item.status === "upcoming").length;
+    const receivedCount = received.length;
+    const sentCount = sent.filter(item => !received.some(receivedItem => receivedItem.id === item.id)).length;
+    const dueCount = all.filter(({ item }) => item.status !== "completed").length;
+    const pendingCount = received.filter(item => item.status === "upcoming").length;
     const completedCount = all.filter(({ item }) => item.status === "completed").length;
 
     const filters = [
-      ["all", `All (${all.length})`],
-      ["challenges", `Challenges (${all.filter(({ item }) => item.kind !== "punishment").length})`],
-      ["punishments", `Punishments (${all.filter(({ item }) => item.kind === "punishment").length})`],
-      ["active", `Active (${activeCount})`],
-      ["completed", `Completed (${completedCount})`],
-      ["expired", `Expired (${all.filter(({ item }) => item.status !== "completed" && item.deadlineAt && Number(item.deadlineAt) < Date.now()).length})`]
+      ["received", `Received (${receivedCount})`],
+      ["sent", `Sent (${sentCount})`],
+      ["due", `Due (${dueCount})`],
+      ["completed", `Completed (${completedCount})`]
     ];
 
     const visible = all.filter(({ item, received: isReceived }) => {
-      if (customFilter === "challenges") return item.kind !== "punishment";
-      if (customFilter === "punishments") return item.kind === "punishment";
-      if (customFilter === "active") return item.status === "upcoming" || item.status === "in-progress";
+      if (customFilter === "received") return isReceived;
+      if (customFilter === "sent") return !isReceived;
+      if (customFilter === "due") return item.status !== "completed";
       if (customFilter === "completed") return item.status === "completed";
-      if (customFilter === "expired") return item.status !== "completed" && item.deadlineAt && Number(item.deadlineAt) < Date.now();
       return true;
     });
     const queryText = customListsRoot.querySelector("[data-custom-search]")?.value?.trim().toLocaleLowerCase() || "";
@@ -538,7 +538,7 @@ export function renderChallenges(el, user, profile) {
           <span class="custom-total-pill">${all.length} total</span>
         </div>
         ${pendingCount ? `<div class="custom-pending-note">💌 ${pendingCount} waiting for your response</div>` : ""}
-        <div class="custom-hub-filters" role="group" aria-label="Filter challenges">
+        <div class="custom-hub-filters" role="group" aria-label="Filter received, sent, due and completed challenges">
           ${filters.map(([key, label]) => `
             <button type="button" data-custom-filter="${key}" class="${customFilter === key ? "selected" : ""}" aria-pressed="${customFilter === key}">
               ${label}
@@ -590,11 +590,18 @@ export function renderChallenges(el, user, profile) {
     const mediaMime = mediaData.videoMimeType || mediaData.audioMimeType || mediaData.photoMimeType || mediaData.mimeType || "image/jpeg";
     const photoUrl = typeof mediaData.photoUrl === "string" && !["null", "undefined"].includes(mediaData.photoUrl.trim().toLowerCase()) ? mediaData.photoUrl : "";
     const image = mediaId ? mediaMime.startsWith("video/")
-      ? `<video class="custom-photo" controls data-telegram-file-id="${esc(mediaId)}" data-telegram-mime="${esc(mediaMime)}"></video>`
+      ? `<div class="custom-media-square">
+          <button type="button" class="custom-video-open" data-open-video disabled aria-label="Play video full size">
+            <video class="custom-video-thumb" muted playsinline preload="metadata" data-telegram-file-id="${esc(mediaId)}" data-telegram-mime="${esc(mediaMime)}"></video>
+            <span class="custom-video-play" aria-hidden="true">▶</span>
+          </button>
+          <a class="custom-video-download" data-video-download aria-disabled="true" tabindex="-1" download="challenge-video.mp4" aria-label="Download video" title="Download video">↓</a>
+        </div>`
       : mediaMime.startsWith("audio/")
         ? `<audio controls data-telegram-file-id="${esc(mediaId)}" data-telegram-mime="${esc(mediaMime)}"></audio>`
         : `<img class="custom-photo" data-telegram-file-id="${esc(mediaId)}" data-telegram-mime="${esc(mediaMime)}" alt="Challenge media">`
       : photoUrl ? `<img class="custom-photo" src="${esc(photoUrl)}" alt="Challenge media">` : "";
+    const hasVideo = Boolean(mediaId && mediaMime.startsWith("video/"));
     const actions = received && item.status === "upcoming"
       ? `<div class="custom-actions"><button class="custom-accept" data-custom-action="accept" data-id="${esc(item.id)}">Accept</button></div>`
       : received && item.status === "in-progress"
@@ -610,27 +617,37 @@ export function renderChallenges(el, user, profile) {
           ? `<p class="custom-note">Proof submitted. Please review it in details.</p><div class="custom-actions"><button class="custom-accept" data-custom-action="approve-proof" data-id="${esc(item.id)}">Approve proof</button><button class="custom-edit" data-custom-action="request-revision" data-id="${esc(item.id)}">Ask for another proof</button></div>`
           : "";
 
-    return `
-      <article class="custom-card ${isPunishment ? "kind-punishment" : ""} ${item.status === "completed" ? "is-completed" : ""}">
-        <div class="custom-head">
-          <span class="custom-icon" aria-hidden="true">${isPunishment ? "😈" : "💝"}</span>
-          <h3 class="custom-title">${canEdit
-            ? `<button type="button" class="custom-title-edit" data-custom-action="edit" data-id="${esc(item.id)}" aria-label="Edit ${esc(item.title || (isPunishment ? "Punishment" : "Challenge"))}">${esc(item.title || (isPunishment ? "Punishment" : "Challenge"))}</button>`
-            : esc(item.title || (isPunishment ? "Punishment" : "Challenge"))}</h3>
-          <span class="custom-tag ${status}">${tagText}</span>
-        </div>
-        ${item.description ? `<p class="custom-desc">${esc(item.description)}</p>` : ""}
+    const details = `
+      <div class="custom-detail-list">
         <div class="custom-meta">
           <span>${received ? "↓ From your partner" : "↑ Sent by you"}${date ? ` · ${esc(new Date(date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }))}` : ""}</span>
+        </div>
+        <div class="custom-meta">
           ${deadline && item.status !== "completed" ? `<span class="custom-countdown" data-countdown-deadline="${deadline.getTime()}">${formatCountdown(deadline.getTime())}</span>` : ""}
           ${item.status === "completed" ? `<span>✓ Finished</span>` : ""}
         </div>
-        ${item.note ? `<p class="custom-note">${esc(item.note)}</p>` : ""}
         ${item.rewardPoints ? `<div class="custom-meta"><span>✨ ${Number(item.rewardPoints)} points on completion</span></div>` : ""}
         ${item.proofType ? `<div class="custom-meta"><span>Proof: ${esc(item.proofType === "any" ? "Any media" : item.proofType)}</span></div>` : ""}
-        ${image}
+        ${item.description ? `<p class="custom-desc">${esc(item.description)}</p>` : ""}
+      </div>`;
+
+    return `
+      <article class="custom-card ${isPunishment ? "kind-punishment" : ""} ${item.status === "completed" ? "is-completed" : ""} ${hasVideo ? "has-video" : ""}">
+        <div class="custom-head">
+          <span class="custom-icon" aria-hidden="true">${isPunishment ? "😈" : "💝"}</span>
+          <h3 class="custom-title">${esc(item.title || (isPunishment ? "Punishment" : "Challenge"))}</h3>
+          <span class="custom-tag ${status}">${tagText}</span>
+          ${!received ? `<details class="custom-more-menu">
+            <summary aria-label="More options" title="More options">•••</summary>
+            <div class="custom-more-popover">
+              ${canEdit ? `<button type="button" class="custom-edit" data-custom-action="edit" data-id="${esc(item.id)}">✎ Edit</button>` : ""}
+              <button type="button" class="custom-delete" data-custom-action="delete" data-id="${esc(item.id)}">⌫ Delete</button>
+            </div>
+          </details>` : ""}
+        </div>
+        ${hasVideo ? `<div class="custom-media-details">${image}${details}</div>` : `${details}${image}`}
+        ${item.note ? `<p class="custom-note">${esc(item.note)}</p>` : ""}
         ${actions}
-        ${!received ? `<div class="custom-actions">${item.status !== "completed" ? `<button class="custom-edit" data-custom-action="edit" data-id="${esc(item.id)}">Edit</button>` : ""}<button class="custom-delete" data-custom-action="delete" data-id="${esc(item.id)}">Delete</button></div>` : ""}
       </article>
     `;
   }
@@ -638,8 +655,15 @@ export function renderChallenges(el, user, profile) {
   /* ─── Actions (clicks) ───────────────────────────── */
   function bindActions() {
     const handleActionClick = async event => {
+      const videoButton = event.target.closest?.("[data-open-video]");
+      if (videoButton && el.contains(videoButton)) {
+        const source = videoButton.dataset.mediaUrl;
+        if (source) openChallengeVideo(source);
+        return;
+      }
       const customButton = event.target.closest?.("[data-custom-action]");
       if (customButton && el.contains(customButton)) {
+        customButton.closest("details")?.removeAttribute("open");
         const item = customAllChallenges.find(c => c.id === customButton.dataset.id);
         if (!item) return;
         const action = customButton.dataset.customAction;
@@ -725,6 +749,44 @@ export function renderChallenges(el, user, profile) {
     };
     el.addEventListener("click", handleActionClick);
     removeActionsListener = () => el.removeEventListener("click", handleActionClick);
+  }
+
+  function openChallengeVideo(source) {
+    openVideoOverlay?.remove();
+    const overlay = document.createElement("div");
+    overlay.className = "custom-video-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", "Challenge video");
+    const video = document.createElement("video");
+    video.controls = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.src = source;
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "custom-video-close";
+    close.setAttribute("aria-label", "Close video");
+    close.textContent = "×";
+    const download = document.createElement("a");
+    download.className = "custom-video-download-full";
+    download.href = source;
+    download.download = "challenge-video.mp4";
+    download.textContent = "↓ Download video";
+    const player = document.createElement("div");
+    player.className = "custom-video-player";
+    player.append(video, download);
+    overlay.append(close, player);
+    const dismiss = () => {
+      video.pause();
+      overlay.remove();
+      if (openVideoOverlay === overlay) openVideoOverlay = null;
+    };
+    close.onclick = dismiss;
+    overlay.onclick = event => { if (event.target === overlay) dismiss(); };
+    document.body.append(overlay);
+    openVideoOverlay = overlay;
+    close.focus();
   }
 
   function triggerCompletionSplash() {
@@ -868,6 +930,7 @@ export function renderChallenges(el, user, profile) {
 
   function onChallengeEscape(event) {
     if (event.key === "Escape") {
+      if (openVideoOverlay) { openVideoOverlay.querySelector(".custom-video-close")?.click(); return; }
       const compose = el.querySelector(".challenge-compose-page");
       if (compose) { window.App?.navigate("home"); return; }
       if (giveModalRoot.querySelector(".challenge-hub-page")) { closeChallengeHub(); return; }
@@ -880,7 +943,23 @@ export function renderChallenges(el, user, profile) {
   function hydrateTelegramImages() {
     el.querySelectorAll("[data-telegram-file-id]").forEach(media => {
       getTelegramMediaUrl(media.dataset.telegramFileId, media.dataset.telegramMime || "image/jpeg")
-        .then(url => { if (media.isConnected) media.src = url; })
+        .then(url => {
+          if (!media.isConnected) return;
+          media.src = url;
+          if (media.matches(".custom-video-thumb")) {
+            const button = media.closest(".custom-video-open");
+            const download = media.closest(".custom-media-square")?.querySelector("[data-video-download]");
+            if (button) {
+              button.dataset.mediaUrl = url;
+              button.disabled = false;
+            }
+            if (download) {
+              download.href = url;
+              download.removeAttribute("aria-disabled");
+              download.removeAttribute("tabindex");
+            }
+          }
+        })
         .catch(error => console.error("Photo could not load:", error));
     });
   }
@@ -939,6 +1018,8 @@ export function renderChallenges(el, user, profile) {
 
 export function disposeChallenges() {
   document.body.classList.remove("challenge-hub-open");
+  openVideoOverlay?.querySelector(".custom-video-close")?.click();
+  openVideoOverlay = null;
   challengeRenderToken++;
   clearTimeout(dayRolloverTimer);
   dayRolloverTimer = null;
