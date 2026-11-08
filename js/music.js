@@ -30,72 +30,81 @@ const ROOT = `couples/${APP_CONFIG.coupleId}/music`;
 // no network round-trip — keeps the music drawer snappy on iOS/Android.
 const RECENT_LIMIT = 12;
 
-const AUDIO_EXTENSIONS = /\.(mp3|m4a|aac|wav|wave|ogg|oga|opus|flac|weba|aiff?)$/i;
+const AUDIO_EXTENSIONS = /\.(mp3|m4a|m4b|mp4|aac|adts|wav|wave|ogg|oga|opus|flac|weba|aiff?|wma|amr|caf|mid|midi|mka|mpc|ape|tta|ac3|eac3|au|snd|ra|ram|m4p|3ga|3gpp)$/i;
 const VIDEO_EXTENSIONS = /\.(mp4|m4v|mov|webm|mkv|avi|3gp|3g2|mpeg|mpg)$/i;
+const AUDIO_MIME_BY_EXTENSION = {
+  mp3: "audio/mpeg", m4a: "audio/mp4", m4b: "audio/mp4", mp4: "audio/mp4", aac: "audio/aac", adts: "audio/aac",
+  wav: "audio/wav", wave: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg", opus: "audio/ogg", flac: "audio/flac",
+  weba: "audio/webm", aif: "audio/aiff", aiff: "audio/aiff", aifc: "audio/aiff", wma: "audio/x-ms-wma", amr: "audio/amr",
+  caf: "audio/x-caf", mid: "audio/midi", midi: "audio/midi", mka: "audio/x-matroska", mpc: "audio/musepack", ape: "audio/ape",
+  tta: "audio/x-tta", ac3: "audio/ac3", eac3: "audio/eac3", au: "audio/basic", snd: "audio/basic", ra: "audio/vnd.rn-realaudio",
+  ram: "audio/vnd.rn-realaudio", m4p: "audio/mp4", "3ga": "audio/3gpp", "3gpp": "audio/3gpp"
+};
+const VIDEO_MIME_BY_EXTENSION = {
+  mp4: "video/mp4", m4v: "video/mp4", mov: "video/quicktime", webm: "video/webm", mkv: "video/x-matroska",
+  avi: "video/x-msvideo", "3gp": "video/3gpp", "3g2": "video/3gpp2", mpeg: "video/mpeg", mpg: "video/mpeg"
+};
 
-/**
- * Extract an audio-only WebM file from a local video using browser-native APIs.
- * No video bytes are uploaded. Browsers without MediaRecorder/captureStream report
- * a clear error instead of silently failing the upload.
- */
-async function extractAudioTrack(videoFile) {
-  const video = document.createElement("video");
-  const objectUrl = URL.createObjectURL(videoFile);
-  let recorder;
-  let stream;
+function extensionOf(file) {
+  return String(file?.name || "").split(".").pop().toLowerCase();
+}
+
+function inferredAudioMime(file) {
+  return AUDIO_MIME_BY_EXTENSION[extensionOf(file)] || "";
+}
+
+function prepareVideoFile(file) {
+  const mime = (!file.type || file.type === "application/octet-stream")
+    ? VIDEO_MIME_BY_EXTENSION[extensionOf(file)] || file.type || "application/octet-stream"
+    : file.type;
+  return file.type === mime ? file : new File([file], file.name, { type: mime });
+}
+
+/** Re-encode formats with uneven mobile support to broadly playable PCM WAV. */
+async function normalizeAudioForPlayback(file, mediaPlayer) {
+  const mime = (!file.type || file.type === "application/octet-stream") ? inferredAudioMime(file) || file.type || "application/octet-stream" : file.type;
+  // MP3, AAC/M4A, and WAV play natively on both current Android and iOS browsers.
+  const extension = extensionOf(file);
+  if (["mp3", "m4a", "m4b", "mp4", "aac", "adts", "wav", "wave"].includes(extension)) {
+    return file.type === mime ? file : new File([file], file.name, { type: mime });
+  }
+
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return file.type === mime ? file : new File([file], file.name, { type: mime });
+  const context = new AudioContextClass();
   try {
-    const capture = video.captureStream || video.mozCaptureStream;
-    if (!capture || typeof MediaRecorder === "undefined") {
-      throw new Error("This browser cannot extract audio from video. Please choose an audio file or try Chrome on desktop.");
+    const decoded = await context.decodeAudioData(await file.arrayBuffer());
+    const channels = Math.min(Math.max(decoded.numberOfChannels, 1), 2);
+    const samples = Math.ceil(decoded.length * channels);
+    const byteLength = 44 + samples * 2;
+    if (byteLength > MAX_FILE_SIZE) throw new Error("This audio is too long to convert for shared playback. Please choose a shorter clip.");
+
+    const buffer = new ArrayBuffer(byteLength);
+    const view = new DataView(buffer);
+    const writeText = (offset, value) => [...value].forEach((character, index) => view.setUint8(offset + index, character.charCodeAt(0)));
+    writeText(0, "RIFF"); view.setUint32(4, byteLength - 8, true); writeText(8, "WAVE");
+    writeText(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+    view.setUint16(22, channels, true); view.setUint32(24, decoded.sampleRate, true);
+    view.setUint32(28, decoded.sampleRate * channels * 2, true); view.setUint16(32, channels * 2, true);
+    view.setUint16(34, 16, true); writeText(36, "data"); view.setUint32(40, byteLength - 44, true);
+    const channelData = Array.from({ length: channels }, (_, channel) => decoded.getChannelData(channel));
+    let offset = 44;
+    for (let frame = 0; frame < decoded.length; frame++) {
+      for (let channel = 0; channel < channels; channel++) {
+        const sample = Math.max(-1, Math.min(1, channelData[channel][frame]));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+        offset += 2;
+      }
     }
-    video.preload = "auto";
-    video.playsInline = true;
-    video.src = objectUrl;
-    await new Promise((resolve, reject) => {
-      video.onloadedmetadata = resolve;
-      video.onerror = () => reject(new Error("This video could not be opened for audio extraction."));
-      video.load();
-    });
-    stream = capture.call(video);
-    const audioTracks = stream.getAudioTracks();
-    if (!audioTracks.length) {
-      throw new Error("No audio track was found in this video.");
+    return new File([buffer], `${file.name.replace(/\.[^.]+$/, "") || "music"}.wav`, { type: "audio/wav" });
+  } catch (error) {
+    if (error instanceof Error && /too long to convert/.test(error.message)) throw error;
+    if (mime.startsWith("audio/") && mediaPlayer?.canPlayType(mime)) {
+      return file.type === mime ? file : new File([file], file.name, { type: mime });
     }
-    const audioOnlyStream = new MediaStream(audioTracks);
-    const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"]
-      .find(type => MediaRecorder.isTypeSupported?.(type)) || "";
-    const chunks = [];
-    recorder = new MediaRecorder(audioOnlyStream, mimeType ? { mimeType } : undefined);
-    const recording = new Promise((resolve, reject) => {
-      recorder.ondataavailable = event => { if (event.data?.size) chunks.push(event.data); };
-      recorder.onerror = () => reject(new Error("Audio extraction failed. Please try another video or upload an audio file."));
-      recorder.onstop = () => {
-        const outputType = recorder.mimeType || mimeType || "audio/webm";
-        if (!chunks.length) reject(new Error("No audio data could be extracted from this video."));
-        else resolve(new File(chunks, `${videoFile.name.replace(/\.[^.]+$/, "") || "music"}.webm`, { type: outputType }));
-      };
-    });
-    recorder.start(250);
-    await video.play();
-    await new Promise((resolve, reject) => {
-      video.onended = resolve;
-      video.onerror = () => reject(new Error("Video playback stopped during audio extraction."));
-    });
-    if (recorder.state !== "inactive") recorder.stop();
-    const extracted = await recording;
-    if (extracted.size > MAX_FILE_SIZE) {
-      throw new Error("Extracted audio is larger than 50 MB. Please choose a shorter video.");
-    }
-    return extracted;
+    throw new Error(`This ${extension || "audio"} format could not be converted on this device. Try MP3, M4A, AAC, or WAV.`);
   } finally {
-    if (recorder && recorder.state !== "inactive") {
-      try { recorder.stop(); } catch { /* ignore cleanup errors */ }
-    }
-    stream?.getTracks().forEach(track => track.stop());
-    video.pause();
-    video.removeAttribute("src");
-    video.load();
-    URL.revokeObjectURL(objectUrl);
+    await context.close().catch(() => {});
   }
 }
 
@@ -788,8 +797,8 @@ export function initMusic(user) {
 
   async function uploadSong(pickedFile) {
     if (!pickedFile || uploadInFlight) return;
-    const isAudio = pickedFile.type.startsWith("audio/") || (!pickedFile.type && AUDIO_EXTENSIONS.test(pickedFile.name || ""));
-    const isVideo = pickedFile.type.startsWith("video/") || (!pickedFile.type && VIDEO_EXTENSIONS.test(pickedFile.name || ""));
+    const isAudio = pickedFile.type.startsWith("audio/") || AUDIO_EXTENSIONS.test(pickedFile.name || "");
+    const isVideo = pickedFile.type.startsWith("video/") || VIDEO_EXTENSIONS.test(pickedFile.name || "");
     if (!isAudio && !isVideo) {
       toast("Choose an audio or video file to share.");
       uploadInput.value = "";
@@ -834,14 +843,11 @@ export function initMusic(user) {
           patchOwnedSession({}).catch(error => console.warn("Upload session heartbeat failed:", error));
         }, UPLOAD_HEARTBEAT_MS);
       }
-      if (isVideo && !window.confirm("Extracting audio from a video decodes the whole file on this device and can take a while. Continue?")) {
-        uploadInput.value = "";
-        return;
-      }
-      setStatus(isVideo ? "Extracting the audio from your video…" : "Uploading your song to Telegram…");
-      // Video clips are decoded on-device and re-wrapped as lossless WAV, so only
-      // the original audio ever reaches Telegram. Audio files forward untouched.
-      const file = isVideo ? await extractAudioTrack(pickedFile) : pickedFile;
+      setStatus(isVideo ? "Preparing the audio from your video…" : "Preparing your song for both devices…");
+      // The hidden video player plays the original clip, keeping its sound
+      // available on iOS and Android without relying on captureStream().
+      const file = isVideo ? prepareVideoFile(pickedFile) : await normalizeAudioForPlayback(pickedFile, audio);
+      setStatus("Uploading your song to Telegram…");
       const timestamp = new Date().toLocaleString();
       const result = await sendToTelegram(file, `New Music Track 🎵 · ${actorName} · ${timestamp}`);
       const refs = telegramMediaReferences(result);

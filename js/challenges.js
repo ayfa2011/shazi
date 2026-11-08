@@ -632,7 +632,7 @@ export function renderChallenges(el, user, profile) {
     const date = Number(item.sentAtMs || item.assignedAtMs || item.createdAtMs || 0);
     const deadline = item.deadlineAt ? new Date(item.deadlineAt) : null;
     const proof = item.proof || null;
-    const canEdit = !received && (item.status === "upcoming" || item.status === "in-progress");
+    const canEdit = !received && item.status !== "completed";
     const mediaData = proof?.telegramFileId ? proof : item.referenceMedia?.telegramFileId ? item.referenceMedia : item;
     const mediaId = mediaData.telegramFileId || "";
     const mediaMime = mediaData.videoMimeType || mediaData.audioMimeType || mediaData.photoMimeType || mediaData.mimeType || "image/jpeg";
@@ -656,10 +656,6 @@ export function renderChallenges(el, user, profile) {
           ? `<div class="custom-actions"><button class="custom-accept" data-custom-action="approve-extension" data-id="${esc(item.id)}">Approve new date</button><button class="custom-delete" data-custom-action="decline-extension" data-id="${esc(item.id)}">Decline</button></div>`
         : !received && item.status === "submitted"
           ? `<p class="custom-note">Proof submitted. Please review it in details.</p><div class="custom-actions"><button class="custom-accept" data-custom-action="approve-proof" data-id="${esc(item.id)}">Approve proof</button><button class="custom-edit" data-custom-action="request-revision" data-id="${esc(item.id)}">Ask for another proof</button></div>`
-        : !received && (item.status === "upcoming" || item.status === "in-progress")
-          ? `<div class="custom-actions">
-              <button class="custom-delete" data-custom-action="delete" data-id="${esc(item.id)}">Delete</button>
-            </div>`
           : "";
 
     return `
@@ -682,6 +678,7 @@ export function renderChallenges(el, user, profile) {
         ${item.proofType ? `<div class="custom-meta"><span>Proof: ${esc(item.proofType === "any" ? "Any media" : item.proofType)}</span></div>` : ""}
         ${image}
         ${actions}
+        ${!received ? `<div class="custom-actions">${item.status !== "completed" ? `<button class="custom-edit" data-custom-action="edit" data-id="${esc(item.id)}">Edit</button>` : ""}<button class="custom-delete" data-custom-action="delete" data-id="${esc(item.id)}">Delete</button></div>` : ""}
       </article>
     `;
   }

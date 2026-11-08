@@ -245,7 +245,8 @@ export function renderHome(el, user, profile) {
       .today-question:hover { transform:translateY(-2px); box-shadow:0 10px 32px rgba(142,59,90,0.12); border-color:#eec3d7; }
       .today-question::before { content:"♡"; position:absolute; top:-10px; left:20px; width:20px; height:20px; background:#fff; border:1px solid #f4d6e2; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; color:#e89cb5; z-index:2; box-shadow:0 2px 8px rgba(0,0,0,0.06); }
 
-      .habit-section { margin:32px 0 24px; box-sizing:border-box; overflow:visible; }
+      .habit-section { margin:32px 0 24px; box-sizing:border-box; overflow:visible; -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent; }
+      .habit-section, .habit-section * { -webkit-user-select:none; user-select:none; }
       .habit-cards { display:flex; flex-direction:column; gap:14px; }
       .habit-card { padding:20px; border:1px solid #f3d9e5; border-radius:20px; background:linear-gradient(135deg,#fff,#fdfafb); box-shadow:0 4px 16px rgba(142,59,90,0.06); display:flex; flex-direction:column; gap:14px; transition:all .25s ease; }
       .habit-card:hover { transform:translateY(-1px); box-shadow:0 8px 24px rgba(142,59,90,0.1); border-color:#eec3d7; }
@@ -340,6 +341,8 @@ export function renderHome(el, user, profile) {
       .challenge-card-btn.primary:hover { filter:brightness(0.95); transform:translateY(-1px); box-shadow:0 4px 12px rgba(199,61,118,0.3); }
       .challenge-card-btn.outline { background:transparent; border:1px solid #f4d6e2; color:#8e3b5a; font-weight:600; }
       .challenge-card-btn.outline:hover { background:#fce4ec; border-color:#eec3d7; color:#6a2c42; transform:translateY(-1px); }
+      .challenge-card-btn.danger { border-color:#edc3cd; background:#fff7f8; color:#a33352; }
+      .challenge-card-btn.danger:hover { border-color:#d88499; background:#fdebf0; color:#8c2442; }
 
       .challenge-rest { display:flex; flex-direction:column; gap:10px; margin-top:4px; }
 
@@ -1012,7 +1015,7 @@ export function renderHome(el, user, profile) {
     const statusLabel = item => ({ upcoming: "Pending", "in-progress": "Accepted", submitted: "Proof submitted", "extension-requested": "Extension requested" }[item.status] || item.status);
     const featuredStatus = featured.status;
     const featuredTitle = featured.title || featured.description?.slice(0, 50) || "Challenge";
-    const featuredTitleMarkup = featuredMine && ["upcoming", "in-progress"].includes(featuredStatus)
+    const featuredTitleMarkup = featuredMine && featuredStatus !== "completed"
       ? `<button type="button" class="challenge-card-title challenge-card-title-edit" data-action="edit">${esc(featuredTitle)}</button>`
       : esc(featuredTitle);
 
@@ -1035,6 +1038,8 @@ export function renderHome(el, user, profile) {
           ${!featuredMine && featuredStatus === "in-progress"
             ? `<button type="button" class="challenge-card-btn primary" data-action="complete">Submit Proof</button>`
             : ""}
+          ${featuredMine && featuredStatus !== "completed" ? `<button type="button" class="challenge-card-btn" data-action="edit">Edit</button>` : ""}
+          ${featuredMine ? `<button type="button" class="challenge-card-btn danger" data-action="delete">Delete</button>` : ""}
           <button type="button" class="challenge-card-btn outline" data-action="view">View Details →</button>
         </div>
       </article>
@@ -1047,7 +1052,7 @@ export function renderHome(el, user, profile) {
       const typeLabel = isPunishment ? "Punishment" : "Challenge";
       const mine = isMineChallenge(item);
       const title = item.title || item.description?.slice(0, 40) || typeLabel;
-      const titleMarkup = mine && ["upcoming", "in-progress"].includes(item.status)
+      const titleMarkup = mine && item.status !== "completed"
         ? `<button type="button" class="challenge-card-title challenge-card-title-edit" data-action="edit">${esc(title)}</button>`
         : esc(title);
       return `
@@ -1069,6 +1074,8 @@ export function renderHome(el, user, profile) {
             ${!mine && item.status === "in-progress"
               ? `<button type="button" class="challenge-card-btn primary" data-action="complete">Submit Proof</button>`
               : ""}
+            ${mine && item.status !== "completed" ? `<button type="button" class="challenge-card-btn" data-action="edit">Edit</button>` : ""}
+            ${mine ? `<button type="button" class="challenge-card-btn danger" data-action="delete">Delete</button>` : ""}
             <button type="button" class="challenge-card-btn outline" data-action="view">View Details →</button>
           </div>
         </article>
@@ -1094,6 +1101,23 @@ export function renderHome(el, user, profile) {
         if (action === "edit") {
           sessionStorage.setItem("challenge-compose-edit-item", JSON.stringify(item));
           window.App.navigate("challenges");
+          return;
+        }
+
+        if (action === "delete") {
+          if (!window.confirm(`Delete “${item.title || "this challenge"}”? This cannot be undone.`)) return;
+          btn.disabled = true;
+          btn.textContent = "Deleting…";
+          try {
+            await transitionCustomChallenge(id, { uid: user.uid, profileKey: questionProfileKey, name: profile.name }, "delete");
+            toast("Challenge deleted.");
+            renderChallengeCards();
+          } catch (error) {
+            console.error("Challenge delete failed:", error);
+            toast(error.message || "Could not delete this challenge.");
+            btn.disabled = false;
+            btn.textContent = "Delete";
+          }
           return;
         }
 

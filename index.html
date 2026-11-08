@@ -93,7 +93,7 @@
           <p id="track-status" class="muted">Upload a song to share it.</p>
         </div>
       </div>
-      <audio id="audio-player" preload="metadata"></audio>
+      <video id="audio-player" class="music-hidden-media" preload="metadata" playsinline aria-hidden="true"></video>
       <div class="music-progress-row">
         <span id="music-elapsed" class="music-time">0:00</span>
         <input id="music-progress" class="music-progress" type="range" min="0" max="1000" step="1" value="0" aria-label="Seek within the song" disabled>
@@ -110,7 +110,7 @@
         <input id="music-volume" type="range" min="0" max="1" step="0.01" value="1">
       </label>
       <div class="music-song-actions">
-        <label class="upload-btn">Upload our song or clip (max 50 MB)<input id="music-upload" type="file" accept="audio/*,video/*"></label>
+        <label class="upload-btn">Upload song or video (max 50 MB)<input id="music-upload" type="file" accept="audio/*,video/*,.mp3,.m4a,.m4b,.aac,.adts,.wav,.wave,.ogg,.oga,.opus,.flac,.weba,.aif,.aiff,.wma,.amr,.caf,.mid,.midi,.mka,.mpc,.ape,.tta,.ac3,.eac3,.au,.snd,.ra,.ram,.m4p,.3ga,.3gpp,.mp4,.m4v,.mov,.webm,.mkv,.avi,.3gp,.3g2,.mpeg,.mpg"></label>
         <button id="save-music" class="secondary" disabled>Save to our music ♡</button>
       </div>
       <p class="music-storage-note muted">Songs you save stay in our library. Unsaved songs are removed when playback ends or we both leave the website.</p>

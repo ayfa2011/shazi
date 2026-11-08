@@ -610,8 +610,8 @@ export async function transitionCustomChallenge(id, actor, action, extra = {}) {
     const isCreator = current.author === actor.uid;
     if (action === "edit" || action === "delete") {
       if (current.author !== actor.uid) throw new Error("Only the person who created this challenge can change it.");
-      if (current.status === "completed") throw new Error("Completed challenges are kept as history.");
       if (action === "delete") { transaction.delete(reference); return; }
+      if (current.status === "completed") throw new Error("Completed challenges cannot be edited.");
       transaction.update(reference, { ...extra, updatedAtMs: Date.now() });
       return;
     }
