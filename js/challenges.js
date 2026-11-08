@@ -48,18 +48,11 @@ export function renderChallenges(el, user, profile) {
   const ownKey = getProfileKey(profile);
   const dayKey = todayKey();
   const todayChallenges = challengeDays(dayKey, 1);
-  const monthStart = new Date(`${dayKey}T00:00:00Z`);
-  monthStart.setUTCDate(monthStart.getUTCDate() - 30);
-  const historyStartDay = monthStart.toISOString().slice(0, 10);
 
   let partnerProfiles = APP_CONFIG.profiles;
   let assignments = [], assignmentsReady = false, assignmentsError = false;
   const reconcilingDailyPoints = new Set();
-  let historyFilter = "all"; // all | snap | water
-  let challengeHistoryFilter = "all";
-  let challengeHistorySearch = "";
   let customFilter = "all"; // all | challenges | punishments | active | completed | expired
-  let hubView = "challenges";
 
   el.innerHTML = `
     <section class="challenge-page">
@@ -297,7 +290,6 @@ export function renderChallenges(el, user, profile) {
   }
 
   function openChallengeHub() {
-    hubView = "challenges";
     document.body.classList.add("challenge-hub-open");
     giveModalRoot.innerHTML = `
       <section class="challenge-hub-page" aria-labelledby="challenge-hub-title">
@@ -306,24 +298,11 @@ export function renderChallenges(el, user, profile) {
             <h2 id="challenge-hub-title">Our challenges ♡</h2>
             <button type="button" class="challenge-modal-close" data-close-hub aria-label="Close">×</button>
           </header>
-          <div id="challenge-hub-summary"></div>
-          <div class="challenge-hub-views" role="tablist" aria-label="Challenge views">
-            <button type="button" data-hub-view="challenges" aria-selected="true">Challenges</button>
-            <button type="button" data-hub-view="history" aria-selected="false">History</button>
-          </div>
           <div id="custom-assignment-lists"></div>
-          <div id="challenge-hub-history" hidden></div>
           <button type="button" class="custom-empty-cta challenge-hub-create" data-open-give>＋ Give a challenge or punishment</button>
         </section>
       </section>`;
     giveModalRoot.querySelector("[data-close-hub]").onclick = closeChallengeHub;
-    giveModalRoot.querySelectorAll("[data-hub-view]").forEach(button => {
-      button.onclick = () => {
-        hubView = button.dataset.hubView;
-        giveModalRoot.querySelectorAll("[data-hub-view]").forEach(tab => tab.setAttribute("aria-selected", String(tab === button)));
-        renderChallengeHub();
-      };
-    });
     giveModalRoot.querySelector("[data-open-give]").onclick = () => openGiveModal();
     renderChallengeHub();
   }
@@ -504,36 +483,9 @@ export function renderChallenges(el, user, profile) {
     ].filter(Boolean).join("");
   }
 
-  function renderChallengeSummary() {
-    const keys = Object.keys(partnerProfiles);
-    const otherKey = keys.find(key => key !== ownKey) || "";
-    const rows = keys.map(key => {
-      const person = partnerProfiles[key] || APP_CONFIG.profiles[key] || {};
-      const received = customAllChallenges.filter(item => item.recipientKey === key || (!item.recipientKey && item.authorKey === otherKey && key === ownKey));
-      const completed = received.filter(item => item.status === "completed");
-      const completedChallenges = completed.filter(item => item.kind !== "punishment").length;
-      const completedPunishments = completed.filter(item => item.kind === "punishment").length;
-      const pendingCount = received.filter(item => item.status === "upcoming" || item.status === "in-progress").length;
-      const avatar = person.avatar
-        ? `<img src="${esc(person.avatar)}" alt="">`
-        : `<span aria-hidden="true">${esc((person.name || "♡").slice(0, 1))}</span>`;
-      return `<article class="challenge-summary-person"><div class="challenge-summary-person-head"><span class="challenge-summary-avatar">${avatar}</span><strong>${esc(person.name || "Partner")}</strong></div><div class="challenge-summary-stats"><div class="challenge-summary-stat"><b>${completedChallenges}</b><span>Challenge</span></div><div class="challenge-summary-stat"><b>${completedPunishments}</b><span>Punishment</span></div><div class="challenge-summary-stat is-pending"><b>${pendingCount}</b><span>Pending</span></div></div></article>`;
-    }).join("");
-    const summary = $("#challenge-hub-summary", giveModalRoot);
-    if (summary) summary.innerHTML = `<section class="challenge-summary-card" aria-label="Challenge summary"><p class="custom-eyebrow">A LITTLE CHECK-IN</p><h3>Our challenge story</h3><div class="challenge-summary-people">${rows}</div></section>`;
-  }
-
   function renderChallengeHub() {
-    const hub = giveModalRoot.querySelector(".challenge-hub-page");
-    if (!hub) return;
-    renderChallengeSummary();
-    const customRoot = $("#custom-assignment-lists", giveModalRoot);
-    const historyRoot = $("#challenge-hub-history", giveModalRoot);
-    const isHistory = hubView === "history";
-    customRoot.hidden = isHistory;
-    historyRoot.hidden = !isHistory;
-    if (isHistory) renderHistory();
-    else renderCustomSection();
+    if (!giveModalRoot.querySelector(".challenge-hub-page")) return;
+    renderCustomSection();
   }
 
   /* ─── Custom challenges (received + sent) ────────── */
@@ -679,133 +631,6 @@ export function renderChallenges(el, user, profile) {
         ${image}
         ${actions}
         ${!received ? `<div class="custom-actions">${item.status !== "completed" ? `<button class="custom-edit" data-custom-action="edit" data-id="${esc(item.id)}">Edit</button>` : ""}<button class="custom-delete" data-custom-action="delete" data-id="${esc(item.id)}">Delete</button></div>` : ""}
-      </article>
-    `;
-  }
-
-  /* ─── History ────────────────────────────────────── */
-  function renderHistory() {
-    const historyRoot = $("#challenge-hub-history", giveModalRoot);
-    if (!historyRoot) return;
-    const filters = `
-      <div class="history-filter" role="tablist">
-        ${[
-          ["all", "All"],
-          ["snap", "📸 Snap"],
-          ["water", "💧 Water"]
-        ].map(([key, label]) => `
-          <button type="button" data-history-filter="${key}" class="${historyFilter === key ? "selected" : ""}">${label}</button>
-        `).join("")}
-      </div>`;
-
-    const oneMonthAgo = Date.now() - 30 * 86400000;
-
-    // Group everything by dayKey
-    const days = new Map();
-    const ensureDay = (key) => {
-      if (!days.has(key)) days.set(key, { snap: null, water: null });
-      return days.get(key);
-    };
-
-    if (historyFilter === "all" || historyFilter === "snap") {
-      assignments
-        .filter(item => item.challengeId === "send-snap" || item.id?.endsWith("-send-snap"))
-        .filter(item => (item.completedBy || []).length > 0)
-        .filter(item => (item.completedAt?.toMillis?.() || Date.parse(`${item.challengeDate}T12:00:00`)) > oneMonthAgo)
-        .forEach(item => {
-          const bucket = ensureDay(item.challengeDate);
-          bucket.snap = item;
-        });
-    }
-    if (historyFilter === "all" || historyFilter === "water") {
-      const waterByDay = new Map();
-      waterTrackers.forEach(t => {
-        if (!t.dayKey || t.dayKey >= dayKey) return;
-        const dayTime = Date.parse(`${t.dayKey}T12:00:00`);
-        if (dayTime < oneMonthAgo) return;
-        if (!waterByDay.has(t.dayKey)) waterByDay.set(t.dayKey, {});
-        const prev = waterByDay.get(t.dayKey)[t.profileKey];
-        if (!prev || Number(t.updatedAtMs || 0) > Number(prev.updatedAtMs || 0)) {
-          waterByDay.get(t.dayKey)[t.profileKey] = t;
-        }
-      });
-      waterByDay.forEach((counts, key) => {
-        const bucket = ensureDay(key);
-        bucket.water = counts;
-      });
-    }
-    const sortedDays = [...days.entries()]
-      .filter(([, bucket]) => bucket.snap || bucket.water)
-      .sort((a, b) => b[0].localeCompare(a[0]));
-
-    const filterSection = `
-      ${filters}
-      ${sortedDays.length
-        ? sortedDays.map(([key, bucket]) => historyDay(key, bucket)).join("")
-      : `<div class="challenge-empty"><span class="empty-heart">♡</span>No recent daily challenge activity yet.</div>`}
-    `;
-
-    // Custom assignment history with searchable type and status filters.
-    if (historyFilter === "all") {
-      const customFilters = [["all", "All"], ["challenges", "Challenges"], ["punishments", "Punishments"], ["completed", "Completed"], ["expired", "Expired"]];
-      const customHistory = customAllChallenges.filter(item => {
-        if (challengeHistoryFilter === "challenges") return item.kind !== "punishment";
-        if (challengeHistoryFilter === "punishments") return item.kind === "punishment";
-        if (challengeHistoryFilter === "completed") return item.status === "completed";
-        if (challengeHistoryFilter === "expired") return item.status !== "completed" && item.deadlineAt && Number(item.deadlineAt) < Date.now();
-        return true;
-      }).filter(item => `${item.title || ""} ${item.description || ""}`.toLocaleLowerCase().includes(challengeHistorySearch.toLocaleLowerCase()));
-      const customHtml = `
-        <section class="custom-history-section"><h3 class="custom-section-title">Challenge & punishment history</h3>
-          <div class="history-filter" role="group" aria-label="Filter challenge history">${customFilters.map(([key, label]) => `<button type="button" data-custom-history-filter="${key}" class="${challengeHistoryFilter === key ? "selected" : ""}">${label}</button>`).join("")}</div>
-          <input class="custom-search" type="search" data-custom-history-search value="${esc(challengeHistorySearch)}" placeholder="Search history…" aria-label="Search challenge history">
-          ${customHistory.length ? `<div class="custom-list">${customHistory.map(item => customCard(item, item.recipientKey === ownKey)).join("")}</div>` : `<div class="challenge-empty">No matching challenge history yet.</div>`}
-        </section>`;
-      historyRoot.innerHTML = filterSection + customHtml;
-    } else {
-      historyRoot.innerHTML = filterSection;
-    }
-
-    historyRoot.querySelectorAll("[data-history-filter]").forEach(btn => {
-      btn.onclick = () => { historyFilter = btn.dataset.historyFilter; renderHistory(); };
-    });
-    historyRoot.querySelectorAll("[data-custom-history-filter]").forEach(btn => {
-      btn.onclick = () => { challengeHistoryFilter = btn.dataset.customHistoryFilter; renderHistory(); };
-    });
-    const customSearch = historyRoot.querySelector("[data-custom-history-search]");
-    if (customSearch) customSearch.oninput = () => { challengeHistorySearch = customSearch.value; renderHistory(); const next = historyRoot.querySelector("[data-custom-history-search]"); next.focus(); next.setSelectionRange(challengeHistorySearch.length, challengeHistorySearch.length); };
-    hydrateTelegramImages();
-  }
-
-  function historyDay(key, bucket) {
-    const dateLabel = new Date(`${key}T12:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
-    const rows = [];
-
-    if (bucket.snap) {
-      const who = (bucket.snap.completedBy || []).map(p => esc(p.name || "Us")).join(" & ");
-      rows.push(`
-        <div class="history-row">
-          <span class="history-icon" aria-hidden="true">📸</span>
-          <span class="history-text">Snap sent<small>${who || "Both partners"}</small></span>
-          <span class="history-mark">✓</span>
-        </div>`);
-    }
-    if (bucket.water) {
-      Object.entries(partnerProfiles).forEach(([key2, person]) => {
-        const count = Math.max(0, Math.min(8, Number(bucket.water[key2]?.count || 0)));
-        const done = count >= 8;
-        rows.push(`
-          <div class="history-row ${done ? "" : "is-missed"}">
-            <span class="history-icon" aria-hidden="true">💧</span>
-            <span class="history-text">${esc(person.name)} · ${count}/8 glasses<small>${done ? "Goal reached" : "Goal missed"}</small></span>
-            <span class="history-mark">${done ? "✓" : "—"}</span>
-          </div>`);
-      });
-    }
-    return `
-      <article class="history-day">
-        <div class="history-day-head"><strong>${esc(dateLabel)}</strong></div>
-        <div class="history-day-list">${rows.join("")}</div>
       </article>
     `;
   }
@@ -1021,7 +846,7 @@ export function renderChallenges(el, user, profile) {
     assignmentsReady = true;
     list.innerHTML = `<div class="challenge-empty">Could not load challenges. <button type="button" id="retry-challenges" style="margin-left:6px;padding:4px 10px;border-radius:8px;border:0;background:#8f315d;color:#fff;font-weight:700;">Retry</button></div>`;
     $("#retry-challenges", list).onclick = () => { assignmentsError = false; assignmentsReady = false; disposeChallenges(); window.App?.navigate("challenges"); };
-  }, historyStartDay, 100);
+  }, dayKey, 100);
 
   stopWaterChallenges = watchItems("waterChallenge", items => {
     if (!isCurrent()) return;

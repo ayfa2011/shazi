@@ -210,14 +210,14 @@ export function renderHome(el, user, profile) {
       }
       .home-feed-skeleton{display:grid;gap:9px}
       .home-skeleton-card{display:grid;gap:10px;padding:11px;border:1px solid var(--line);border-radius:16px;background:#fff}
-      .home-question-body { padding:18px 20px; display:flex; flex-direction:column; gap:14px; }
+      .home-question-body { box-sizing:border-box; width:min(100%,760px); margin:0 auto; padding:16px 18px; display:flex; flex-direction:column; gap:12px; }
       .home-question-text { margin:0; font-family:"Playfair Display",Georgia,serif; font-size:20px; font-weight:600; color:#6a2c42; line-height:1.5; padding:16px 18px; border-radius:16px; background:linear-gradient(135deg,#fff,#fdfafb); border:1px solid #f4d6e2; box-shadow:0 4px 14px rgba(142,59,90,0.06); }
       .home-question-answers { display:flex; flex-direction:column; gap:10px; }
       .home-question-answer { display:flex; align-items:center; gap:10px; padding:12px 16px; border:1px solid #f3d9e5; border-radius:14px; background:#fff; color:#5a3a4a; font-size:14px; box-shadow:0 2px 8px rgba(0,0,0,0.03); width:100%; }
       .home-question-answer-name { font-family:"Playfair Display",Georgia,serif; font-weight:600; color:#8e3b5a; flex-shrink:0; font-size:13px; letter-spacing:.02em; }
       .home-question-answer-text { flex:1; }
       .home-question-answer-form { display:grid; gap:9px; }
-      .home-question-answer-form textarea { width:100%; min-height:86px; padding:12px; border:1px solid #f0ccda; border-radius:13px; background:#fffafd; color:#60283f; font:600 14px/1.45 system-ui,sans-serif; resize:vertical; }
+      .home-question-answer-form textarea { box-sizing:border-box; width:100%; min-height:86px; padding:12px; border:1px solid #f0ccda; border-radius:13px; background:#fffafd; color:#60283f; font:600 14px/1.45 system-ui,sans-serif; resize:vertical; }
       .home-question-answer-form textarea:focus { outline:none; border-color:#e89cb5; box-shadow:0 0 0 3px #e89cb526; }
       .home-question-form-row { display:flex; align-items:center; justify-content:space-between; gap:10px; }
       .home-question-status { color:#a58392; font-size:11px; }
@@ -227,6 +227,7 @@ export function renderHome(el, user, profile) {
       .home-question-answer.locked .home-question-answer-text { filter:blur(5px); user-select:none; }
       .home-see-history-btn { padding:8px 16px; border:1px solid #f4d6e2; border-radius:10px; background:#fff; color:#8e3b5a; font-size:12px; font-weight:600; cursor:pointer; align-self:flex-start; transition:all .2s ease; white-space:nowrap; max-width:fit-content; }
       .home-see-history-btn:hover { background:#fce4ec; border-color:#eec3d7; color:#6a2c42; transform:translateY(-1px); }
+      .home-see-history-btn:focus-visible { outline:3px solid #d96a9666; outline-offset:2px; }
 
       .section-head { display:flex; align-items:center; justify-content:space-between; margin:0 0 18px; }
       .section-head .eyebrow { font-family:"Playfair Display",Georgia,serif; font-size:13px; font-weight:600; color:#b84c6e; letter-spacing:.16em; text-transform:uppercase; margin:0; }
@@ -241,14 +242,14 @@ export function renderHome(el, user, profile) {
 
       .today-section { margin:24px 0 20px; box-sizing:border-box; overflow:visible; }
       .today-cards { display:flex; flex-direction:column; gap:0; margin:0; padding:0; }
-      .today-question { position:relative; padding:18px; border:1px solid #f4d6e2; border-radius:20px; background:#fff; box-shadow:0 6px 20px rgba(142,59,90,0.08); min-height:auto; overflow:visible; transition:all .3s ease; }
+      .today-question { position:relative; padding:12px; border:1px solid #f1d8e2; border-radius:22px; background:linear-gradient(145deg,#fff,#fffafd); box-shadow:0 8px 24px rgba(142,59,90,0.07); min-height:auto; overflow:visible; transition:all .3s ease; }
       .today-question:hover { transform:translateY(-2px); box-shadow:0 10px 32px rgba(142,59,90,0.12); border-color:#eec3d7; }
       .today-question::before { content:"♡"; position:absolute; top:-10px; left:20px; width:20px; height:20px; background:#fff; border:1px solid #f4d6e2; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; color:#e89cb5; z-index:2; box-shadow:0 2px 8px rgba(0,0,0,0.06); }
 
       .habit-section { margin:32px 0 24px; box-sizing:border-box; overflow:visible; -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent; }
       .habit-section, .habit-section * { -webkit-user-select:none; user-select:none; }
       .habit-cards { display:flex; flex-direction:column; gap:14px; }
-      .habit-card { padding:20px; border:1px solid #f3d9e5; border-radius:20px; background:linear-gradient(135deg,#fff,#fdfafb); box-shadow:0 4px 16px rgba(142,59,90,0.06); display:flex; flex-direction:column; gap:14px; transition:all .25s ease; }
+      .habit-card { padding:18px; border:1px solid #f1d8e2; border-radius:22px; background:linear-gradient(145deg,#fff,#fffafd); box-shadow:0 7px 22px rgba(142,59,90,0.06); display:flex; flex-direction:column; gap:14px; transition:all .25s ease; }
       .habit-card:hover { transform:translateY(-1px); box-shadow:0 8px 24px rgba(142,59,90,0.1); border-color:#eec3d7; }
       .habit-card-head { display:flex; align-items:center; gap:12px; }
       .habit-card-head .habit-icon { font-size:22px; flex:none; filter:drop-shadow(0 2px 4px rgba(232,156,181,0.25)); }
@@ -291,18 +292,19 @@ export function renderHome(el, user, profile) {
       .habit-water-btn:disabled { opacity:0.45; cursor:not-allowed; }
       .habit-celebrate { margin-top:8px; padding:10px 14px; border-radius:10px; background:#fff0f6; color:#b84c6e; font-size:11px; font-weight:700; text-align:center; letter-spacing:.05em; }
 
-      .challenge-pun-section { margin:32px 0 28px; box-sizing:border-box; overflow:visible; }
-      .challenge-pun-section .section-head { display:flex; align-items:center; justify-content:space-between; margin:0 0 8px; }
+      .challenge-pun-section { margin:30px 0 28px; box-sizing:border-box; overflow:visible; }
+      .challenge-pun-section .section-head.home-section-head { display:flex; flex-direction:column; align-items:flex-start; justify-content:flex-start; gap:4px; margin:0 0 14px; }
       .challenge-pun-list { display:flex; flex-direction:column; gap:12px; }
       .home-challenge-filters { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin:0 0 12px; }
       .home-challenge-filter { min-width:0; min-height:34px; padding:6px 4px; border:1px solid #f0d8e2; border-radius:10px; background:#fff; color:#806774; font-size:10px; font-weight:700; line-height:1; white-space:nowrap; cursor:pointer; }
       .home-challenge-filter b { margin-left:2px; color:#a05070; font-size:9px; }
       .home-challenge-filter[aria-pressed="true"] { border-color:#df91b0; background:#ffe8f1; color:#8e3b5a; box-shadow:inset 0 0 0 1px #f3c7d8; }
       .home-challenge-filter[aria-pressed="true"] b { color:#8e3b5a; }
-      .home-challenge-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:0 0 14px; padding:10px; border:1px solid #f0d8e2; border-radius:16px; background:linear-gradient(135deg,#fffafd,#fff2f7); box-shadow:0 5px 16px rgba(142,59,90,.05); }
-      .home-challenge-summary-stat { min-width:0; padding:8px 5px; border-radius:11px; background:#fff; text-align:center; }
-      .home-challenge-summary-stat strong { display:block; color:#6a2c42; font-size:19px; line-height:1.1; }
-      .home-challenge-summary-stat span { display:block; margin-top:4px; color:#967d8b; font-size:10px; font-weight:700; }
+      .home-challenge-board { display:grid; gap:12px; padding:14px; border:1px solid #f2d5e1; border-radius:22px; background:linear-gradient(155deg,#fffafd 0%,#fff5f9 100%); box-shadow:0 8px 24px rgba(142,59,90,.07); }
+      .home-challenge-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:0; padding:0; }
+      .home-challenge-summary-stat { min-width:0; padding:10px 6px; border:1px solid #f3e3ea; border-radius:14px; background:rgba(255,255,255,.88); text-align:center; box-shadow:0 2px 8px rgba(142,59,90,.04); }
+      .home-challenge-summary-stat strong { display:block; color:#6a2c42; font-size:20px; line-height:1.1; font-variant-numeric:tabular-nums; }
+      .home-challenge-summary-stat span { display:block; margin-top:5px; color:#967d8b; font-size:10px; font-weight:700; }
       .challenge-card { padding:18px 20px; border:1px solid #f3d9e5; border-radius:20px; background:#fff; box-shadow:0 4px 16px rgba(142,59,90,0.06); cursor:pointer; transition:all .25s ease; display:flex; flex-direction:column; gap:12px; }
       .challenge-card:hover { transform:translateY(-2px); box-shadow:0 10px 28px rgba(142,59,90,0.1); border-color:#eec3d7; }
       .challenge-card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:4px; }
@@ -319,14 +321,21 @@ export function renderHome(el, user, profile) {
       .challenge-card-actions { display:flex; gap:8px; }
       .challenge-card-btn { flex:1; padding:9px 12px; border:1px solid #f4d6e2; border-radius:10px; background:#fff; color:#8e3b5a; font-size:11px; font-weight:700; cursor:pointer; transition:all .2s ease; }
       .challenge-card-btn:hover { background:#fce4ec; border-color:#eec3d7; color:#6a2c42; transform:translateY(-1px); }
-      .challenge-empty { padding:24px; text-align:center; color:#a58392; font-size:13px; }
-      .home-view-more-challenges { padding:10px 18px; border:1px solid #f4d6e2; border-radius:12px; background:#fff; color:#8e3b5a; font-size:12px; font-weight:600; cursor:pointer; flex:none; transition:all .2s ease; }
+      .challenge-empty { padding:22px 16px; border:1px dashed #eccbd9; border-radius:16px; background:rgba(255,255,255,.72); text-align:center; color:#a58392; font-size:13px; line-height:1.5; }
+      .home-view-more-challenges { width:100%; min-height:44px; padding:10px 18px; border:1px solid #f0cbd9; border-radius:14px; background:linear-gradient(135deg,#fff,#fff6fa); color:#8e3b5a; font-size:12px; font-weight:800; cursor:pointer; transition:all .2s ease; box-shadow:0 3px 10px rgba(142,59,90,.05); }
       .home-view-more-challenges:hover { background:#fce4ec; border-color:#eec3d7; color:#6a2c42; transform:translateY(-1px); }
-      .home-challenge-create-panel { margin:0 0 14px; padding:12px; border:1px solid #f0cad9; border-radius:16px; background:linear-gradient(135deg,#fff7fb,#ffedf4); box-shadow:0 5px 18px rgba(142,59,90,.07); }
-      .home-challenge-kind-options { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-      .home-challenge-kind-btn { min-height:40px; padding:8px 12px; border:1px solid #e9a9c3; border-radius:12px; background:#fff; color:#8e3b5a; font-size:12px; font-weight:800; cursor:pointer; }
-      .home-challenge-kind-btn:hover { background:#ffe8f1; border-color:#d96a96; }
-      .home-challenge-kind-btn.punishment { border-color:#d996ae; background:#fff2f7; color:#a23865; }
+      .home-challenge-create-panel { margin:0; padding:13px; border:1px solid #f2d5e1; border-radius:17px; background:rgba(255,255,255,.82); box-shadow:0 3px 12px rgba(142,59,90,.04); }
+      .home-challenge-create-head { display:flex; align-items:center; gap:10px; margin:0 0 11px; }
+      .home-challenge-create-icon { display:grid; place-items:center; width:36px; height:36px; flex:none; border-radius:12px; background:#fff0f6; font-size:18px; }
+      .home-challenge-create-copy { min-width:0; }
+      .home-challenge-create-copy strong { display:block; color:#6a2c42; font-size:13px; font-weight:800; }
+      .home-challenge-create-copy small { display:block; margin-top:2px; color:#967d8b; font-size:11px; line-height:1.35; }
+      .home-challenge-kind-options { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
+      .home-challenge-kind-btn { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; min-height:48px; padding:9px 13px; border:1px solid #efbfd1; border-radius:14px; background:linear-gradient(145deg,#fff,#fff6fa); color:#8e3b5a; font-size:12px; font-weight:800; text-align:left; cursor:pointer; box-shadow:0 3px 9px rgba(142,59,90,.05); transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+      .home-challenge-kind-btn:hover { transform:translateY(-1px); border-color:#d96a96; box-shadow:0 6px 14px rgba(142,59,90,.1); }
+      .home-challenge-kind-btn:active { transform:scale(.98); }
+      .home-challenge-kind-btn:focus-visible, .home-view-more-challenges:focus-visible { outline:3px solid #d96a9666; outline-offset:2px; }
+      .home-challenge-kind-btn.punishment { border-color:#e8c2ce; background:linear-gradient(145deg,#fffafd,#fff0f4); color:#a23865; }
 
       /* New status badges and featured challenge styles */
       .challenge-status { font-size:9px; padding:3px 9px; border-radius:8px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; flex:none; }
@@ -475,19 +484,25 @@ export function renderHome(el, user, profile) {
           <h2 class="home-section-title is-challenge"><span class="heading-mark" aria-hidden="true">💝</span>Challenges &amp; Punishments</h2>
           <p class="home-section-subtitle">Newly received in the last 24 hours</p>
         </div>
-        <div class="home-challenge-summary" aria-label="Challenge and punishment summary">
-          <div class="home-challenge-summary-stat"><strong data-challenge-filter-count="received">0</strong><span>Received</span></div>
-          <div class="home-challenge-summary-stat"><strong data-challenge-filter-count="sent">0</strong><span>Sent</span></div>
-          <div class="home-challenge-summary-stat"><strong data-challenge-filter-count="pending">0</strong><span>Pending</span></div>
-          <div class="home-challenge-summary-stat"><strong data-challenge-filter-count="finished">0</strong><span>Finished</span></div>
-        </div>
-        <div class="home-challenge-create-panel" aria-label="Send a playful challenge or punishment">
-          <div class="home-challenge-kind-options" role="group" aria-label="Choose what to send">
-            <button type="button" class="home-challenge-kind-btn" data-home-challenge-kind="challenge">💝 Challenge</button>
-            <button type="button" class="home-challenge-kind-btn punishment" data-home-challenge-kind="punishment">😈 Punishment</button>
+        <div class="home-challenge-board">
+          <div class="home-challenge-summary" aria-label="Challenge and punishment summary">
+            <div class="home-challenge-summary-stat"><strong data-challenge-filter-count="received">0</strong><span>Received</span></div>
+            <div class="home-challenge-summary-stat"><strong data-challenge-filter-count="sent">0</strong><span>Sent</span></div>
+            <div class="home-challenge-summary-stat"><strong data-challenge-filter-count="pending">0</strong><span>Pending</span></div>
+            <div class="home-challenge-summary-stat"><strong data-challenge-filter-count="finished">0</strong><span>Finished</span></div>
           </div>
+          <div class="home-challenge-create-panel" aria-label="Send a playful challenge or punishment">
+            <div class="home-challenge-create-head">
+              <span class="home-challenge-create-icon" aria-hidden="true">💌</span>
+              <span class="home-challenge-create-copy"><strong>Send a little something</strong><small>Choose a sweet challenge or a playful punishment.</small></span>
+            </div>
+            <div class="home-challenge-kind-options" role="group" aria-label="Choose what to send">
+              <button type="button" class="home-challenge-kind-btn" data-home-challenge-kind="challenge"><span>💝 &nbsp;Challenge</span><span aria-hidden="true">→</span></button>
+              <button type="button" class="home-challenge-kind-btn punishment" data-home-challenge-kind="punishment"><span>😈 &nbsp;Punishment</span><span aria-hidden="true">→</span></button>
+            </div>
+          </div>
+          <div id="home-challenge-punishment" class="challenge-pun-list"></div>
         </div>
-        <div id="home-challenge-punishment" class="challenge-pun-list"></div>
       </section>
     </div>
   `;
