@@ -91,23 +91,18 @@ export function initAuth(onLogin,onLogout){
     submitButton.disabled = false;
     passwordInput.focus();
     button.disabled = false;
-    // If the browser password manager has saved credentials, an explicit
-    // profile tap may use its autofill. The app itself never stores passwords.
-    setTimeout(() => {
-      if (profileInput.value === profileKey && passwordInput.value) loginForm.requestSubmit();
-    }, 250);
   }));
   loginForm.addEventListener("submit",async e=>{
     e.preventDefault(); $("#auth-error").textContent="";
     const profile=APP_CONFIG.profiles[profileInput.value];
     if(!profile){$("#auth-error").textContent="Choose your profile photo to continue.";return}
-    if(!passwordInput.value){passwordInput.focus();$("#auth-error").textContent="Enter your 4-digit PIN to continue.";return}
-    if(!profile.email){$("#auth-error").textContent="No Firebase account is linked to this name yet.";return}
+    if(!/^\d{6}$/.test(passwordInput.value)){passwordInput.focus();$("#auth-error").textContent="Enter your 6-digit PIN to continue.";return}
     if(!firebaseReady){$("#auth-error").textContent="Firebase is not connected yet. Add your Firebase web config first.";return}
+    if(!profile.email){$("#auth-error").textContent="No Firebase account is linked to this name yet.";return}
     try{submitButton.disabled=true;await authPersistenceReady;await signInWithEmailAndPassword(auth,profile.email,passwordInput.value);sessionStorage.setItem("olw-explicit-login", "1")}
     catch(err){
       const messages={
-        "auth/invalid-credential":"The Firebase email or PIN does not match. Check the PIN set for this account in Firebase Authentication.",
+        "auth/invalid-credential":"The Firebase email or PIN does not match. Check that this 6-digit PIN is set as the password for this account in Firebase Authentication.",
         "auth/user-not-found":"No Firebase account is linked to this name.",
         "auth/wrong-password":"That PIN is incorrect.",
         "auth/unauthorized-domain":"This website address is not authorized in Firebase Authentication. Add the site domain in Firebase Console > Authentication > Settings > Authorized domains.",
