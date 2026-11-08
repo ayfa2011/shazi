@@ -57,6 +57,7 @@ export function initPartnerChat(user, profile, partnerProfile) {
       </header>
       <div class="partner-chat-messages" aria-live="polite" aria-label="Messages"></div>
       <div class="partner-chat-emoji-row" aria-label="Quick emojis">${["❤️","🥰","😘","😂","💗","😊","😍","🫶"].map(emoji => `<button type="button" aria-label="Add ${emoji}">${emoji}</button>`).join("")}</div>
+      <div class="partner-chat-reply-preview" hidden></div>
       <form class="partner-chat-form"><textarea name="message" rows="1" maxlength="1000" placeholder="Write a message…" aria-label="Write a message"></textarea><button class="partner-chat-mic" type="button" aria-label="Hold to record a voice message" title="Hold to record">🎙</button><button type="submit" aria-label="Send message">➤</button></form>
     </section>`;
 
@@ -65,6 +66,7 @@ export function initPartnerChat(user, profile, partnerProfile) {
   const form = root.querySelector(".partner-chat-form");
   const input = form.elements.message;
   const micButton = form.querySelector(".partner-chat-mic");
+  const replyPreview = root.querySelector(".partner-chat-reply-preview");
   let isOpen = false;
   let initialSnapshot = true;
   const seen = new Set();
@@ -77,6 +79,8 @@ export function initPartnerChat(user, profile, partnerProfile) {
   let pointerReleased = false;
   let voiceStartPromise = null;
   let sendingVoice = false;
+  let replyTo = null;
+  let swipeStart = null;
   const unlockSound = () => alertSound.unlock();
   document.addEventListener("pointerdown", unlockSound, { once: true, passive: true });
   document.addEventListener("keydown", unlockSound, { once: true });
@@ -93,14 +97,36 @@ export function initPartnerChat(user, profile, partnerProfile) {
     document.body.classList.remove("partner-chat-open");
     presence.querySelector("[data-open-partner-chat]")?.focus({ preventScroll: true });
   }
+  function replyContent(item) {
+    return String(item.text || "").trim() || (item.telegramAudioFileId ? "Voice message" : "Message");
+  }
+  function setReply(messageId, item) {
+    replyTo = {
+      id: messageId,
+      name: item.uid === user.uid ? "You" : (item.name || partnerProfile.name || "Partner"),
+      text: replyContent(item)
+    };
+    replyPreview.innerHTML = `<span class="partner-chat-reply-mark" aria-hidden="true"></span><span class="partner-chat-reply-copy"><strong>Replying to ${esc(replyTo.name)}</strong><small>${esc(replyTo.text)}</small></span><button type="button" class="partner-chat-reply-cancel" aria-label="Cancel reply">×</button>`;
+    replyPreview.hidden = false;
+    replyPreview.querySelector(".partner-chat-reply-cancel").addEventListener("click", clearReply);
+    input.focus({ preventScroll: true });
+  }
+  function clearReply() {
+    replyTo = null;
+    replyPreview.hidden = true;
+    replyPreview.replaceChildren();
+  }
   function renderMessages(items) {
     messages.innerHTML = items.length ? items.map(([id, item]) => {
       const mine = item.uid === user.uid;
       const time = item.createdAt ? new Date(item.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
+      const reply = item.replyToId
+        ? `<div class="partner-chat-quoted"><strong>${esc(item.replyToName || "Partner")}</strong><span>${esc(item.replyToText || "Message")}</span></div>`
+        : "";
       const voice = item.telegramAudioFileId
         ? `<audio class="partner-chat-audio" controls preload="none" data-telegram-audio-id="${esc(item.telegramAudioFileId)}" data-telegram-audio-mime="${esc(item.telegramAudioMimeType || "audio/webm")}" aria-label="Voice message from ${esc(mine ? "you" : item.name || partnerProfile.name)}"></audio>`
         : "";
-      return `<article class="partner-chat-message ${mine ? "mine" : "theirs"}" data-message-id="${esc(id)}">${item.text ? `<p>${esc(item.text)}</p>` : ""}${voice}<small>${mine ? "You" : esc(item.name || partnerProfile.name)}${time ? ` · ${esc(time)}` : ""}</small></article>`;
+      return `<article class="partner-chat-message ${mine ? "mine" : "theirs"}" data-message-id="${esc(id)}">${reply}${item.text ? `<p>${esc(item.text)}</p>` : ""}${voice}<small>${mine ? "You" : esc(item.name || partnerProfile.name)}${time ? ` · ${esc(time)}` : ""}</small></article>`;
     }).join("") : `<p class="partner-chat-empty">Say hello to ${esc(partnerProfile.name)} ♡</p>`;
     messages.querySelectorAll("audio[data-telegram-audio-id]").forEach(audio => {
       if (audio.dataset.loading || audio.src) return;
@@ -139,6 +165,7 @@ export function initPartnerChat(user, profile, partnerProfile) {
         recorder.onstop = async () => {
           const durationMs = Math.max(0, Date.now() - recordingStartedAt);
           const blob = new Blob(voiceChunks, { type: recorder?.mimeType || "audio/webm" });
+          const replyingTo = replyTo;
           recorderStream?.getTracks().forEach(track => track.stop());
           recorderStream = null;
           recorder = null;
@@ -155,7 +182,7 @@ export function initPartnerChat(user, profile, partnerProfile) {
             const uploaded = await sendToTelegram(file, `Chat voice message · ${profile.name} · ${new Date().toLocaleString()}`);
             const media = telegramMediaReferences(uploaded);
             const mimeType = telegramUploadMimeType(file);
-            await push(ref(rtdb, chatPath), {
+            const message = {
               uid: user.uid,
               profileKey: Object.keys(APP_CONFIG.profiles).find(key => APP_CONFIG.profiles[key].email === user.email) || "",
               name: profile.name || "",
@@ -164,7 +191,10 @@ export function initPartnerChat(user, profile, partnerProfile) {
               telegramAudioMimeType: mimeType,
               voiceDurationMs: durationMs,
               createdAt: serverTimestamp()
-            });
+            };
+            if (replyingTo) Object.assign(message, { replyToId: replyingTo.id, replyToName: replyingTo.name, replyToText: replyingTo.text });
+            await push(ref(rtdb, chatPath), message);
+            if (replyTo?.id === replyingTo?.id) clearReply();
           } catch (error) {
             console.error("Could not send chat voice message:", error);
             toast(error.message || "Your voice message could not be sent.");
@@ -200,8 +230,44 @@ export function initPartnerChat(user, profile, partnerProfile) {
   presence.addEventListener("click", onPresenceClick);
   closeButton.addEventListener("click", closeChat);
   panel.addEventListener("click", event => { if (event.target === panel) closeChat(); });
+  messages.addEventListener("pointerdown", event => {
+    const message = event.target.closest(".partner-chat-message");
+    if (!message || event.button !== 0 || event.target.closest("audio,button,a")) return;
+    swipeStart = { id: message.dataset.messageId, pointerId: event.pointerId, x: event.clientX, y: event.clientY, element: message };
+    message.style.transition = "none";
+  });
+  messages.addEventListener("pointermove", event => {
+    if (!swipeStart || event.pointerId !== swipeStart.pointerId) return;
+    const dx = event.clientX - swipeStart.x;
+    const dy = event.clientY - swipeStart.y;
+    if (Math.abs(dy) > Math.abs(dx) || dx <= 0) return;
+    swipeStart.moved = true;
+    swipeStart.element.style.transform = `translateX(${Math.min(dx, 88)}px)`;
+  });
+  messages.addEventListener("pointerup", event => {
+    if (!swipeStart || event.pointerId !== swipeStart.pointerId) return;
+    const gesture = swipeStart;
+    swipeStart = null;
+    gesture.element.style.transition = "transform 180ms ease";
+    gesture.element.style.transform = "";
+    if (event.clientX - gesture.x < 64 || Math.abs(event.clientY - gesture.y) > Math.abs(event.clientX - gesture.x)) return;
+    const item = latestItems.find(([id]) => id === gesture.id)?.[1];
+    if (item) setReply(gesture.id, item);
+  });
+  messages.addEventListener("pointercancel", () => {
+    if (!swipeStart) return;
+    swipeStart.element.style.transition = "transform 180ms ease";
+    swipeStart.element.style.transform = "";
+    swipeStart = null;
+  });
   root.querySelectorAll(".partner-chat-emoji-row button").forEach(button => {
     button.addEventListener("click", () => { input.value += button.textContent; input.focus(); });
+  });
+  input.addEventListener("keydown", event => {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
   });
   form.addEventListener("submit", async event => {
     event.preventDefault();
@@ -209,9 +275,13 @@ export function initPartnerChat(user, profile, partnerProfile) {
     if (!text) return;
     const submit = form.querySelector("[type=submit]");
     submit.disabled = true;
+    const replyingTo = replyTo;
     try {
-      await push(ref(rtdb, chatPath), { uid: user.uid, profileKey: Object.keys(APP_CONFIG.profiles).find(key => APP_CONFIG.profiles[key].email === user.email) || "", name: profile.name || "", text, createdAt: serverTimestamp() });
+      const message = { uid: user.uid, profileKey: Object.keys(APP_CONFIG.profiles).find(key => APP_CONFIG.profiles[key].email === user.email) || "", name: profile.name || "", text, createdAt: serverTimestamp() };
+      if (replyingTo) Object.assign(message, { replyToId: replyingTo.id, replyToName: replyingTo.name, replyToText: replyingTo.text });
+      await push(ref(rtdb, chatPath), message);
       input.value = "";
+      if (replyTo?.id === replyingTo?.id) clearReply();
       input.focus();
     } catch (error) {
       console.error("Could not send chat message:", error);
@@ -235,6 +305,7 @@ export function initPartnerChat(user, profile, partnerProfile) {
 
   let stopMessages = null;
   let activeDay = "";
+  let latestItems = [];
   function listenToToday() {
     stopMessages?.();
     activeDay = todayKey();
@@ -247,6 +318,7 @@ export function initPartnerChat(user, profile, partnerProfile) {
       const items = Object.entries(snapshot.val() || {})
         .filter(([, item]) => Number(item?.createdAt) >= dayStart && Number(item?.createdAt) < dayEnd)
         .sort((a, b) => Number(a[1]?.createdAt || 0) - Number(b[1]?.createdAt || 0));
+      latestItems = items;
       if (initialSnapshot) {
         items.forEach(([id]) => seen.add(id));
         initialSnapshot = false;
@@ -270,6 +342,7 @@ export function initPartnerChat(user, profile, partnerProfile) {
     if (dayRolloverTimer) clearTimeout(dayRolloverTimer);
     dayRolloverTimer = scheduleDubaiDayRollover(() => {
       seen.clear();
+      latestItems = [];
       renderMessages([]);
       listenToToday();
       scheduleNextDay();

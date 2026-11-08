@@ -180,6 +180,7 @@ export function initMusic(user) {
   const player = $("#audio-player");
   const audio = player;
   const uploadInput = $("#music-upload");
+  const musicDrawer = $("#music-drawer");
   const progressInput = $("#music-progress");
   const elapsedLabel = $("#music-elapsed");
   const durationLabel = $("#music-duration");
@@ -820,6 +821,7 @@ export function initMusic(user) {
     }
     uploadInFlight = true;
     uploadInput.disabled = true;
+    musicDrawer?.setAttribute("aria-busy", "true");
     let leaseClaimed = false;
     let claimed = false;
     let heartbeat = null;
@@ -872,6 +874,7 @@ export function initMusic(user) {
       if (sessionHeartbeat) clearInterval(sessionHeartbeat);
       if (leaseClaimed) await releaseUploadLease();
       uploadInFlight = false;
+      musicDrawer?.removeAttribute("aria-busy");
       uploadInput.disabled = Boolean(sharedUploads[uid]?.status === "uploading");
       uploadInput.value = "";
     }

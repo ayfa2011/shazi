@@ -1334,6 +1334,7 @@ export function navigate(route = "home", { history = true } = {}) {
 function closeTransientUi() {
   const drawer = $("#music-drawer");
   if (drawer && !drawer.classList.contains("hidden")) {
+    if (drawer.getAttribute("aria-busy") === "true") return true;
     drawer.classList.add("hidden");
     return true;
   }
