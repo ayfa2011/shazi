@@ -476,7 +476,7 @@ export function renderSharedGallery(el, user, profile) {
     try {
       let telegramDeleteFailed = false;
       if (item.telegramChatId && item.telegramMessageId) {
-        try { await deleteTelegramGalleryMessage(item.telegramChatId, item.telegramMessageId); }
+        try { telegramDeleteFailed = !await deleteTelegramGalleryMessage(item.telegramChatId, item.telegramMessageId); }
         catch (error) {
           telegramDeleteFailed = true;
           console.warn("Telegram could not remove the original message:", error);

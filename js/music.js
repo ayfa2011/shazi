@@ -753,7 +753,10 @@ export function initMusic(user) {
       if (song.__legacyRealtimeDatabase) await remove(dbRef(rtdb, `${ROOT}/library/${id}`));
       else await removeItem(id);
       if (song.telegramChatId && song.telegramMessageId) {
-        try { await deleteTelegramGalleryMessage(song.telegramChatId, song.telegramMessageId); }
+        try {
+          const deleted = await deleteTelegramGalleryMessage(song.telegramChatId, song.telegramMessageId);
+          if (!deleted) console.info("The song was removed from saved music, but Telegram kept its copy.");
+        }
         catch (error) { console.warn("Saved music was removed from the library, but Telegram kept its copy:", error); }
       }
       toast("Removed from saved music.");
@@ -875,14 +878,34 @@ export function initMusic(user) {
   }
 
   async function playSharedSong() {
-    if (!trackKey(session)) return;
+    const requestedTrackKey = trackKey(session);
+    if (!requestedTrackKey) return;
+    const playback = { playing: true, ended: false, time: audio.currentTime, status: "ready" };
+    if (lastRenderedUrl !== requestedTrackKey || audio.readyState === 0) {
+      try {
+        if (!await patchOwnedSession(playback)) toast("The music session has ended.");
+      } catch (error) {
+        reportError(error, "The shared music player could not be started.");
+      }
+      return;
+    }
     try {
       await audio.play();
-      if (!await patchOwnedSession({ playing: true, ended: false, time: audio.currentTime, status: "ready" })) {
+      if (!await patchOwnedSession({ ...playback, time: audio.currentTime })) {
         audio.pause();
         toast("The music session has ended.");
       }
     } catch (error) {
+      if (error?.name === "AbortError") {
+        if (trackKey(session) === requestedTrackKey) {
+          try {
+            if (!await patchOwnedSession(playback)) toast("The music session has ended.");
+          } catch (syncError) {
+            reportError(syncError, "The shared music player could not be started.");
+          }
+        }
+        return;
+      }
       reportError(error, "This device could not play the song. Tap Listen and try again.");
     }
   }

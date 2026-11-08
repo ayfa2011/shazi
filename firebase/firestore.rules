@@ -221,7 +221,7 @@ service cloud.firestore {
         && resource.data.get('type', '') != 'answer'
         && (
           ((collectionName == 'items'
-              && resource.data.get('type', '') in ['memory', 'music']
+              && resource.data.get('type', '') in ['memory', 'music', 'musicTrack']
               && isCoupleMember())
             || (collectionName == 'items'
               && resource.data.get('type', '') != 'customChallenge'

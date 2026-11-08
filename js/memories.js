@@ -550,7 +550,8 @@ export function renderMemories(el, user, profile) {
                             ((memory.telegramFileId === key || memory.photoUrl === key) ? memory : null);
       if (mediaToRemove?.telegramChatId && mediaToRemove?.telegramMessageId) {
           try {
-              await deleteTelegramGalleryMessage(mediaToRemove.telegramChatId, mediaToRemove.telegramMessageId);
+              const deleted = await deleteTelegramGalleryMessage(mediaToRemove.telegramChatId, mediaToRemove.telegramMessageId);
+              if (!deleted) console.info("The media was removed from the memory, but Telegram kept its copy.");
           } catch (tgErr) {
               console.warn("Telegram file deletion failed, but removed from database:", tgErr);
           }

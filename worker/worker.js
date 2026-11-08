@@ -104,7 +104,10 @@ export default {
           body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
         });
         const result = await response.json().catch(() => ({}));
-        if (!response.ok || !result.ok) throw new HttpError(502, result.description || 'Telegram could not delete this media');
+        if (!response.ok) throw new HttpError(502, result.description || 'Telegram could not delete this media');
+        if (!result.ok) {
+          return json({ ok: true, deleted: false, error: result.description || 'Telegram could not delete this media' });
+        }
         return json({ ok: true });
       }
 
