@@ -1096,7 +1096,11 @@ export function renderChallenges(el, user, profile) {
   sessionStorage.removeItem("challenge-compose-edit-item");
   const requestedComposeKind = sessionStorage.getItem("challenge-compose-kind");
   sessionStorage.removeItem("challenge-compose-kind");
-  if (requestedEditItem) {
+  const openFullChallengeHub = sessionStorage.getItem("challenge-open-hub") === "true";
+  sessionStorage.removeItem("challenge-open-hub");
+  if (openFullChallengeHub) {
+    openChallengeHub();
+  } else if (requestedEditItem) {
     try { openGiveModal(JSON.parse(requestedEditItem)); }
     catch (error) { console.error("Could not open challenge editor:", error); toast("Could not open that challenge for editing."); }
   } else if (requestedComposeKind === "challenge" || requestedComposeKind === "punishment") openGiveModal(null, requestedComposeKind);
