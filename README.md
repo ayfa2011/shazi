@@ -6,7 +6,7 @@ A mobile-first private couple website with English UI, Firebase Authentication, 
 - Firebase project: `our-little-world-e9cbb`.
 - Web app configuration is in `firebase/firebase-config.js`.
 - Email/Password sign-in is enabled.
-- Firebase Authentication has one account for each partner. The login screen lets each person choose their name and enter the password for that Firebase account.
+- Firebase Authentication has one account for each partner. The login screen lets each person choose their profile and enter the shared four-digit PIN using the numeric keypad. Set both Firebase account passwords to that PIN in Firebase Authentication; the PIN is not hardcoded in the website.
 - Cloud Firestore is created in `nam5` (United States multi-region). Its rules allow only the two configured partner accounts to access `couples/our-little-world/**`.
 - `firebase/firestore.indexes.json` defines the composite index used by typed item lists. Deploy the index and current Firestore rules from the project root with `firebase deploy --only firestore:indexes,firestore:rules` after selecting the Firebase project; wait for the index to finish building before testing lists.
 - Realtime Database is ready at `https://our-little-world-e9cbb-default-rtdb.firebaseio.com/` in `us-central1`. Its rules allow only the two configured partner accounts.

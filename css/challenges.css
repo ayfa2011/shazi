@@ -313,6 +313,7 @@
   height: var(--water-level); max-height: 78%;
   border-radius: 4px 4px 14px 14px;
   background: linear-gradient(180deg, #7fcbff, #2698ee); opacity: 0.72;
+  transition: height 180ms ease-out;
 }
 .water-profile-shazy .water-glass-fill { background: linear-gradient(180deg, #f7a9ca, #e75f98); }
 .water-person-details { position: relative; min-width: 0; flex: 1; padding-right: 28px; overflow: hidden; }
@@ -330,6 +331,7 @@
 .water-progress-track span {
   display: block; height: 100%; border-radius: inherit;
   background: linear-gradient(90deg, #60b9fa, #268ee8);
+  transition: width 180ms ease-out;
 }
 .water-profile-shazy .water-progress-track { background: #f8e1eb; }
 .water-profile-shazy .water-progress-track span {
@@ -841,7 +843,8 @@ body.challenge-hub-open { overflow: hidden; overscroll-behavior: none; }
 /* Respect reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .give-challenge-btn, .snap-send-button,
-  .custom-hub-filters button, .kind-toggle button {
+  .custom-hub-filters button, .kind-toggle button,
+  .water-glass-fill, .water-progress-track span {
     transition: none !important;
   }
   .splash-heart { animation: none; }

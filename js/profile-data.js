@@ -2,8 +2,12 @@ import { APP_CONFIG } from "../config/app-config.js";
 import { getTelegramMediaUrl } from "../src/services/telegramService.js";
 
 export function getProfileKey(profile) {
+  if (!profile) return "";
   return Object.entries(APP_CONFIG.profiles).find(([, candidate]) =>
-    candidate.id === profile?.id || candidate.email === profile?.email
+    candidate && (
+      (profile.id && candidate.id === profile.id) ||
+      (profile.email && candidate.email === profile.email)
+    )
   )?.[0] || "";
 }
 

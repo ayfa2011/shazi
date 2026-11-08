@@ -265,10 +265,10 @@ export function initPartnerChat(user, profile, partnerProfile) {
     });
   }
   listenToToday();
-  let stopDayRollover = () => {};
+  let dayRolloverTimer = null;
   function scheduleNextDay() {
-    stopDayRollover();
-    stopDayRollover = scheduleDubaiDayRollover(() => {
+    if (dayRolloverTimer) clearTimeout(dayRolloverTimer);
+    dayRolloverTimer = scheduleDubaiDayRollover(() => {
       seen.clear();
       renderMessages([]);
       listenToToday();
@@ -286,7 +286,7 @@ export function initPartnerChat(user, profile, partnerProfile) {
     if (recorder?.state === "recording") recorder.stop();
     recorderStream?.getTracks().forEach(track => track.stop());
     stopMessages?.();
-    stopDayRollover();
+    if (dayRolloverTimer) { clearTimeout(dayRolloverTimer); dayRolloverTimer = null; }
     document.removeEventListener("pointerdown", unlockSound);
     document.removeEventListener("keydown", unlockSound);
     window.removeEventListener("keydown", onKeydown);

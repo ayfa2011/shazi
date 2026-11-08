@@ -101,15 +101,15 @@ export function initAuth(onLogin,onLogout){
     e.preventDefault(); $("#auth-error").textContent="";
     const profile=APP_CONFIG.profiles[profileInput.value];
     if(!profile){$("#auth-error").textContent="Choose your profile photo to continue.";return}
-    if(!passwordInput.value){passwordInput.focus();$("#auth-error").textContent="Enter your password to continue.";return}
+    if(!passwordInput.value){passwordInput.focus();$("#auth-error").textContent="Enter your 4-digit PIN to continue.";return}
     if(!profile.email){$("#auth-error").textContent="No Firebase account is linked to this name yet.";return}
     if(!firebaseReady){$("#auth-error").textContent="Firebase is not connected yet. Add your Firebase web config first.";return}
     try{submitButton.disabled=true;await authPersistenceReady;await signInWithEmailAndPassword(auth,profile.email,passwordInput.value);sessionStorage.setItem("olw-explicit-login", "1")}
     catch(err){
       const messages={
-        "auth/invalid-credential":"The Firebase email or password does not match. Check the password saved for this account in Firebase Authentication.",
+        "auth/invalid-credential":"The Firebase email or PIN does not match. Check the PIN set for this account in Firebase Authentication.",
         "auth/user-not-found":"No Firebase account is linked to this name.",
-        "auth/wrong-password":"That password is incorrect.",
+        "auth/wrong-password":"That PIN is incorrect.",
         "auth/unauthorized-domain":"This website address is not authorized in Firebase Authentication. Add the site domain in Firebase Console > Authentication > Settings > Authorized domains.",
         "auth/operation-not-allowed":"Email/Password sign-in is disabled in Firebase Authentication.",
         "auth/network-request-failed":"Could not reach Firebase. Check your internet connection and try again."

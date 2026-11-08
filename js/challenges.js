@@ -12,6 +12,7 @@ import {
 import { APP_CONFIG } from "../config/app-config.js";
 import { findProfileForAuthor, getProfileKey } from "./profile-data.js";
 import { challengeDays } from "./challenge-bank.js";
+import { updateWaterProgressUI } from "./water-progress.js";
 import { getTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
 
 let stopChallenges = null, stopCustomChallenges = null, stopWaterChallenges = null;
@@ -359,7 +360,7 @@ export function renderChallenges(el, user, profile) {
     }
     state.pendingDeltas.push(delta);
     state.optimisticCount = targetCount;
-    scheduleRender();
+    if (isCurrent()) updateWaterProgressUI(list, Object.entries(partnerProfiles), ownKey, waterCountFor, waterTrackersReady && assignmentsReady);
 
     state.queue = state.queue.catch(() => {}).then(async () => {
       const queuedDelta = state.pendingDeltas[0];
@@ -378,7 +379,7 @@ export function renderChallenges(el, user, profile) {
         state.pendingDeltas.shift();
         state.optimisticCount = Math.max(0, Math.min(8, state.confirmedCount + state.pendingDeltas.reduce((sum, value) => sum + value, 0)));
         if (!state.pendingDeltas.length) pendingWaterWrites.delete(waterKey);
-        scheduleRender();
+        if (isCurrent()) updateWaterProgressUI(list, Object.entries(partnerProfiles), ownKey, waterCountFor, waterTrackersReady && assignmentsReady);
       }
     });
   }
@@ -458,11 +459,11 @@ export function renderChallenges(el, user, profile) {
               const isMine = key === ownKey;
               const isShazy = key.toLowerCase().includes("shaz") || person.name?.toLowerCase() === "shazy";
               const glassAsset = isShazy ? "Girl.png" : "Boy.png";
-              return `<section class="water-person-progress ${isMine ? "is-mine" : ""} ${isShazy ? "water-profile-shazy" : "water-profile-keby"}" aria-label="${esc(person.name)}: ${count} of 8 glasses">
+              return `<section class="water-person-progress ${isMine ? "is-mine" : ""} ${isShazy ? "water-profile-shazy" : "water-profile-keby"}" data-water-profile="${esc(key)}" aria-label="${esc(person.name)}: ${count} of 8 glasses">
                 <div class="water-person-title"><strong>${esc(person.name)}${isMine ? " · You" : ""}</strong><span aria-hidden="true">${isShazy ? "💗" : "💙"}</span></div>
                 <div class="water-person-main">
                   <div class="water-glass-wrap" aria-hidden="true"><div class="water-glass-fill" style="--water-level:${count / 8 * 82}%"></div><img src="./Asset/${glassAsset}" alt="" loading="lazy" decoding="async"></div>
-                  <div class="water-person-details"><div class="water-count"><strong>${count}</strong><span>/ 8<br>glasses</span>${isMine ? `<div class="water-count-controls"><button type="button" class="water-count-minus" data-action="water-remove" data-id="${esc(assignment.id)}" aria-label="Remove one glass" ${!waterTrackersReady || !assignmentsReady || ownCount <= 0 ? "disabled" : ""}>−</button><button type="button" class="water-count-plus" data-action="water-add" data-id="${esc(assignment.id)}" aria-label="Add one glass" ${!waterTrackersReady || !assignmentsReady || ownCount >= 8 ? "disabled" : ""}>＋</button></div>` : ""}</div>
+                  <div class="water-person-details"><div class="water-count"><strong data-water-count>${count}</strong><span>/ 8<br>glasses</span>${isMine ? `<div class="water-count-controls"><button type="button" class="water-count-minus" data-action="water-remove" data-id="${esc(assignment.id)}" aria-label="Remove one glass" ${!waterTrackersReady || !assignmentsReady || ownCount <= 0 ? "disabled" : ""}>−</button><button type="button" class="water-count-plus" data-action="water-add" data-id="${esc(assignment.id)}" aria-label="Add one glass" ${!waterTrackersReady || !assignmentsReady || ownCount >= 8 ? "disabled" : ""}>＋</button></div>` : ""}</div>
                     <div class="water-progress-track" role="progressbar" aria-label="${esc(person.name)} daily water progress" aria-valuemin="0" aria-valuemax="8" aria-valuenow="${count}"><span style="width:${count / 8 * 100}%"></span></div>
                     <small class="water-progress-caption">${count >= 8 ? "Daily goal complete ✓" : `${8 - count} glasses to go`}</small>
                   </div>
@@ -470,7 +471,7 @@ export function renderChallenges(el, user, profile) {
               </section>`;
             }).join("")}
           </div>
-          ${bothDone ? `<div class="water-celebrate">Hydrated together 💧✨</div>` : ""}
+          <div class="water-celebrate" data-water-celebrate ${bothDone ? "" : "hidden"}>Hydrated together 💧✨</div>
         </div>
       </article>
     `;
@@ -915,7 +916,11 @@ export function renderChallenges(el, user, profile) {
     waterTrackers = items;
     waterTrackersReady = true;
     reconcileTodayPoints();
-    scheduleRender();
+    if (assignmentsReady && list.querySelector("[data-water-profile]")) {
+      updateWaterProgressUI(list, Object.entries(partnerProfiles), ownKey, waterCountFor, true);
+    } else {
+      scheduleRender();
+    }
   }, error => console.error("Water sync failed:", error), 120);
 
   stopCustomChallenges = watchItems("customChallenge", items => {
