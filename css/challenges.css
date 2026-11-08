@@ -432,6 +432,10 @@
 }
 .custom-card.has-video { padding: 12px; }
 .custom-card.has-video .custom-head { margin-bottom: 9px; }
+.custom-card.has-video .custom-title {
+  font-size: 16px;
+  line-height: 1.25;
+}
 .custom-icon {
   width: 30px; height: 30px; flex: none;
   display: grid; place-items: center; border-radius: 9px;
@@ -539,6 +543,17 @@
 .custom-detail-list .custom-desc {
   margin: 0; padding: 2px 1px; color: #786b70;
   font-size: 10px; line-height: 1.4;
+}
+.custom-card.has-video .custom-detail-list .custom-desc {
+  padding: 8px 10px;
+  border-left: 3px solid #83a96e;
+  border-radius: 8px;
+  background: #ffffffa6;
+  color: #354a30;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 .custom-actions {
   display: flex; gap: 6px; margin-top: 8px;

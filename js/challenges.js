@@ -620,6 +620,7 @@ export function renderChallenges(el, user, profile) {
 
     const details = `
       <div class="custom-detail-list">
+        ${item.description ? `<p class="custom-desc">${esc(item.description)}</p>` : ""}
         <div class="custom-meta">
           <span>${received ? "↓ From your partner" : "↑ Sent by you"}${date ? ` · ${esc(new Date(date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }))}` : ""}</span>
         </div>
@@ -629,7 +630,6 @@ export function renderChallenges(el, user, profile) {
         </div>
         ${item.rewardPoints ? `<div class="custom-meta"><span>✨ ${Number(item.rewardPoints)} points on completion</span></div>` : ""}
         ${item.proofType ? `<div class="custom-meta"><span>Proof: ${esc(item.proofType === "any" ? "Any media" : item.proofType)}</span></div>` : ""}
-        ${item.description ? `<p class="custom-desc">${esc(item.description)}</p>` : ""}
       </div>`;
 
     return `
