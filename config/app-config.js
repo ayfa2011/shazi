@@ -21,7 +21,7 @@ export const APP_CONFIG = {
     }
   },
   theater: {
-    backendUrl: "https://your-vps-domain.com",
+    backendUrl: "https://mini-theater-backend.onrender.com",
     roomExpiryMinutes: 120
   }
 };

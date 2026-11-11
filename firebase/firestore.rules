@@ -397,6 +397,33 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/coupleDailyQuestions/$(coupleId)/days/$(dayKey)/participants/shazy);
     }
 
+    match /couples/{coupleId}/theaterRooms/{roomId} {
+      allow read: if isCoupleMember() && coupleId == 'our-little-world';
+      allow create: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && roomId.matches('^[A-Z0-9]{8}$')
+        && request.resource.data.keys().hasAll(['roomCode', 'movieName', 'telegramFileId', 'creator', 'status', 'createdAt', 'updatedAt', 'expiresAt'])
+        && request.resource.data.roomCode == roomId
+        && request.resource.data.status == 'waiting'
+        && request.resource.data.movieName is string
+        && request.resource.data.movieName.size() > 0
+        && request.resource.data.movieName.size() <= 100
+        && request.resource.data.telegramFileId is string
+        && request.resource.data.telegramFileId.size() > 0
+        && request.resource.data.creator.uid == request.auth.uid
+        && request.resource.data.creator.name is string;
+      allow update: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && (
+          resource.data.creator.uid == request.auth.uid
+          || resource.data.partner.uid == request.auth.uid
+        )
+        && request.resource.data.keys().hasOnly(['partner', 'status', 'currentTime', 'isPlaying', 'updatedAt', 'expiresAt']);
+      allow delete: if isCoupleMember()
+        && coupleId == 'our-little-world'
+        && (resource.data.creator.uid == request.auth.uid || resource.data.partner.uid == request.auth.uid);
+    }
+
     match /coupleQuestionBank/{coupleId}/{collectionName}/{documentId} {
       allow read: if isQuestionCoupleMember(coupleId);
       allow create, update: if isQuestionCoupleMember(coupleId)
