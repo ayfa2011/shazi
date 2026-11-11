@@ -7,11 +7,17 @@ let adminDb = null;
 export function initFirebaseAdmin() {
   if (adminDb) return adminDb;
   if (getApps().length === 0) {
-    const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
-    if (!serviceAccountPath) {
-      throw new Error("FIREBASE_SERVICE_ACCOUNT_PATH env var is required.");
+    const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+    if (!raw) throw new Error("FIREBASE_SERVICE_ACCOUNT env var is required.");
+
+    let serviceAccount;
+    try {
+      serviceAccount = JSON.parse(raw);
+    } catch {
+      // Treat as a file path
+      serviceAccount = JSON.parse(fs.readFileSync(raw, "utf8"));
     }
-    const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, "utf8"));
+
     initializeApp({ credential: cert(serviceAccount) });
   }
   adminDb = getFirestore();
