@@ -13,6 +13,7 @@ import { APP_CONFIG } from "../config/app-config.js";
 import { renderBucket, disposeBucket } from "./bucket-list.js";
 import { renderActivities } from "./activities.js";
 import { renderMore } from "./more.js";
+import { renderTheater, disposeTheater } from "./theater.js";
 import { renderSharedGallery, disposeSharedGallery } from "./gallery.js";
 import { renderProfile } from "./profile.js";
 import { disposeSpecialDays } from "./special-days.js";
@@ -1256,6 +1257,7 @@ const titles = {
   profile: "Profile",
   activities: "Activities",
   more: "More",
+  theater: "Theater",
   drawing: "Our Drawing Canvas",
   challenges: "✨ Challenges",
   "challenge-detail": "Challenge Details"
@@ -1273,6 +1275,7 @@ const routes = {
   profile: renderProfile,
   activities: renderActivities,
   more: renderMore,
+  theater: renderTheater,
   drawing: renderDrawing,
   challenges: renderChallenges,
   "challenge-detail": renderChallengeDetail
@@ -1306,6 +1309,7 @@ export function navigate(route = "home", { history = true } = {}) {
   if (route !== "bucket") disposeBucket?.();
   if (route !== "gallery-library") disposeSharedGallery();
   if (route !== "more") disposeSpecialDays();
+  if (route !== "theater") disposeTheater();
   if (route !== "gallery") {
     disposePostFeed?.();
     disposePostFeed = null;

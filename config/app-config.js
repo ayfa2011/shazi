@@ -19,5 +19,9 @@ export const APP_CONFIG = {
       bioConfigured: false,
       avatar: ""
     }
+  },
+  theater: {
+    backendUrl: "https://your-vps-domain.com",
+    roomExpiryMinutes: 120
   }
 };

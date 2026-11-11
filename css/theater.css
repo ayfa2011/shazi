@@ -1,0 +1,20 @@
+.theater-page{display:flex;flex-direction:column;gap:16px;padding:16px}
+.theater-page-heading{display:flex;justify-content:space-between;align-items:center}
+.theater-actions{display:grid;gap:12px}
+.theater-action{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px;border:1px solid var(--line);border-radius:var(--radius);background:#fff;cursor:pointer}
+.theater-action-icon{width:48px;height:48px;display:grid;place-items:center;border-radius:50%;background:#fff0f6;color:var(--deep);font-size:24px}
+.theater-action strong{display:block;color:var(--text)}
+.theater-action small{display:block;color:var(--muted);font-size:12px}
+.theater-action-arrow{flex:none;font-size:20px;color:var(--muted)}
+.theater-back{background:none;border:none;color:var(--deep);font-size:24px;padding:4px;cursor:pointer}
+
+/* Screens */
+.theater-screen{display:flex;flex-direction:column;gap:16px;padding-top:8px}
+.theater-screen-back{background:none;border:none;color:var(--deep);font-size:18px;font-weight:700;padding:0;text-align:left;cursor:pointer}
+.theater-card{padding:20px;border:1px solid var(--line);border-radius:var(--radius);background:#fff}
+.theater-card h2{margin:0 0 8px;color:var(--deep);font-size:22px}
+.theater-field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.theater-field label{font-size:13px;font-weight:700;color:var(--text)}
+.theater-field input{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--text);font-size:14px}
+.theater-field small{font-size:11px;color:var(--muted)}
+.primary.full{width:100%;padding:12px;border-radius:14px;background:var(--pink);color:white;font-weight:700;font-size:16px}

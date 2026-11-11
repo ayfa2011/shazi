@@ -680,3 +680,117 @@ export function watchChallengeAssignments(callback, onError, sinceDayKey = "", l
     callback(snapshot.docs.map(item => ({ id: item.id, ...item.data() })));
   }, onError);
 }
+
+// ── Theater rooms ──────────────────────────────────────────────────────────
+
+const ALPHANUM = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function generateRoomCode(length = 8) {
+  let code = "";
+  for (let i = 0; i < length; i++) code += ALPHANUM[Math.floor(Math.random() * ALPHANUM.length)];
+  return code;
+}
+
+const theaterRoomsCollection = () => {
+  if (!firebaseReady) throw new Error("Connect Firebase before using theater rooms.");
+  return collection(db, ...couplePath(), "theaterRooms");
+};
+
+export async function createTheaterRoom({ movieName, telegramFileId, telegramFileUniqueId, mimeType, creator, durationMinutes = 120 }) {
+  if (!firebaseReady) throw new Error("Connect Firebase before creating a theater room.");
+  if (!movieName || !telegramFileId || !creator) throw new Error("Movie name, Telegram file id and creator are required.");
+  let roomCode;
+  let attempts = 0;
+  do {
+    roomCode = generateRoomCode();
+    attempts += 1;
+    if (attempts > 10) throw new Error("Could not generate a unique room code. Try again.");
+  } while (await getDoc(doc(theaterRoomsCollection(), roomCode)).then(s => s.exists()));
+  const expiresAt = Timestamp.fromDate(new Date(Date.now() + durationMinutes * 60 * 1000));
+  const reference = doc(theaterRoomsCollection(), roomCode);
+  await setDoc(reference, {
+    roomCode,
+    movieName,
+    telegramFileId,
+    telegramFileUniqueId: telegramFileUniqueId || "",
+    mimeType: mimeType || "video/mp4",
+    creator: { uid: creator.uid, profileKey: creator.profileKey, name: creator.name },
+    partner: null,
+    status: "waiting",
+    currentTime: 0,
+    isPlaying: false,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    expiresAt
+  });
+  return { id: roomCode, roomCode };
+}
+
+export async function getTheaterRoom(roomCode) {
+  if (!firebaseReady) throw new Error("Connect Firebase before loading a theater room.");
+  const snapshot = await getDoc(doc(theaterRoomsCollection(), roomCode));
+  if (!snapshot.exists()) return null;
+  return { id: snapshot.id, ...snapshot.data() };
+}
+
+export async function joinTheaterRoom(roomCode, partner) {
+  if (!firebaseReady) throw new Error("Connect Firebase before joining a theater room.");
+  if (!roomCode || !partner) throw new Error("Room code and partner are required.");
+  const reference = doc(theaterRoomsCollection(), roomCode);
+  return runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists()) throw new Error("Room not found.");
+    const data = snapshot.data();
+    if (data.status === "ended") throw new Error("This room has ended.");
+    if (data.partner && data.partner.uid) throw new Error("Room already has a partner.");
+    const now = new Date();
+    if (data.expiresAt && data.expiresAt.toMillis && data.expiresAt.toMillis() < now.getTime()) throw new Error("Room has expired.");
+    transaction.update(reference, {
+      partner: { uid: partner.uid, profileKey: partner.profileKey, name: partner.name },
+      status: "waiting",
+      updatedAt: serverTimestamp()
+    });
+    return { id: snapshot.id, ...data, partner };
+  });
+}
+
+export async function updateTheaterRoom(roomCode, updates) {
+  if (!firebaseReady) throw new Error("Connect Firebase before updating a theater room.");
+  if (!roomCode) throw new Error("Room code is required.");
+  return updateDoc(doc(theaterRoomsCollection(), roomCode), { ...updates, updatedAt: serverTimestamp() });
+}
+
+export async function endTheaterRoom(roomCode) {
+  if (!firebaseReady) throw new Error("Connect Firebase before ending a theater room.");
+  if (!roomCode) throw new Error("Room code is required.");
+  return updateDoc(doc(theaterRoomsCollection(), roomCode), {
+    status: "ended",
+    updatedAt: serverTimestamp(),
+    expiresAt: Timestamp.fromDate(new Date())
+  });
+}
+
+export async function deleteTheaterRoom(roomCode) {
+  if (!firebaseReady) throw new Error("Connect Firebase before deleting a theater room.");
+  if (!roomCode) throw new Error("Room code is required.");
+  return deleteDoc(doc(theaterRoomsCollection(), roomCode));
+}
+
+export function watchTheaterRoom(roomCode, cb, onError) {
+  if (!firebaseReady) throw new Error("Connect Firebase before watching a theater room.");
+  if (!roomCode) throw new Error("Room code is required.");
+  return onSnapshot(doc(theaterRoomsCollection(), roomCode), snapshot => {
+    if (!snapshot.exists()) { cb(null); return; }
+    cb({ id: snapshot.id, ...snapshot.data() });
+  }, onError);
+}
+
+export function watchTheaterRooms(cb, onError) {
+  if (!firebaseReady) throw new Error("Connect Firebase before watching theater rooms.");
+  return onSnapshot(
+    query(theaterRoomsCollection(), orderBy("createdAt", "desc")),
+    snapshot => cb(snapshot.docs.map(d => ({ id: d.id, ...d.data() }))),
+    onError
+  );
+}
+
