@@ -1,24 +1,21 @@
-import { initializeApp, cert, getApps } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
-
-let adminDb = null;
+import admin from "firebase-admin";
+import fs from "fs";
 
 export function initFirebaseAdmin() {
-  if (adminDb) return adminDb;
-  if (getApps().length === 0) {
-    const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
-    if (!serviceAccountPath) {
-      throw new Error("FIREBASE_SERVICE_ACCOUNT_PATH env var is required.");
-    }
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const serviceAccount = require(serviceAccountPath);
-    initializeApp({ credential: cert(serviceAccount) });
-  }
-  adminDb = getFirestore();
-  return adminDb;
-}
+  const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
 
-export function getAdminDb() {
-  if (!adminDb) throw new Error("Firebase Admin not initialized. Call initFirebaseAdmin() first.");
-  return adminDb;
+  if (!serviceAccountPath) {
+    throw new Error("FIREBASE_SERVICE_ACCOUNT_PATH env var is required.");
+  }
+
+  // ES Module ನಲ್ಲಿ JSON ಫೈಲ್ ಓದಲು fs.readFileSync ಮತ್ತು JSON.parse ಬಳಸಬೇಕು
+  const serviceAccount = JSON.parse(
+    fs.readFileSync(new URL(serviceAccountPath, import.meta.url), "utf8")
+  );
+
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+  });
+
+  return admin;
 }
