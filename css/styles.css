@@ -2984,3 +2984,82 @@ body.partner-chat-open { overflow:hidden; }
   .game-battleship .battleship-cell,
   .game-battleship .battleship-board-card { animation: none!important; transition: none!important; }
 }
+
+/* ============================================================
+   UNIFIED POST & DRAWING CARD SIZING — overrides all conflicts
+   ============================================================ */
+.home-dashboard .home-feature-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  align-items: stretch !important;
+}
+
+.home-dashboard .home-post-panel,
+.home-dashboard .home-drawing-panel {
+  height: 280px !important;
+  min-height: unset !important;
+  max-height: none !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.home-dashboard .home-post-card {
+  height: 100% !important;
+  min-height: unset !important;
+  max-height: none !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.home-dashboard .home-canvas-launch {
+  height: 100% !important;
+  min-height: unset !important;
+  max-height: none !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+}
+
+.home-dashboard .home-drawing-preview,
+.home-dashboard .home-drawing-preview img {
+  height: 100% !important;
+  min-height: unset !important;
+  max-height: none !important;
+  width: 100% !important;
+  object-fit: cover !important;
+}
+
+.home-dashboard .home-view-more {
+  flex: none !important;
+}
+
+@media (max-width: 759px) {
+  .home-dashboard .home-post-panel,
+  .home-dashboard .home-drawing-panel {
+    height: 260px !important;
+    min-height: unset !important;
+  }
+}
+
+@media (max-width: 420px) {
+  .home-dashboard .home-post-panel,
+  .home-dashboard .home-drawing-panel {
+    height: 245px !important;
+    min-height: unset !important;
+  }
+}
+
+#main-content .home-dashboard .home-post-panel,
+#main-content .home-dashboard .home-drawing-panel {
+  height: 280px !important;
+  min-height: unset !important;
+  min-width: 0 !important;
+}
+
+body.home-dashboard #main-content .home-post-panel,
+body.home-dashboard #main-content .home-drawing-panel {
+  height: 280px !important;
+  min-height: unset !important;
+}

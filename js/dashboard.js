@@ -984,6 +984,9 @@ export function renderHome(el, user, profile) {
           btn.disabled = true;
           try {
             if (action === "snap-complete") {
+              if (snap) {
+                await ensureChallengeAssignment(snap);
+              }
               const liveAssignment = assignments.find(item => item.id === assignmentId);
               if (liveAssignment) {
                 liveAssignment.completedBy = [...(liveAssignment.completedBy || []), { uid: user.uid, profileKey: questionProfileKey, name: profile.name }];
