@@ -29,11 +29,7 @@ export function renderMore(el, user) {
           <span><strong>Special Days</strong><small>Birthdays, anniversaries and celebrations</small></span>
           <span class="more-action-arrow" aria-hidden="true">↗</span>
         </button>
-        <button type="button" class="more-action card" data-more-route="theater">
-          <span class="more-action-icon more-action-icon--theater" aria-hidden="true">🎬</span>
-          <span><strong>Theater</strong><small>Private mini theater — watch together</small></span>
-          <span class="more-action-arrow" aria-hidden="true">↗</span>
-        </button>
+
       </div>
       <div id="more-detail"></div>
     </section>
@@ -46,7 +42,7 @@ export function renderMore(el, user) {
     morePage.classList.add("showing-special-days");
     renderSpecialDays($("#more-detail", el), user);
   };
-  $("[data-more-route='theater']", el).onclick = () => window.App?.navigate("theater");
+
   $(".more-logout", el).onclick = async () => {
     try {
       await logout();
