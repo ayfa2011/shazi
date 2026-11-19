@@ -992,6 +992,10 @@ export function renderHome(el, user, profile) {
               void notifyPartnerSafely(questionProfileKey, "challenge", `${profile.name} sent today's Snap.`, `${assignmentId}-completed`, "challenges");
               toast("Snap marked ✓");
               renderHabit();
+              // Open Snapchat app after marking complete so the tick shows first
+              setTimeout(() => {
+                window.location.href = "snapchat://";
+              }, 500);
             } else if (action === "water-add" || action === "water-remove") {
               const delta = action === "water-add" ? 1 : -1;
               queueWaterProgress(delta);

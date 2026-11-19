@@ -806,6 +806,26 @@ body.word-search-fullscreen .content{width:100%;max-width:none;min-height:100vh;
 .home-dashboard .home-canvas-launch{min-height:0;height:100%;justify-content:space-between;gap:12px;padding:5px;background:transparent}
 .home-dashboard .home-drawing-preview{flex:1;width:100%;min-height:175px;max-height:230px;border:1px dashed #f0a9c5;border-radius:20px;background:linear-gradient(145deg,#fff8fb,#ffedf4)}
 .home-dashboard .home-drawing-preview img{width:100%;height:100%;min-height:175px;max-height:230px;object-fit:contain;background:#fff}
+
+/* Unified card sizing — post card and drawing canvas card match exactly */
+.home-dashboard .home-post-panel,
+.home-dashboard .home-drawing-panel{
+  height:280px;
+  min-height:unset;
+}
+.home-dashboard .home-post-card{
+  height:100%;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+.home-dashboard .home-drawing-preview,
+.home-dashboard .home-drawing-preview img{
+  height:100% !important;
+  min-height:unset !important;
+  max-height:unset !important;
+  object-fit:cover !important;
+}
 .home-dashboard .home-canvas-action{margin:0;padding:8px 12px;background:transparent;color:#a43a6a;font:800 12px 'DM Sans',sans-serif}
 .home-dashboard .today-section{margin:8px 0 22px}
 .home-dashboard .today-section>.section-head{margin:0 0 13px}
