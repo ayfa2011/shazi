@@ -7,12 +7,14 @@ import { mountFindTheWordsGame } from "./find-the-words.js";
 import { TRUE_FALSE_BANK_VERSION, TRUE_FALSE_QUESTION_BANK, pickTrueFalseQuestions } from "./true-false-question-bank.js";
 import { get, onDisconnect, onValue, push, ref, remove, runTransaction, set, update } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 import { celebrateWin } from "./celebration.js";
+import { battleshipRoomRef, createBattleshipGame, isValidBattleshipRoom, normalizeBattleshipShots } from "./battleship.js";
 
 
 const sosGameRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sos`);
 const sosPresenceRef = uid => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sosPresence/${uid}`);
 const gameMatchRef = game => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/matches/${game}`);
 const trueFalseBankRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/questionBanks/trueFalse`);
+const airHockeySyncRef = (matchId, channel) => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/airHockeyMatches/${matchId}/${channel}`);
 const SOS_ROWS = 10;
 const SOS_COLUMNS = 10;
 const SOS_CELL_COUNT = SOS_ROWS * SOS_COLUMNS;
@@ -28,18 +30,7 @@ const emojiQuestions = [
   { emojis: "🍓 🍫 😋", options: ["A sweet treat to share", "Strawberry shopping", "Chocolate for breakfast"], answer: 0 }
 ];
 
-const battleshipRoomRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/battleshipMatches/our-little-world`);
-const battleshipBoardRef = (matchId, uid) => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/battleshipPrivate/${matchId}/${uid}`);
-let battleshipCelebratedMatchId = "";
 let sosCelebratedMatchId = "";
-const BATTLESHIP_FLEET = [
-  { id: "carrier", name: "Carrier", emoji: "🚢", length: 5 },
-  { id: "battleship", name: "Battleship", emoji: "🛳️", length: 4 },
-  { id: "cruiser", name: "Cruiser", emoji: "🚤", length: 3 },
-  { id: "submarine", name: "Submarine", emoji: "🤿", length: 3 },
-  { id: "destroyer", name: "Destroyer", emoji: "⛴️", length: 2 }
-];
-const activeStatuses = ["waiting", "placing", "playing"];
 
 
 let stopGames = null;
@@ -52,7 +43,6 @@ let stopGameMatch = null;
 // disposeGames() can release them when the user signs out or leaves the page.
 let stopGuessTheQuestion = null;
 let stopGtqConnected = null;
-let stopBattleshipBoard = null;
 let memoryTimer = null;
 let disposeFindTheWords = null;
 let disposeLudoGame = null;
@@ -61,57 +51,9 @@ let sosClock = null;
 let sosServerTimeOffset = 0;
 let stopSosServerTime = null;
 let activeSosPresenceUid = "";
-let battleshipBoard = null;
-let battleshipBoardMatchId = "";
-let battleshipDraftShips = [];
-let battleshipOrientation = "horizontal";
-let battleshipSelectedShipId = "carrier";
-let battleshipAudioContext = null;
-let battleshipSoundEnabled = true;
-let battleshipLastShotCue = "";
-
-function unlockBattleshipAudio() {
-  if (!battleshipSoundEnabled) return;
-  try {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass) return;
-    battleshipAudioContext ||= new AudioContextClass();
-    if (battleshipAudioContext.state === "suspended") void battleshipAudioContext.resume();
-  } catch (error) {
-    console.debug("Battleship audio is unavailable:", error);
-  }
-}
-
-function playBattleshipSound(kind) {
-  if (!battleshipSoundEnabled) return;
-  unlockBattleshipAudio();
-  const context = battleshipAudioContext;
-  if (!context || context.state !== "running") return;
-  const patterns = {
-    place: [[440, 0, .08], [660, .09, .12]],
-    launch: [[190, 0, .12], [115, .08, .18]],
-    hit: [[620, 0, .1], [880, .09, .13], [1040, .2, .16]],
-    miss: [[330, 0, .12], [245, .12, .2]],
-    sink: [[520, 0, .12], [660, .1, .12], [880, .2, .18], [1175, .34, .24]],
-    win: [[523, 0, .14], [659, .13, .14], [784, .26, .16], [1047, .4, .34]],
-    lose: [[392, 0, .18], [330, .18, .18], [262, .36, .32]],
-    turn: [[740, 0, .09], [988, .1, .12]]
-  };
-  (patterns[kind] || []).forEach(([frequency, delay, duration]) => {
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    const start = context.currentTime + delay;
-    oscillator.type = kind === "miss" || kind === "lose" ? "triangle" : "sine";
-    oscillator.frequency.setValueAtTime(frequency, start);
-    gain.gain.setValueAtTime(.0001, start);
-    gain.gain.exponentialRampToValueAtTime(.13, start + .018);
-    gain.gain.exponentialRampToValueAtTime(.0001, start + duration);
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start(start);
-    oscillator.stop(start + duration + .02);
-  });
-}
+let activeBattleshipController = null;
+let disposeMountedAirHockey = null;
+let leaveMountedAirHockey = null;
 function shuffle(items) {
   const shuffled = [...items];
   for (let index = shuffled.length - 1; index > 0; index--) {
@@ -135,6 +77,7 @@ function makeEmojiQuestions() {
 const gameTitles = {
   "memory-match": "Memory Match",
   "emoji-quiz": "Emoji Quiz",
+  "air-hockey": "Air Hockey",
 
   battleship: "Battleship",
   sos: "SOS",
@@ -248,15 +191,7 @@ function normalizeRoom(room) {
     }
   }
   if (room.game === "true-false") room.trueFalseAnswers = room.trueFalseAnswers || {};
-  if (room.game === "battleship" && room.shots && typeof room.shots === "object") {
-    // Realtime Database returns {0: a, 1: b, …} as an Array (with null holes) once it is dense enough.
-    const shots = {};
-    for (const [uid, list] of Object.entries(room.shots)) {
-      const entries = Array.isArray(list) ? list.map((shot, index) => [index, shot]) : Object.entries(list || {});
-      shots[uid] = Object.fromEntries(entries.filter(([, shot]) => shot));
-    }
-    room.shots = shots;
-  }
+  if (room.game === "battleship" && room.shots && typeof room.shots === "object") room.shots = normalizeBattleshipShots(room.shots);
   return room;
 }
 
@@ -280,29 +215,6 @@ function isValidTrueFalseRoom(room) {
     room.trueFalsePhase === "finished" && answerCount === 2 &&
     (!room.winnerUid || room.playerUids.includes(room.winnerUid));
   return false;
-}
-
-function isValidBattleshipRoom(room) {
-  const players = room.players || {};
-  const shots = room.shots || {};
-  if (!shots || typeof shots !== "object" || Array.isArray(shots) ||
-      (room.processingShot != null && (!room.processingShot || !room.playerUids.includes(room.processingShot.uid) ||
-        !Number.isInteger(room.processingShot.index) || room.processingShot.index < 0 || room.processingShot.index >= 100 ||
-        typeof room.processingShot.operationId !== "string" || !Number.isFinite(room.processingShot.startedAt))) ||
-      room.playerUids.some(uid => !Number.isInteger(players[uid]?.score) || players[uid].score < 0 || players[uid].score > 17 ||
-        !Number.isInteger(players[uid]?.shipsRemaining) || players[uid].shipsRemaining < 0 || players[uid].shipsRemaining > 5 ||
-        typeof players[uid]?.ready !== "boolean") ||
-      Object.entries(shots).some(([uid, playerShots]) => !room.playerUids.includes(uid) || !playerShots || typeof playerShots !== "object" || Array.isArray(playerShots) ||
-        Object.entries(playerShots).some(([index, shot]) => !Number.isInteger(Number(index)) || Number(index) < 0 || Number(index) >= 100 ||
-          !shot || shot.index !== Number(index) || shot.by !== uid || typeof shot.hit !== "boolean" ||
-          typeof shot.sunkShip !== "string" || !Number.isFinite(shot.at)))) return false;
-  if (room.status === "waiting") return room.playerUids.length === 1 && !room.turnUid;
-  if (room.status === "placing") return room.playerUids.length === 2 && !room.turnUid;
-  if (room.status === "playing") return room.playerUids.length === 2 && room.playerUids.includes(room.turnUid) &&
-    room.playerUids.every(uid => players[uid]?.ready);
-  if (room.status === "finished") return room.playerUids.length === 2 && !room.turnUid &&
-    (!room.winnerUid || room.playerUids.includes(room.winnerUid));
-  return room.status === "cancelled";
 }
 
 function isValidActiveGameState(game, state) {
@@ -568,6 +480,7 @@ function gamesHome() {
       ${gameCard("true-false", "💡", "True or False")}
       ${gameCard("guess-the-answer", "💬", "Guess the Answer")}
       ${gameCard("battleship", "🚢", "Battleship")}
+      ${gameCard("air-hockey", "🏒", "Air Hockey")}
       ${gameCard("ludo", "🎲", "Ludo")}
     </div>
   </section>`;
@@ -828,6 +741,12 @@ function clearSosPresence() {
 }
 
 export function renderGames(el, user, profile) {
+  leaveMountedAirHockey?.();
+  disposeMountedAirHockey?.();
+  disposeMountedAirHockey = null;
+  leaveMountedAirHockey = null;
+  activeBattleshipController?.dispose();
+  activeBattleshipController = null;
   stopGames?.();
   stopGames = null;
   stopGameMatch?.();
@@ -855,8 +774,17 @@ export function renderGames(el, user, profile) {
   let pendingSosCell = -1;
   let gameRoomState = null;
   let roomStateInitializing = "";
-  let battleshipActionPending = false;
-  let battleshipResolvingOp = "";
+  let airHockeyMatchId = "";
+  let airHockeyLoadingId = "";
+  let airHockeyExitedMatchId = "";
+  const battleshipGame = createBattleshipGame({
+    el, user, profile,
+    getRoom: () => gameRoomState,
+    isActive: () => activeGame === "battleship",
+    renderCurrentGame: () => renderCurrentGame(),
+    gamePlayerAvatar
+  });
+  activeBattleshipController = battleshipGame;
   let savedMatchResults = new Set();
   let gameResults = null;
   let trueFalseBankCache = null;
@@ -1121,7 +1049,7 @@ export function renderGames(el, user, profile) {
       return;
     }
     if (activeGame === "battleship") {
-      renderBattleshipRoom(room, statusEl, content);
+      battleshipGame.render(room, statusEl, content);
       return;
     }
     const players = room?.players || {};
@@ -1383,412 +1311,146 @@ export function renderGames(el, user, profile) {
     content.innerHTML = `<article class="true-false-card"><div class="true-false-question-meta"><span>${esc(question.category)}</span><span>FACT ${String(questionNumber).padStart(2, "0")} / ${room.trueFalseQuestions.length}</span></div><h2 class="true-false-statement">${esc(question.statement)}</h2>${answerButtons}${reveal}</article>`;
   }
 
-  function validateFleetClientSide(ships) {
-    if (!Array.isArray(ships) || ships.length !== BATTLESHIP_FLEET.length) {
-      throw new Error("Place all five ships before marking ready.");
-    }
-    const allCells = new Set();
-    const normalized = BATTLESHIP_FLEET.map(spec => {
-      const ship = ships.find(item => item?.id === spec.id);
-      if (!ship || !Array.isArray(ship.cells) || ship.cells.length !== spec.length ||
-          !ship.cells.every(index => Number.isInteger(index) && index >= 0 && index < 100) ||
-          new Set(ship.cells).size !== ship.cells.length) {
-        throw new Error(`Place the ${spec.name} in a straight line.`);
-      }
-      const rows = new Set(ship.cells.map(index => Math.floor(index / 10)));
-      const columns = new Set(ship.cells.map(index => index % 10));
-      const horizontal = rows.size === 1 && ship.cells.every((_, i) => i === 0 || Math.abs(ship.cells[i] % 10 - ship.cells[i - 1] % 10) === 1);
-      const vertical = columns.size === 1 && ship.cells.every((_, i) => i === 0 || Math.abs(Math.floor(ship.cells[i] / 10) - Math.floor(ship.cells[i - 1] / 10)) === 1);
-      const contiguous = horizontal || vertical;
-      if (!contiguous || ship.cells.some(index => allCells.has(index))) {
-        throw new Error("Ships must be straight, in bounds, and cannot overlap.");
-      }
-      ship.cells.forEach(index => allCells.add(index));
-      return { id: spec.id, name: spec.name, cells: [...ship.cells].sort((a, b) => a - b), hits: [] };
-    });
-    if (new Set(ships.map(ship => ship?.id)).size !== BATTLESHIP_FLEET.length) {
-      throw new Error("Each ship can only be placed once.");
-    }
-    return normalized;
-  }
-
-  function playerIsInRoom(room, uid) {
-    return Array.isArray(room?.playerUids) && room.playerUids.includes(uid) && room.players?.[uid];
-  }
-
-  const isPermissionDenied = error => /permission[_ ]denied/i.test(`${error?.code || ""} ${error?.message || ""}`);
-
-  // Applies a shot to one fleet stored in the database and reports what happened.
-  // Realtime Database drops empty arrays, so a ship with no hits yet has no `hits` field at all.
-  async function resolveShotAgainstBoard(matchId, ownerUid, index) {
-    const boardRef = battleshipBoardRef(matchId, ownerUid);
-    const board = (await get(boardRef)).val();
-    if (!board || !Array.isArray(board.ships) || !board.ships.every(ship => Array.isArray(ship?.cells))) {
-      throw new Error("Your partner's fleet is not ready yet.");
-    }
-    const ships = board.ships.map(ship => ({ ...ship, hits: Array.isArray(ship.hits) ? ship.hits : [] }));
-    const hitShip = ships.find(ship => ship.cells.includes(index));
-    if (!hitShip) return { hit: false, sunk: false, shipName: "" };
-    if (!hitShip.hits.includes(index)) hitShip.hits = [...hitShip.hits, index];
-    await set(boardRef, { ...board, ships });
-    return { hit: true, sunk: hitShip.hits.length === hitShip.cells.length, shipName: hitShip.name || "" };
-  }
-
-  function finalizeShot({ matchId, shooterUid, targetUid, index, operationId, outcome }) {
-    return runTransaction(battleshipRoomRef(), room => {
-      if (room?.matchId !== matchId || room.status !== "playing" || room.turnUid !== shooterUid ||
-          room.processingShot?.operationId !== operationId || room.shots?.[shooterUid]?.[index]) return;
-      const players = { ...room.players };
-      players[shooterUid] = { ...players[shooterUid], score: players[shooterUid].score + (outcome.hit ? 1 : 0) };
-      if (outcome.sunk) players[targetUid] = { ...players[targetUid], shipsRemaining: Math.max(0, players[targetUid].shipsRemaining - 1) };
-      const shot = { index, by: shooterUid, hit: outcome.hit, sunkShip: outcome.sunk ? outcome.shipName : "", at: Date.now() };
-      const shots = { ...(room.shots || {}), [shooterUid]: { ...(room.shots?.[shooterUid] || {}), [index]: shot } };
-      const finished = players[targetUid].shipsRemaining === 0;
-      return {
-        ...room,
-        players,
-        shots,
-        processingShot: null,
-        status: finished ? "finished" : "playing",
-        winnerUid: finished ? shooterUid : "",
-        turnUid: finished ? "" : targetUid,
-        updatedAt: Date.now()
-      };
-    });
-  }
-
-  // A failed shot must not leave the turn locked for a minute.
-  function releaseReservedShot(matchId, operationId) {
-    return runTransaction(battleshipRoomRef(), room => {
-      if (room?.matchId !== matchId || room.processingShot?.operationId !== operationId) return;
-      return { ...room, processingShot: null, updatedAt: Date.now() };
-    }).catch(error => console.warn("Could not release the pending Battleship shot:", error));
-  }
-
-  // If the database keeps fleets private, the shooter cannot read the partner's board.
-  // Then the partner's own device answers the shot from the fleet it is allowed to read.
-  async function resolveIncomingShot(room) {
-    const shot = room?.processingShot;
-    if (!shot?.needsDefender || shot.uid === user.uid || room.status !== "playing" || room.turnUid !== shot.uid || !playerIsInRoom(room, user.uid)) return;
-    if (battleshipResolvingOp === shot.operationId) return;
-    battleshipResolvingOp = shot.operationId;
+  async function finishAirHockeyMatch(matchId, winnerIndex, scores) {
+    const winnerUid = gameRoomState?.playerUids?.[winnerIndex];
+    if (!winnerUid || !Array.isArray(scores)) return;
     try {
-      const outcome = await resolveShotAgainstBoard(room.matchId, user.uid, shot.index);
-      await finalizeShot({ matchId: room.matchId, shooterUid: shot.uid, targetUid: user.uid, index: shot.index, operationId: shot.operationId, outcome });
-    } catch (error) {
-      console.error("Could not answer your partner's Battleship shot:", error);
-    } finally {
-      setTimeout(() => { if (battleshipResolvingOp === shot.operationId) battleshipResolvingOp = ""; }, 4000);
-    }
-  }
-
-  async function callBattleshipAction(payload) {
-    if (!rtdb) throw new Error("Firebase Realtime Database is not configured.");
-    if (battleshipActionPending) return Promise.reject(new Error("A Battleship action is already in progress."));
-    battleshipActionPending = true;
-    updateBattleshipActionUi();
-    try {
-      const action = payload?.action;
-
-      if (action === "startOrJoin") {
-        const matchRef = battleshipRoomRef();
-        const result = await runTransaction(matchRef, current => {
-          if (current && activeStatuses.includes(current.status)) {
-            if (current.playerUids.includes(user.uid)) {
-              return current;
-            }
-            if (current.status === "waiting" && current.playerUids?.length === 1 && current.playerUids[0] !== user.uid) {
-              return {
-                ...current,
-                playerUids: [...current.playerUids, user.uid],
-                players: { ...current.players, [user.uid]: { name: getDisplayName(user.uid, profile?.name || ""), score: 0, shipsRemaining: 5, ready: false } },
-                status: "placing",
-                updatedAt: Date.now()
-              };
-            }
-            return;
-          }
-          const matchId = `${Date.now()}-${user.uid}`;
-          return {
-            matchId,
-            game: "battleship",
-            status: "waiting",
-            playerUids: [user.uid],
-            players: { [user.uid]: { name: getDisplayName(user.uid, profile?.name || ""), score: 0, shipsRemaining: 5, ready: false } },
-            turnUid: "",
-            winnerUid: "",
-            shots: {},
-            createdAt: Date.now(),
-            updatedAt: Date.now()
-          };
-        });
-        if (!result.committed) throw new Error("A Battleship match is already in progress.");
-        return result.snapshot.val();
-      }
-
-      const matchId = payload?.matchId;
-      if (typeof matchId !== "string" || !/^[A-Za-z0-9_-]{8,100}$/.test(matchId)) {
-        throw new Error("The match ID is invalid.");
-      }
-
-      if (action === "placeFleet") {
-        const ships = validateFleetClientSide(payload?.ships);
-        const boardRef = battleshipBoardRef(matchId, user.uid);
-        await set(boardRef, { ships, placedAt: Date.now() });
-
-        const matchRef = battleshipRoomRef();
-        const result = await runTransaction(matchRef, room => {
-          if (room?.matchId !== matchId || room.status !== "placing" || !playerIsInRoom(room, user.uid) || room.players[user.uid].ready) return;
-          const players = { ...room.players, [user.uid]: { ...room.players[user.uid], ready: true } };
-          const bothReady = room.playerUids.every(uid => players[uid]?.ready);
-          return {
-            ...room,
-            players,
-            status: bothReady ? "playing" : "placing",
-            turnUid: bothReady ? room.playerUids[0] : "",
-            updatedAt: Date.now()
-          };
-        });
-        if (!result.committed) {
-          await remove(boardRef);
-          throw new Error("Your match changed while saving the fleet. Please try again.");
-        }
-        return result.snapshot.val();
-      }
-
-      if (action === "fire") {
-        const index = payload?.index;
-        if (!Number.isInteger(index) || index < 0 || index >= 100) throw new Error("Choose a valid grid square.");
-        const operationId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-        const matchRef = battleshipRoomRef();
-        const reserve = await runTransaction(matchRef, room => {
-          if (room?.matchId !== matchId || room.status !== "playing" || room.turnUid !== user.uid || !playerIsInRoom(room, user.uid) ||
-              room.shots?.[user.uid]?.[index]) return;
-          if (room.processingShot && Date.now() - room.processingShot.startedAt < 60_000) return;
-          return { ...room, processingShot: { uid: user.uid, index, operationId, startedAt: Date.now() }, updatedAt: Date.now() };
-        });
-        if (!reserve.committed) throw new Error("It is not your turn, or the previous shot is still being saved.");
-
-        const roomBeforeShot = reserve.snapshot.val();
-        const targetUid = roomBeforeShot.playerUids.find(uid => uid !== user.uid);
-
-        let outcome;
-        try {
-          outcome = await resolveShotAgainstBoard(matchId, targetUid, index);
-        } catch (error) {
-          if (isPermissionDenied(error)) {
-            await runTransaction(matchRef, room => {
-              if (room?.matchId !== matchId || room.processingShot?.operationId !== operationId) return;
-              return { ...room, processingShot: { ...room.processingShot, needsDefender: true }, updatedAt: Date.now() };
-            });
-            return roomBeforeShot;
-          }
-          await releaseReservedShot(matchId, operationId);
-          throw error;
-        }
-
-        const fireResult = await finalizeShot({ matchId, shooterUid: user.uid, targetUid, index, operationId, outcome });
-        if (!fireResult.committed) {
-          await releaseReservedShot(matchId, operationId);
-          throw new Error("The match changed while saving your shot.");
-        }
-        return fireResult.snapshot.val();
-      }
-
-      if (action === "cancel" || action === "end") {
-        const matchRef = battleshipRoomRef();
-        const result = await runTransaction(matchRef, room => {
-          if (room?.matchId !== matchId || !playerIsInRoom(room, user.uid) || !activeStatuses.includes(room.status)) return;
-          if (action === "cancel" && room.playerUids[0] !== user.uid) return;
-          if (room.processingShot && Date.now() - room.processingShot.startedAt < 60_000) return;
-          return { ...room, status: "cancelled", turnUid: "", updatedAt: Date.now() };
-        });
-        if (!result.committed) throw new Error("This match can no longer be ended.");
-        const roomVal = result.snapshot.val();
-        if (roomVal?.playerUids) {
-          await Promise.all(roomVal.playerUids.map(uid => remove(battleshipBoardRef(matchId, uid))));
-        }
-        return roomVal;
-      }
-
-      throw new Error("Unknown Battleship action.");
-    } finally {
-      battleshipActionPending = false;
-      if (activeGame === "battleship") renderCurrentGame();
-      else updateBattleshipActionUi();
-    }
-  }
-
-  function updateBattleshipActionUi() {
-    const status = $("#games-room-status", el);
-    if (!status) return;
-    status.setAttribute("aria-busy", String(battleshipActionPending));
-    el.querySelectorAll("#games-room-status button, [data-bs-fire], [data-bs-ready]").forEach(button => {
-      if (battleshipActionPending) button.disabled = true;
-    });
-    let notice = status.querySelector(".battleship-request-status");
-    if (battleshipActionPending && !notice) {
-      notice = document.createElement("p");
-      notice.className = "battleship-request-status";
-      notice.setAttribute("role", "status");
-      notice.innerHTML = `<span class="battleship-request-spinner" aria-hidden="true"></span>Connecting to the game server… The first request may take a few seconds.`;
-      (status.querySelector(".battleship-status") || status).append(notice);
-    } else if (!battleshipActionPending) {
-      notice?.remove();
-    }
-  }
-
-  function renderBattleshipGrid({ room, own = false, clickable = false, ships = [], shots = {} }) {
-    const shipByCell = new Map();
-    for (const ship of ships || []) {
-      for (const index of ship.cells || []) shipByCell.set(index, ship);
-    }
-    const cells = Array.from({ length: 100 }, (_, index) => {
-      const row = Math.floor(index / 10);
-      const column = index % 10;
-      const coordinate = `${String.fromCharCode(65 + row)}${column + 1}`;
-      const ship = shipByCell.get(index);
-      const shot = shots?.[index];
-      const isHit = own ? Boolean(ship?.hits?.includes(index) || shot?.hit) : shot?.hit;
-      const isMiss = shot && !shot.hit;
-      const classes = ["battleship-cell", ship ? "has-ship" : "", isHit ? "is-hit" : "", isMiss ? "is-miss" : ""].filter(Boolean).join(" ");
-      const contentText = isHit ? "💥" : isMiss ? "🌊" : ship ? "🚢" : "";
-      const action = clickable ? own ? `data-bs-place="${index}"` : `data-bs-fire="${index}"` : "";
-      const disabled = !clickable || shot ? " disabled" : "";
-      return `<button type="button" class="${classes}" ${action} title="${coordinate}" aria-label="${coordinate}${ship ? `, ${ship.name}` : ""}${isHit ? ", hit" : isMiss ? ", miss" : ""}"${disabled}>${contentText}</button>`;
-    }).join("");
-    const columnLabels = Array.from({ length: 10 }, (_, column) => `<span>${column + 1}</span>`).join("");
-    const rowLabels = Array.from({ length: 10 }, (_, row) => `<span>${String.fromCharCode(65 + row)}</span>`).join("");
-    return `<div class="battleship-grid-wrap"><div class="battleship-axis-corner" aria-hidden="true">♡</div><div class="battleship-axis columns" aria-hidden="true">${columnLabels}</div><div class="battleship-axis rows" aria-hidden="true">${rowLabels}</div><div class="battleship-grid" role="grid" aria-label="Battleship ${own ? "fleet" : "target"} grid">${cells}</div></div>`;
-  }
-
-  function placeDraftShip(index) {
-    const ship = BATTLESHIP_FLEET.find(item => item.id === battleshipSelectedShipId);
-    if (!ship || battleshipDraftShips.some(item => item.id === ship.id)) return;
-    const row = Math.floor(index / 10);
-    const column = index % 10;
-    const cells = Array.from({ length: ship.length }, (_, offset) => battleshipOrientation === "horizontal"
-      ? row * 10 + column + offset
-      : (row + offset) * 10 + column);
-    if (cells.some(cell => cell >= 100 || (battleshipOrientation === "horizontal" && Math.floor(cell / 10) !== row))) {
-      toast("That ship does not fit there. Try another starting square.");
-      return;
-    }
-    if (battleshipDraftShips.some(placed => placed.cells.some(cell => cells.includes(cell)))) {
-      toast("Ships cannot overlap. Choose another square.");
-      return;
-    }
-    battleshipDraftShips.push({ id: ship.id, name: ship.name, cells });
-    playBattleshipSound("place");
-    battleshipSelectedShipId = BATTLESHIP_FLEET.find(item => !battleshipDraftShips.some(placed => placed.id === item.id))?.id || "";
-    try { localStorage.setItem(`olw-battleship-draft:${gameRoomState?.matchId}:${user.uid}`, JSON.stringify(battleshipDraftShips)); } catch { /* The match itself remains available in Realtime Database. */ }
-    renderCurrentGame();
-  }
-
-  function renderBattleshipRoom(room, statusEl, content) {
-    if (room?.matchId && room.playerUids?.includes(user.uid) && battleshipBoardMatchId !== room.matchId) {
-      stopBattleshipBoard?.();
-      stopBattleshipBoard = null;
-      battleshipBoardMatchId = room.matchId;
-      battleshipLastShotCue = "";
-      battleshipBoard = null;
-      battleshipDraftShips = [];
-      battleshipSelectedShipId = BATTLESHIP_FLEET[0].id;
-      try {
-        const savedDraft = JSON.parse(localStorage.getItem(`olw-battleship-draft:${room.matchId}:${user.uid}`) || "[]");
-        battleshipDraftShips = Array.isArray(savedDraft) ? savedDraft.filter(ship =>
-          BATTLESHIP_FLEET.some(spec => spec.id === ship?.id && Array.isArray(ship.cells) && ship.cells.length === spec.length &&
-            ship.cells.every(index => Number.isInteger(index) && index >= 0 && index < 100))
-        ) : [];
-        battleshipSelectedShipId = BATTLESHIP_FLEET.find(ship => !battleshipDraftShips.some(placed => placed.id === ship.id))?.id || "";
-      } catch { battleshipDraftShips = []; }
-      stopBattleshipBoard = onValue(battleshipBoardRef(room.matchId, user.uid), snapshot => {
-        battleshipBoard = snapshot.val();
-        if (activeGame === "battleship") renderCurrentGame();
-      }, error => {
-        console.error("Your Battleship fleet could not be loaded:", error);
-        toast("Your private fleet could not be loaded. Please reconnect.");
+      await runTransaction(gameMatchRef("air-hockey"), current => {
+        if (current?.matchId !== matchId || current.status !== "playing" || !current.playerUids.includes(winnerUid)) return;
+        const players = Object.fromEntries(current.playerUids.map((uid, index) => [uid, { ...current.players[uid], score: Number(scores[index]) || 0, completed: true, state: null }]));
+        return { ...current, players, status: "finished", winnerUid, turnUid: "", updatedAt: Date.now() };
       });
-    }
-    if (!room?.matchId || !room.playerUids?.includes(user.uid)) {
-      stopBattleshipBoard?.();
-      stopBattleshipBoard = null;
-      battleshipBoardMatchId = "";
-      battleshipBoard = null;
-    }
+    } catch (error) { console.error("Air Hockey result could not be saved:", error); }
+  }
 
-    const players = room?.players || {};
-    const playerUids = room?.playerUids || [];
-    const opponentUid = playerUids.find(uid => uid !== user.uid);
-    const scoreRow = room ? `<div class="battleship-score-row">${playerUids.map(uid => `<div class="battleship-player-card">${gamePlayerAvatar(uid, players[uid]?.name)}<span>${esc(getDisplayName(uid, players[uid]?.name || "Partner"))}</span><strong>${players[uid]?.score || 0}</strong><small>hits</small><em>${players[uid]?.shipsRemaining ?? 5} ships left</em></div>`).join("")}${playerUids.length < 2 ? `<div class="battleship-player-card waiting">${gamePlayerAvatar("", "Partner")}<span>Waiting for partner</span><strong>—</strong><small>hits</small></div>` : ""}</div>` : "";
+  async function restartAirHockeyMatch(matchId) {
+    try {
+      const transaction = await runTransaction(gameMatchRef("air-hockey"), current => {
+        if (current?.matchId !== matchId || !["finished", "playing"].includes(current.status) || !current.playerUids.includes(user.uid)) return;
+        const now = Date.now(), nextMatchId = `${now}-${user.uid}`;
+        const players = Object.fromEntries(current.playerUids.map(uid => [uid, { name: current.players[uid]?.name || getDisplayName(uid, "Partner"), score: 0, completed: false, state: null }]));
+        return { ...current, matchId: nextMatchId, status: "playing", players, turnUid: current.playerUids[0], winnerUid: "", createdAt: now, updatedAt: now };
+      });
+      if (!transaction.committed) toast("The Air Hockey match could not restart. Please try again.");
+    } catch (error) { console.error("Air Hockey could not restart:", error); toast("The Air Hockey match could not restart."); }
+  }
 
-    if (!room || room.status === "finished" || room.status === "cancelled") {
-      const result = room?.status === "finished"
-        ? room.winnerUid === user.uid ? "You sank the fleet — you win! 🎉" : `${esc(getDisplayName(room.winnerUid, players[room.winnerUid]?.name || "Your partner"))} sank your fleet. Better luck next time! ♡`
-        : room?.status === "cancelled" ? "This Battleship match ended." : "Hide your fleet, take turns, and find all five ships.";
-      statusEl.innerHTML = `<div class="game-panel game-room-panel battleship-status"><p class="tic-tac-toe-status">${result}</p>${scoreRow}<button type="button" class="primary" data-room-start>${room ? "Play again" : "Start a match"}</button></div>`;
-      content.innerHTML = `<article class="game-panel battleship-panel"><div class="battleship-hero" aria-hidden="true">🚢 🛳️ 🚤</div><h2>Ready, captain?</h2><p class="games-instructions">Place your fleet on a private 10 × 10 board, then take turns firing at your partner's hidden ships. Each hit earns one point.</p><div class="battleship-fleet-list">${BATTLESHIP_FLEET.map(ship => `<span>${ship.emoji} ${ship.name} · ${ship.length}</span>`).join("")}</div></article>`;
-      if (room.winnerUid && room.matchId !== battleshipCelebratedMatchId) {
-        battleshipCelebratedMatchId = room.matchId;
-        const won = room.winnerUid === user.uid;
-        playBattleshipSound(won ? "win" : "lose");
-        const winnerName = getDisplayName(room.winnerUid, players[room.winnerUid]?.name || "Your partner");
-        const details = `${players[user.uid]?.score || 0} hits · ${players[opponentUid]?.score || 0} hits`;
-        void celebrateWin({ game: "Battleship", won, draw: !room.winnerUid, winnerName, details, actions: [{ label: "Play again ♡", primary: true, onClick: () => { const btn = document.querySelector("[data-room-start]"); if (btn) btn.click(); } }] });
-      }
-      return;
-    }
+  function leaveAirHockeyMatch(matchId) {
+    if (!rtdb || !matchId) return;
+    void runTransaction(gameMatchRef("air-hockey"), current => {
+      if (current?.matchId !== matchId || current.status !== "playing" || !current.playerUids.includes(user.uid)) return;
+      return { ...current, status: "cancelled", turnUid: "", updatedAt: Date.now() };
+    }).catch(error => console.error("Air Hockey match could not be ended:", error));
+  }
 
-    const isMember = room.playerUids.includes(user.uid);
-    if (room.status === "waiting") {
-      statusEl.innerHTML = `<div class="game-panel game-room-panel battleship-status"><p class="tic-tac-toe-status">${room.playerUids[0] === user.uid ? "Waiting for your partner to join…" : `${esc(getDisplayName(room.playerUids[0], players[room.playerUids[0]]?.name || "Your partner"))} is waiting. Join the fleet!`}</p>${scoreRow}${room.playerUids[0] === user.uid ? `<button type="button" class="secondary" data-room-cancel>Cancel match</button>` : `<button type="button" class="primary" data-room-start>Join match</button>`}</div>`;
-      content.innerHTML = `<article class="game-panel battleship-panel"><div class="battleship-hero" aria-hidden="true">⚓ 🌊 ⚓</div><p class="games-instructions">Once your partner joins, both of you will place ships on your own hidden boards.</p></article>`;
-      return;
-    }
-    if (!isMember) {
-      statusEl.innerHTML = `<div class="game-panel game-room-panel battleship-status"><p class="tic-tac-toe-status">This match is already in progress.</p></div>`;
+  function closeAirHockeyMount({ leave = false } = {}) {
+    const matchId = airHockeyMatchId || airHockeyLoadingId;
+    if (leave) leaveAirHockeyMatch(matchId);
+    disposeMountedAirHockey?.();
+    disposeMountedAirHockey = null;
+    leaveMountedAirHockey = null;
+    airHockeyMatchId = "";
+    airHockeyLoadingId = "";
+  }
+
+  function renderAirHockeyRoom(room, statusEl, content) {
+    if (!rtdb) {
+      closeAirHockeyMount();
+      statusEl.innerHTML = `<p class="error">Air Hockey needs Firebase Realtime Database to connect both players.</p>`;
       content.replaceChildren();
       return;
     }
-
-    if (room.status === "placing") {
-      const ready = players[user.uid]?.ready;
-      const nextShip = BATTLESHIP_FLEET.find(ship => !battleshipDraftShips.some(placed => placed.id === ship.id));
-      const draftShips = battleshipBoard?.ships || battleshipDraftShips;
-      statusEl.innerHTML = `<div class="game-panel game-room-panel battleship-status"><p class="tic-tac-toe-status">${ready ? "Fleet ready! Waiting for your partner to finish placing ships…" : "Place your fleet on your private board."}</p>${scoreRow}</div>`;
-      if (ready) {
-        content.innerHTML = `<article class="game-panel battleship-panel"><p class="games-instructions">Your ships are hidden and saved. The match begins as soon as your partner marks ready.</p>${renderBattleshipGrid({ room, own: true, ships: battleshipBoard?.ships || [], shots: room.shots?.[opponentUid] || {} })}</article>`;
-        return;
-      }
-      if (!nextShip && battleshipSelectedShipId) battleshipSelectedShipId = "";
-      const draftMap = draftShips.map(ship => ({ ...ship, hits: [] }));
-      content.innerHTML = `<article class="game-panel battleship-panel"><p class="battleship-step">PLACE YOUR FLEET <span>${battleshipDraftShips.length} / 5</span></p><p class="games-instructions">Choose a ship and orientation, then tap its starting square. Ships cannot overlap.</p><div class="battleship-placement-controls"><select data-bs-ship ${nextShip ? "" : "disabled"}>${BATTLESHIP_FLEET.map(ship => `<option value="${ship.id}" ${ship.id === battleshipSelectedShipId ? "selected" : ""} ${battleshipDraftShips.some(item => item.id === ship.id) ? "disabled" : ""}>${ship.emoji} ${ship.name} · ${ship.length}</option>`).join("")}</select><button type="button" class="secondary" data-bs-orientation>${battleshipOrientation === "horizontal" ? "↔ Horizontal" : "↕ Vertical"}</button></div>${renderBattleshipGrid({ room, own: true, clickable: Boolean(nextShip), ships: draftMap })}<div class="battleship-placement-actions"><button type="button" class="secondary" data-bs-reset-layout ${battleshipDraftShips.length ? "" : "disabled"}>Reset ships</button><button type="button" class="secondary" data-bs-sound>${battleshipSoundEnabled ? "🔊 Sound" : "🔇 Muted"}</button><button type="button" class="primary" data-bs-ready ${battleshipDraftShips.length === 5 ? "" : "disabled"}>Ready to play ♡</button></div></article>`;
+    if (room && !isValidGameRoom(room, "air-hockey")) {
+      closeAirHockeyMount();
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="error">This Air Hockey match has incomplete saved data. Start a fresh match to continue.</p><button type="button" class="primary" data-room-start>Start a fresh match</button></div>`;
+      content.replaceChildren();
+      return;
+    }
+    const players = room?.players || {};
+    const playerUids = room?.playerUids || [];
+    const namesMarkup = room ? `<div class="game-room-player-row">${playerUids.map(uid => `<div class="game-room-player">${gamePlayerAvatar(uid, players[uid]?.name)}<span>${esc(getDisplayName(uid, players[uid]?.name || "Partner"))}</span><strong>${Number(players[uid]?.score || 0)} goals</strong></div>`).join("")}</div>` : "";
+    if (room?.matchId && room.matchId === airHockeyExitedMatchId) {
+      const result = room.status === "finished"
+        ? room.winnerUid === user.uid ? "You won the Air Hockey match! 🎉" : `${esc(getDisplayName(room.winnerUid, players[room.winnerUid]?.name || "Your partner"))} won the Air Hockey match.`
+        : "This Air Hockey match ended.";
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${result}</p>${namesMarkup}<button type="button" class="primary" data-room-start>Play another match</button></div>`;
+      content.innerHTML = `<article class="game-panel"><h2>Air Hockey ♡</h2><p class="games-instructions">Play together from two devices. Move your striker and score goals.</p></article>`;
       return;
     }
 
-    const hasTurn = room.turnUid === user.uid;
-    void resolveIncomingShot(room);
-    const isTurn = hasTurn && !room.processingShot;
-    const myShots = room.shots?.[user.uid] || {};
-    const incomingShots = room.shots?.[opponentUid] || {};
-    const latestShot = Object.values(room.shots || {}).flatMap(playerShots => Object.values(playerShots || {}))
-      .sort((left, right) => right.at - left.at)[0];
-    if (latestShot) {
-      const cueKey = `${room.matchId}:${latestShot.by}:${latestShot.index}:${latestShot.at}`;
-      if (battleshipLastShotCue !== cueKey) {
-        playBattleshipSound(latestShot.sunkShip ? "sink" : latestShot.hit ? "hit" : "miss");
-      }
-      battleshipLastShotCue = cueKey;
+    if (room?.status === "playing" && disposeMountedAirHockey && airHockeyMatchId === room.matchId) return;
+    if (room?.status === "finished" && disposeMountedAirHockey && airHockeyMatchId === room.matchId) return;
+    if ((room?.status !== "playing" || airHockeyMatchId && airHockeyMatchId !== room?.matchId) && (disposeMountedAirHockey || airHockeyLoadingId)) closeAirHockeyMount();
+
+    if (!room || room.status === "finished" || room.status === "cancelled") {
+      const result = room?.status === "finished"
+        ? room.winnerUid === user.uid ? "You won the Air Hockey match! 🎉" : `${esc(getDisplayName(room.winnerUid, players[room.winnerUid]?.name || "Your partner"))} won the Air Hockey match.`
+        : room?.status === "cancelled" ? "This Air Hockey match ended." : "Start a match and your partner can join from their device.";
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${result}</p>${namesMarkup}<button type="button" class="primary" data-room-start>${room ? "Play another match" : "Start a match"}</button></div>`;
+      content.innerHTML = `<article class="game-panel"><h2>Air Hockey ♡</h2><p class="games-instructions">Play together from two devices. Move your striker and score goals.</p></article>`;
+      return;
     }
-    const latestCoordinate = latestShot ? `${String.fromCharCode(65 + Math.floor(latestShot.index / 10))}${latestShot.index % 10 + 1}` : "";
-    const latestShotMessage = latestShot
-      ? `<p class="battleship-last-shot" aria-live="polite"><strong>${latestShot.by === user.uid ? "Your shot" : "Your partner's shot"} · ${latestCoordinate}</strong><span>${latestShot.hit ? `HIT! 💥${latestShot.sunkShip ? ` ${esc(latestShot.sunkShip)} sunk! 🚢` : ""}` : "MISS 🌊"}</span></p>`
-      : "";
-    statusEl.innerHTML = `<div class="game-panel game-room-panel battleship-status"><p class="tic-tac-toe-status">${isTurn ? "Your turn — choose a target square!" : hasTurn ? (room.processingShot?.needsDefender ? "Waiting for your partner's device to confirm the shot…" : "Saving your shot…") : `${esc(getDisplayName(room.turnUid, players[room.turnUid]?.name || "Your partner"))} is taking aim…`}</p>${scoreRow}<p class="battleship-turn-note">${isTurn ? "Tap a square on the target board to fire." : "Your fleet is hidden. Your turn starts after the shot."}</p></div>`;
-    const ownBoard = `<section class="battleship-board-card"><h3>Your fleet <span>PRIVATE</span></h3>${renderBattleshipGrid({ room, own: true, ships: battleshipBoard?.ships || [], shots: incomingShots })}<p class="battleship-legend"><span>🚢 Ship</span><span>💥 Hit</span><span>🌊 Miss</span></p></section>`;
-    const targetBoard = `<section class="battleship-board-card"><h3>${esc(getDisplayName(opponentUid, players[opponentUid]?.name || "Partner"))}'s waters <span>${isTurn ? "YOUR TURN" : "WAITING"}</span></h3>${renderBattleshipGrid({ room, own: false, clickable: isTurn, shots: myShots })}<p class="battleship-legend"><span>💥 Hit</span><span>🌊 Miss</span><span>☞ Fire</span></p></section>`;
-    content.innerHTML = `${latestShotMessage}<div class="battleship-boards">${ownBoard}${targetBoard}</div><div class="battleship-actions"><button type="button" class="secondary" data-bs-sound>${battleshipSoundEnabled ? "🔊 Sound ON" : "🔇 Sound OFF"}</button><button type="button" class="secondary" data-room-end>End match</button></div>`;
+    if (room.status === "waiting") {
+      const isCreator = room.playerUids[0] === user.uid;
+      const partner = getDisplayName(room.playerUids[0], players[room.playerUids[0]]?.name || "Your partner");
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${isCreator ? "Waiting for your partner to join from their device…" : `${esc(partner)} is waiting. Join Air Hockey to play!`}</p>${namesMarkup}${isCreator ? `<button type="button" class="secondary" data-room-cancel>Cancel match</button>` : `<button type="button" class="primary" data-room-start>Join match</button>`}</div>`;
+      content.innerHTML = `<article class="game-panel"><h2>Air Hockey ♡</h2><p class="games-instructions">The game opens as soon as both players join.</p></article>`;
+      return;
+    }
+    if (!room.playerUids.includes(user.uid)) {
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">This match is already in progress with your partner.</p></div>`;
+      content.replaceChildren();
+      return;
+    }
+    const playerIndex = room.playerUids.indexOf(user.uid);
+    const partnerUid = room.playerUids.find(uid => uid !== user.uid);
+    statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${playerIndex === 0 ? "Connected to your partner. You are the pink striker." : "Connected to your partner. You are the blue striker."}</p>${namesMarkup}</div>`;
+    content.innerHTML = `<p class="games-instructions">Connecting the two boards…</p>`;
+    if (airHockeyMatchId === room.matchId || airHockeyLoadingId === room.matchId) return;
+
+    const matchId = room.matchId;
+    airHockeyLoadingId = matchId;
+    import("./air-hockey.js").then(({ openAirHockey }) => {
+      if (activeGame !== "air-hockey" || !el.isConnected || gameRoomState?.matchId !== matchId || gameRoomState?.status !== "playing") return;
+      const isHost = playerIndex === 0;
+      const stateRef = airHockeySyncRef(matchId, "state");
+      const inputRef = airHockeySyncRef(matchId, `inputs/${isHost ? partnerUid : user.uid}`);
+      const actionRef = airHockeySyncRef(matchId, "action");
+      const closeGame = openAirHockey({
+        names: room.playerUids.map(uid => getDisplayName(uid, players[uid]?.name || "Player")),
+        mount: document.body,
+        online: {
+          authoritative: isHost,
+          autoStart: true,
+          playerIndex,
+          subscribeState(callback) { return onValue(stateRef, snapshot => callback(snapshot.val())); },
+          publishState(snapshot) { void set(stateRef, snapshot).catch(error => console.warn("Air Hockey state sync failed:", error)); },
+          sendInput(input) { void set(inputRef, input).catch(error => console.warn("Air Hockey control sync failed:", error)); },
+          subscribeInput(callback) { return onValue(inputRef, snapshot => callback(snapshot.val())); },
+          sendAction(action) { void set(actionRef, { ...action, at: Date.now() }).catch(error => console.warn("Air Hockey action sync failed:", error)); },
+          subscribeAction(callback) { return onValue(actionRef, snapshot => callback(snapshot.val())); },
+          onWin({ winnerIndex, scores }) { if (isHost) void finishAirHockeyMatch(matchId, winnerIndex, scores); },
+          onAgain() { if (isHost) void restartAirHockeyMatch(matchId); }
+        },
+        onExit() {
+          leaveAirHockeyMatch(matchId);
+          airHockeyExitedMatchId = matchId;
+          disposeMountedAirHockey = null;
+          leaveMountedAirHockey = null;
+          airHockeyMatchId = "";
+          airHockeyLoadingId = "";
+          renderCurrentGame();
+        }
+      });
+      airHockeyMatchId = matchId;
+      airHockeyLoadingId = "";
+      disposeMountedAirHockey = closeGame;
+      leaveMountedAirHockey = () => leaveAirHockeyMatch(matchId);
+    }).catch(error => {
+      airHockeyLoadingId = "";
+      console.error("Air Hockey could not be loaded:", error);
+      statusEl.innerHTML = `<p class="error">Air Hockey could not be loaded. Please refresh and try again.</p>`;
+    });
   }
 
   function renderCurrentGame() {
@@ -1851,6 +1513,7 @@ export function renderGames(el, user, profile) {
       "memory-match": ["Memory Match", "Flip the cards and find all ten pairs.", "🧠"],
       "guess-the-answer": ["Guess the Answer", "Send each other questions with hints, guess the answers, and compare scores.", "💬"],
       battleship: ["Battleship", "Hide your fleet and find your partner's ships.", "🚢"],
+      "air-hockey": ["Air Hockey", "Move your striker and score goals against your partner.", "🏒"],
       "true-false": ["True or False", "Guess together, then learn a surprising fact.", "💡"]
     }[activeGame];
     if (renderedShellGame !== activeGame) {
@@ -1862,8 +1525,12 @@ export function renderGames(el, user, profile) {
       renderGuessTheQuestion($("#games-active-content", el));
       return;
     }
+    if (activeGame === "air-hockey") {
+      renderAirHockeyRoom(gameRoomState, $("#games-room-status", el), $("#games-active-content", el));
+      return;
+    }
     renderGameRoom();
-    if (activeGame === "battleship" && battleshipActionPending) updateBattleshipActionUi();
+    if (activeGame === "battleship" && battleshipGame.actionPending) battleshipGame.updateActionUi();
   }
 
   function listenForGameResults() {
@@ -2400,7 +2067,7 @@ export function renderGames(el, user, profile) {
   el.onclick = async event => {
     const target = event.target.closest("button");
     if (!target || !el.contains(target)) return;
-    if (activeGame === "battleship" && battleshipActionPending) return;
+    if (activeGame === "battleship" && battleshipGame.actionPending) return;
     const turnOnlyActions = [
       "data-memory-card", "data-emoji-answer", "data-next-emoji", "data-puzzle-submit"
     ];
@@ -2417,13 +2084,7 @@ export function renderGames(el, user, profile) {
       clearSosSession();
       stopGameMatch?.();
       stopGameMatch = null;
-      stopBattleshipBoard?.();
-      stopBattleshipBoard = null;
-      battleshipBoardMatchId = "";
-      battleshipBoard = null;
-      battleshipDraftShips = [];
-      battleshipOrientation = "horizontal";
-      battleshipSelectedShipId = BATTLESHIP_FLEET[0].id;
+      battleshipGame.reset();
       disposeFindTheWords?.();
       disposeFindTheWords = null;
       disposeLudoGame?.();
@@ -2478,84 +2139,7 @@ export function renderGames(el, user, profile) {
       return;
     }
 
-    if (activeGame === "battleship" && target.hasAttribute("data-room-start")) {
-      unlockBattleshipAudio();
-      try {
-        await callBattleshipAction({ action: "startOrJoin" });
-      } catch (error) {
-        console.error("Could not start or join Battleship:", error);
-        toast(error.message || "Could not start the match. Please try again.");
-      }
-      return;
-    }
-
-    if (activeGame === "battleship" && (target.hasAttribute("data-room-cancel") || target.hasAttribute("data-room-end"))) {
-      try {
-        await callBattleshipAction({ action: target.hasAttribute("data-room-cancel") ? "cancel" : "end", matchId: gameRoomState?.matchId });
-      } catch (error) {
-        console.error("Could not end Battleship match:", error);
-        toast(error.message || "The match could not be ended.");
-      }
-      return;
-    }
-
-    if (activeGame === "battleship" && target.hasAttribute("data-bs-sound")) {
-      battleshipSoundEnabled = !battleshipSoundEnabled;
-      if (battleshipSoundEnabled) {
-        unlockBattleshipAudio();
-        playBattleshipSound("turn");
-      }
-      renderCurrentGame();
-      return;
-    }
-
-    if (activeGame === "battleship" && target.hasAttribute("data-bs-place")) {
-      unlockBattleshipAudio();
-      placeDraftShip(Number(target.dataset.bsPlace));
-      return;
-    }
-
-    if (activeGame === "battleship" && target.hasAttribute("data-bs-orientation")) {
-      unlockBattleshipAudio();
-      playBattleshipSound("place");
-      battleshipOrientation = battleshipOrientation === "horizontal" ? "vertical" : "horizontal";
-      renderCurrentGame();
-      return;
-    }
-
-    if (activeGame === "battleship" && target.hasAttribute("data-bs-reset-layout")) {
-      battleshipDraftShips = [];
-      battleshipSelectedShipId = BATTLESHIP_FLEET[0].id;
-      try { localStorage.removeItem(`olw-battleship-draft:${gameRoomState?.matchId}:${user.uid}`); } catch { /* Optional placement recovery. */ }
-      renderCurrentGame();
-      return;
-    }
-
-    if (activeGame === "battleship" && target.hasAttribute("data-bs-ready")) {
-      if (battleshipDraftShips.length !== BATTLESHIP_FLEET.length) return;
-      try {
-        await callBattleshipAction({ action: "placeFleet", matchId: gameRoomState?.matchId, ships: battleshipDraftShips });
-        try { localStorage.removeItem(`olw-battleship-draft:${gameRoomState?.matchId}:${user.uid}`); } catch { /* Fleet is safely stored on the server. */ }
-        toast("Your fleet is hidden and ready! ⚓");
-      } catch (error) {
-        console.error("Could not save Battleship fleet:", error);
-        toast(error.message || "Your fleet could not be saved. Please try again.");
-      }
-      return;
-    }
-
-    if (activeGame === "battleship" && target.hasAttribute("data-bs-fire")) {
-      unlockBattleshipAudio();
-      playBattleshipSound("launch");
-      target.classList.add("is-firing");
-      try {
-        await callBattleshipAction({ action: "fire", matchId: gameRoomState?.matchId, index: Number(target.dataset.bsFire) });
-      } catch (error) {
-        console.error("Could not fire in Battleship:", error);
-        toast(error.message || "Your shot could not be saved. Please try again.");
-      }
-      return;
-    }
+    if (activeGame === "battleship" && await battleshipGame.handleClick(target, gameRoomState)) return;
 
     if (target.hasAttribute("data-room-start")) {
       if (!rtdb) {
@@ -2704,6 +2288,7 @@ export function renderGames(el, user, profile) {
     }
 
     if (target.hasAttribute("data-back-games") || target.hasAttribute("data-sos-leave")) {
+      if (activeGame === "air-hockey") closeAirHockeyMount({ leave: true });
       if (memoryTimer) clearTimeout(memoryTimer);
       memoryTimer = null;
       clearSosSession();
@@ -2711,10 +2296,7 @@ export function renderGames(el, user, profile) {
       stopGameMatch = null;
       disposeLudoGame?.();
       disposeLudoGame = null;
-      stopBattleshipBoard?.();
-      stopBattleshipBoard = null;
-      battleshipBoardMatchId = "";
-      battleshipBoard = null;
+      battleshipGame.reset();
       stopGuessTheQuestion?.();
       stopGuessTheQuestion = null;
       stopGtqConnected?.();
@@ -2848,24 +2430,25 @@ export function renderGames(el, user, profile) {
   };
 
   el.onchange = event => {
-    const selector = event.target.closest("[data-bs-ship]");
-    if (!selector || activeGame !== "battleship") return;
-    battleshipSelectedShipId = selector.value;
+    if (activeGame === "battleship") battleshipGame.handleChange(event.target);
   };
 
 
 }
 
 export function disposeGames() {
+  leaveMountedAirHockey?.();
+  disposeMountedAirHockey?.();
+  disposeMountedAirHockey = null;
+  leaveMountedAirHockey = null;
+  activeBattleshipController?.dispose();
+  activeBattleshipController = null;
   stopGames?.();
   stopGames = null;
   stopSosListeners();
   stopGameMatch?.();
   stopGameMatch = null;
-  stopBattleshipBoard?.();
-  stopBattleshipBoard = null;
-  battleshipBoardMatchId = "";
-  battleshipBoard = null;
+  // Battleship state is owned by its controller and reset when its screen is left.
   // Keep teardown resilient when an older cached Games module is paired with
   // this newer route/auth module during a rolling static-site update.
   if (typeof stopGuessTheQuestion !== "undefined") {

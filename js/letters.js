@@ -79,400 +79,210 @@ export function renderLetters(el, user, profile) {
 
   el.innerHTML = `
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Quicksand:wght@500;600;700&family=Noto+Sans+Kannada:wght@400;600&display=swap');
 
+      /* ───────── Tokens ───────── */
       .letters-scope {
-        --nb-line: #bed8f0;
-        --nb-margin: #ef6d7a;
-        --nb-bg: #fcfaf6;
-        --nb-ink: #162e51;
-        --nb-line-h: 38px;
+        --nb-line: #ffd9e6; --nb-margin: #ffa3c1; --nb-bg: #fffdfa; --nb-ink: #5b3447; --nb-line-h: 38px;
+        --hand: "Caveat", "Noto Sans Kannada", "Segoe Print", "Bradley Hand", cursive;
+        --ui: "Quicksand", "Noto Sans Kannada", system-ui, sans-serif;
+        --ink: #5b3447; --ink2: #8a6577; --muted: #b48fa0; --rasp: #d6457a; --bubble: #ff8fb3; --lav: #b9a4f2;
+        --airmail: repeating-linear-gradient(135deg, #ff8fb3 0 12px, #fff 12px 20px, #b9a4f2 20px 32px, #fff 32px 40px);
+        --airmail-soft: repeating-linear-gradient(135deg, #ffd0df 0 12px, #fff 12px 20px, #e2d8fa 20px 32px, #fff 32px 40px);
+        --hearts: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56'%3E%3Cpath d='M28 40s-11-6.8-11-13.6a5.9 5.9 0 0 1 11-3 5.9 5.9 0 0 1 11 3C39 33.2 28 40 28 40z' fill='%23ff8fb3' fill-opacity='.13'/%3E%3C/svg%3E");
+        font-family: var(--ui);
       }
 
-      /* ── Card shell ─────────────────────────────────── */
-      .letters-card {
-        max-width: 650px;
-        padding: 22px;
-        border: 1px solid #f2dce6;
-        border-radius: 24px;
-        background: linear-gradient(145deg,#fff 35%,#fff8fb);
-        box-shadow: 0 18px 48px rgba(139,47,88,.09);
-        font-family: system-ui, -apple-system, sans-serif;
-        margin: 0 auto;
-      }
-      .letters-header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:20px; }
-      .letters-title-area { display:flex; align-items:center; gap:12px; }
-      .letters-icon { width:46px; height:46px; flex:none; display:flex; align-items:center; justify-content:center; background:linear-gradient(145deg,#ffe5ef,#ffd2e3); border-radius:50%; color:#b63368; font-size:22px; }
-      .letters-text h3 { margin:0; color:#873456; font-size:21px; font-family:"Playfair Display",serif; }
-      .letters-text p { margin:4px 0 0; color:#967b87; font-size:12px; line-height:1.4; }
-      .write-letter-btn {
-        flex:none; padding:11px 15px; border-radius:999px; border:none; cursor:pointer;
-        background:linear-gradient(135deg,#e85c91,#c73d76); color:#fff; font-size:13px; font-weight:600;
-        display:flex; align-items:center; gap:4px;
-        box-shadow:0 7px 18px #d7478030; transition:transform .2s ease,box-shadow .2s ease;
-      }
-      .write-letter-btn:hover { transform:translateY(-2px); box-shadow:0 10px 22px #d7478040; }
+      /* ───────── Post-office card ───────── */
+      .letters-card { max-width: 650px; margin: 0 auto; padding: 22px; border: 1px solid #ffd6e4; border-radius: 28px; background: var(--hearts), linear-gradient(160deg, #fff8fb 30%, #ffedf4); box-shadow: 0 22px 50px -20px #d6457a66; font-family: var(--ui); }
+      .letters-card::before { content: ""; display: block; height: 10px; margin: -22px -22px 18px; border-radius: 28px 28px 0 0; background: var(--airmail); }
+      .letters-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 18px; }
+      .letters-title-area { display: flex; align-items: center; gap: 14px; min-width: 0; }
+      .letters-icon { width: 48px; height: 56px; flex: none; display: flex; align-items: center; justify-content: center; border: 3px solid #fff; border-radius: 5px; outline: 2px dashed #ffb3cc; outline-offset: 2px; background: linear-gradient(160deg, #ffe3ee, #ffc2d6); font-size: 24px; box-shadow: 0 10px 18px -8px #d6457a77; rotate: -5deg; animation: letter-swing 4s ease-in-out infinite; transform-origin: 50% 0; }
+      .letters-text h3 { margin: 0; color: var(--rasp); font-family: var(--hand); font-size: 38px; font-weight: 700; line-height: .95; }
+      .letters-text p { margin: 5px 0 0; color: var(--ink2); font-size: 12px; font-weight: 600; line-height: 1.4; }
+      .write-letter-btn { flex: none; position: relative; overflow: hidden; display: flex; align-items: center; gap: 4px; padding: 11px 16px; border: 0; border-radius: 999px; background: linear-gradient(135deg, #ff8fb3, #d6457a); color: #fff; font: 700 13px var(--ui); box-shadow: 0 12px 22px -8px #d6457acc, inset 0 1px 0 #ffffff66; cursor: pointer; transition: transform .25s cubic-bezier(.34, 1.56, .64, 1), box-shadow .25s ease; }
+      .write-letter-btn::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, #ffffff66 50%, transparent 70%); transform: translateX(-120%); transition: transform .6s ease; }
+      .write-letter-btn:hover { transform: translateY(-2px) scale(1.04); }
+      .write-letter-btn:hover::after { transform: translateX(120%); }
+      .write-letter-btn:active { transform: scale(.95); }
 
-      /* ── Tabs ───────────────────────────────────────── */
-      .letters-tabs { display:flex; gap:7px; padding:5px; border:1px solid #f4e8ee; border-radius:15px; background:#fffafd; margin-bottom:18px; }
-      .tab-btn { flex:1; padding:9px 8px; border-radius:11px; border:none; background:transparent; color:#886e79; font-size:13px; font-weight:600; cursor:pointer; transition:background .2s ease,color .2s ease; }
-      .tab-btn.active { background:#ffe7f0; color:#a72f62; }
+      /* ───────── Tabs ───────── */
+      .letters-tabs { display: flex; gap: 6px; margin-bottom: 18px; padding: 5px; border: 1.5px solid #ffd9e6; border-radius: 999px; background: #fff; box-shadow: 0 8px 18px -12px #d6457a66; }
+      .tab-btn { flex: 1; padding: 9px 8px; border: 0; border-radius: 999px; background: transparent; color: var(--ink2); font: 700 13px var(--ui); cursor: pointer; transition: background .25s ease, color .25s ease, transform .25s cubic-bezier(.34, 1.56, .64, 1); }
+      .tab-btn:active { transform: scale(.94); }
+      .tab-btn.active { background: linear-gradient(135deg, #ffb3cc, #ff7fa8); color: #fff; box-shadow: 0 8px 16px -8px #d6457acc; }
+      .tab-btn.active::before { content: "♡ "; }
 
-      /* ── Letter list ────────────────────────────────── */
-      .letters-list { display:flex; flex-direction:column; gap:9px; }
-      .letter-item {
-        position:relative; display:flex; align-items:center; justify-content:space-between;
-        gap:12px; padding:13px; border:1px solid #f2e5eb; border-radius:17px;
-        background:#fff; box-shadow:0 4px 13px #74314908; cursor:pointer;
-        transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease;
-      }
-      .letter-item:hover { transform:translateY(-2px); border-color:#edbfd2; box-shadow:0 9px 20px #74314912; }
-      .letter-item:focus-visible { outline:3px solid #e9a4c0; outline-offset:3px; }
-      .letter-item.is-unread { border-color:#efc1d4; background:linear-gradient(115deg,#fff 45%,#fff5f9); box-shadow:0 5px 18px #c84d7d10; }
-      .letter-item.is-unread::after { content:""; position:absolute; left:0; top:13px; bottom:13px; width:3px; border-radius:0 4px 4px 0; background:linear-gradient(#f28ab1,#d94e88); }
-      .letter-left { display:flex; align-items:center; min-width:0; gap:11px; }
-      .letter-envelope { position:relative; width:48px; height:38px; flex:none; display:grid; place-items:center; overflow:visible; border:1px solid #f0bfd1; border-radius:7px; background:linear-gradient(145deg,#fff9fc,#ffe4ee); color:#cc4b7b; font-size:20px; box-shadow:0 3px 8px #9a476313; transition:transform .2s ease; }
-      .letter-envelope::before { content:""; position:absolute; z-index:1; inset:0 0 auto; height:52%; border-radius:6px 6px 50% 50%; background:linear-gradient(150deg,#ffedf4,#f9c9dc); clip-path:polygon(0 0,100% 0,50% 100%); transform-origin:top; transition:transform .36s cubic-bezier(.2,.75,.2,1); }
-      .letter-envelope::after { content:""; position:absolute; z-index:2; inset:auto 0 0; height:55%; border-radius:0 0 6px 6px; background:linear-gradient(35deg,#f7c9da 49%,transparent 50%),linear-gradient(-35deg,#fbe0e9 49%,transparent 50%); }
-      /* Envelope stays open when the letter has been read */
-      .letter-item.is-read .letter-envelope::before,
-      .letter-item.is-opening .letter-envelope::before { transform:rotateX(180deg); }
-      .letter-item.is-opening .letter-envelope { transform:scale(1.12); }
-      .letter-unread-dot { position:absolute; top:-5px; right:-5px; z-index:4; width:12px; height:12px; border:2px solid white; border-radius:50%; background:#ef3e65; box-shadow:0 1px 5px #a31d3f55; animation:letter-dot-pulse 1.6s ease-in-out infinite; }
-      @keyframes letter-dot-pulse { 0%,100% { transform:scale(1); } 50% { transform:scale(1.14); } }
-      .letter-info { min-width:0; flex:1; }
-      .letter-info h4 { margin:0; font-size:14px; font-weight:700; color:#5a3445; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-      .letter-info p { margin:3px 0 0; font-size:11px; color:#8e7a83; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px; }
-      .letter-open-hint { display:inline-flex; align-items:center; gap:5px; margin-top:6px; color:#c04479; font-size:11px; font-weight:700; letter-spacing:.01em; animation:letter-hint-glow 2s ease-in-out infinite; }
-      .letter-open-hint .hint-arrow { display:inline-block; animation:letter-hint-nudge 1.2s ease-in-out infinite; }
-      .letter-item.is-unread .letter-envelope { animation:letter-envelope-float 2.6s ease-in-out infinite; }
-      .letter-date { flex:none; color:#9b8790; font-size:12px; line-height:1.35; white-space:nowrap; text-align:right; }
-      .letter-date .letter-read-receipt { display:block; margin-top:4px; text-align:right; }
-      .letter-read-receipt { color:#8796a4; font-size:11px; font-weight:700; white-space:nowrap; }
-      .letter-read-receipt.is-read { color:#299bd0; }
+      /* ───────── Envelope list ───────── */
+      .letters-list { display: flex; flex-direction: column; gap: 16px; padding-top: 6px; }
+      .letters-list > p { margin: 0; padding: 30px 16px !important; border: 2px dashed #ffc2d6; border-radius: 22px; background: #ffffffb3; color: var(--ink2) !important; font-weight: 600; text-align: center !important; }
+      .letters-list > p::before { content: "💌"; display: block; margin-bottom: 6px; font-size: 34px; animation: letter-swing 3.2s ease-in-out infinite; }
+      .letter-item { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 12px 14px 14px; border: 2.5px solid transparent; border-radius: 18px; background: linear-gradient(#fffdfd, #fffdfd) padding-box, var(--airmail-soft) border-box; box-shadow: 0 10px 20px -12px #d6457a66; cursor: pointer; transition: transform .3s cubic-bezier(.34, 1.56, .64, 1), box-shadow .25s ease; }
+      .letter-item:hover { transform: translateY(-3px) rotate(-.6deg); box-shadow: 0 16px 26px -12px #d6457a88; }
+      .letter-item:active { transform: scale(.97); }
+      .letter-item:focus-visible { outline: 3px solid var(--bubble); outline-offset: 3px; }
+      .letter-item.is-unread { background: linear-gradient(#fff6fa, #fff6fa) padding-box, var(--airmail) border-box; box-shadow: 0 14px 26px -12px #d6457a99; }
+      .letter-item.is-unread::after { content: "new ♡"; position: absolute; top: -12px; right: 16px; padding: 2px 10px; border-radius: 999px; background: linear-gradient(135deg, #ff7fa8, #e0386f); color: #fff; font: 700 10.5px var(--ui); rotate: 4deg; box-shadow: 0 6px 12px -4px #d6457a99; animation: letter-pop 2.4s ease-in-out infinite; }
+      .letter-left { display: flex; align-items: center; min-width: 0; gap: 13px; }
+      .letter-envelope { position: relative; width: 56px; height: 42px; flex: none; display: grid; place-items: center; overflow: visible; border: 1px solid #ffc2d6; border-radius: 8px; background: linear-gradient(145deg, #fff, #ffe3ee); color: transparent; font-size: 0; box-shadow: 0 6px 12px -6px #d6457a88; transition: transform .25s ease; }
+      .letter-envelope::before { content: ""; position: absolute; z-index: 1; inset: 0 0 auto; height: 56%; border-radius: 7px 7px 50% 50%; background: linear-gradient(150deg, #ffd9e7, #ffb3cc); clip-path: polygon(0 0, 100% 0, 50% 100%); transform-origin: top; transition: transform .36s cubic-bezier(.2, .75, .2, 1); }
+      .letter-envelope::after { content: ""; position: absolute; z-index: 2; inset: 0; border-radius: 8px; background: radial-gradient(circle at 50% 50%, #e0386f 0 5px, #ff8fb3 5px 6.5px, transparent 7px), linear-gradient(35deg, #ffd0df 49%, transparent 50%), linear-gradient(-35deg, #ffe6ef 49%, transparent 50%); }
+      .letter-item.is-read .letter-envelope::before, .letter-item.is-opening .letter-envelope::before { transform: rotateX(180deg); }
+      .letter-item.is-read .letter-envelope::after { background: linear-gradient(35deg, #ffd0df 49%, transparent 50%), linear-gradient(-35deg, #ffe6ef 49%, transparent 50%); }
+      .letter-item.is-opening .letter-envelope { transform: scale(1.14); }
+      .letter-unread-dot { position: absolute; top: -6px; right: -6px; z-index: 4; width: 13px; height: 13px; border: 2px solid #fff; border-radius: 50%; background: #ff3d7a; box-shadow: 0 2px 6px #c01e5a66; animation: letter-dot-pulse 1.6s ease-in-out infinite; }
+      @keyframes letter-dot-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+      .letter-info { min-width: 0; flex: 1; }
+      .letter-info h4 { margin: 0; overflow: hidden; color: var(--ink); font: 700 25px/1.05 var(--hand); text-overflow: ellipsis; white-space: nowrap; }
+      .letter-info p { max-width: 260px; margin: 3px 0 0; overflow: hidden; color: var(--ink2); font-size: 11.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+      .letter-open-hint { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; padding: 3px 10px; border-radius: 999px; background: #ffe3ee; color: var(--rasp); font-size: 11px; font-weight: 700; animation: letter-hint-glow 2s ease-in-out infinite; }
+      .letter-open-hint .hint-arrow { display: inline-block; animation: letter-hint-nudge 1.2s ease-in-out infinite; }
+      .letter-item.is-unread .letter-envelope { animation: letter-envelope-float 2.6s ease-in-out infinite; }
+      .letter-date { flex: none; padding: 6px 9px; border: 1.5px dashed #ffb3cc; border-radius: 9px; background: #fff8fb; color: #a85475; font-size: 11.5px; font-weight: 700; line-height: 1.35; text-align: right; white-space: nowrap; rotate: 2deg; }
+      .letter-date span[style] { color: var(--muted) !important; font-weight: 600; }
+      .letter-date .letter-read-receipt { display: block; margin-top: 4px; text-align: right; }
+      .letter-read-receipt { color: var(--muted); font-size: 11px; font-weight: 700; white-space: nowrap; }
+      .letter-read-receipt.is-read { color: #8b6fe0; }
 
-      /* ── Modals ─────────────────────────────────────── */
-      .letter-modal-overlay { position:fixed; inset:0; padding:clamp(8px,2vw,24px); display:flex; align-items:center; justify-content:center; overflow-y:auto; background:rgba(49,20,36,.56); opacity:0; backdrop-filter:blur(5px); z-index:1000; }
-      .letter-modal-overlay.is-open { animation:letter-overlay-in .25s ease forwards; }
-      .letter-modal-box { width:min(780px,100%); max-height:calc(100dvh - 24px); overflow-y:auto; padding:clamp(16px,2.5vw,30px); border:1px solid #f2dce6; border-radius:23px; background:#fffafd; box-shadow:0 25px 80px #30132144; }
-      .letter-read-modal-box { width:min(920px,100%); background:linear-gradient(145deg,#fffafd,#fff5f9); }
-      .letter-read-modal-box .letter-paper { width:min(100%,680px); max-height:84dvh; }
-      .letter-modal-overlay.is-open .letter-modal-box { animation:letter-modal-in .55s cubic-bezier(.2,.8,.2,1) both; }
-      .letter-modal-box.is-fullscreen { position:fixed; inset:0; z-index:1000; width:100vw; max-width:none; max-height:100dvh; height:100dvh; overflow-y:auto; border-radius:0; padding:max(12px,env(safe-area-inset-top)) 14px max(16px,env(safe-area-inset-bottom)); }
-      .letter-modal-box.is-fullscreen .letter-editor-paper { height:calc(100dvh - 270px); min-height:300px; }
-      .letter-modal-box.is-fullscreen .letter-editor-content { padding:30px 24px; }
-      .letter-modal-box.is-fullscreen .letter-form { gap:10px; }
-      .letter-modal-box.is-fullscreen .letter-prompt { display:none; }
-      .letter-modal-box.is-fullscreen .letter-modal-head { position:sticky; top:0; z-index:2; background:#fffafd; }
-      #read-letter-modal { position:fixed; inset:0; z-index:1000; align-items:stretch; justify-content:center; overflow-y:auto; padding:0; background:linear-gradient(150deg,#fff3f8,#fffafd 50%,#f8f4ff); opacity:1; backdrop-filter:none; }
-      #read-letter-modal.is-open { animation:none; }
-      #read-letter-modal .letter-read-modal-box { width:min(900px,100%); max-width:none; height:auto; min-height:100dvh; max-height:none; overflow:visible; padding:clamp(20px,5vw,56px); border:0; border-radius:0; background:transparent; box-shadow:none; animation:none; }
-      #read-letter-modal .letter-paper { max-height:none; box-shadow:0 12px 35px rgba(48,19,33,.11); }
-      .letter-modal-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:15px; }
-      .letter-modal-head h3 { margin:0; color:#873456; font-size:clamp(22px,3vw,34px); font-family:"Playfair Display",serif; }
-      .letter-close-btn { width:34px; height:34px; flex:none; border-radius:50%; border:none; background:#fff0f6; color:#9c3b64; font-size:21px; cursor:pointer; }
-      .letter-form { display:grid; gap:12px; margin-top:0; }
-      .letter-form label { display:grid; gap:6px; color:#795565; font-size:11px; font-weight:700; }
-      .letter-form select,.letter-form input {
-        width:100%; min-height:43px; margin:0; padding:10px; box-sizing:border-box;
-        border:1px solid #efd6e1; border-radius:12px; background:#fff; color:#583447;
-        font-size:13px; outline:none;
-      }
-      .letter-form select:focus,.letter-form input:focus { border-color:#db8eae; box-shadow:0 0 0 3px #ef6d9f16; }
+      /* ───────── Modals ───────── */
+      .letter-modal-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: clamp(8px, 2vw, 24px); overflow-y: auto; background: rgba(91, 52, 71, .5); opacity: 0; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+      .letter-modal-overlay.is-open { animation: letter-overlay-in .25s ease forwards; }
+      .letter-modal-box { position: relative; width: min(780px, 100%); max-height: calc(100dvh - 24px); overflow-y: auto; padding: clamp(18px, 2.5vw, 30px); border: 1px solid #ffd6e4; border-radius: 28px; background: var(--hearts), linear-gradient(170deg, #fffafc, #fff0f6); box-shadow: 0 30px 80px #5b34476b; }
+      .letter-modal-box:not(.letter-read-modal-box)::before { content: ""; position: absolute; top: 0; right: 0; left: 0; height: 9px; background: var(--airmail); }
+      .letter-read-modal-box { width: min(920px, 100%); }
+      .letter-read-modal-box .letter-paper { width: min(100%, 680px); max-height: 84dvh; }
+      .letter-modal-overlay.is-open .letter-modal-box { animation: letter-modal-in .55s cubic-bezier(.2, .9, .3, 1.1) both; }
+      .letter-modal-box.is-fullscreen { position: fixed; inset: 0; z-index: 1000; width: 100vw; max-width: none; max-height: 100dvh; height: 100dvh; overflow-y: auto; border-radius: 0; padding: max(12px, env(safe-area-inset-top)) 14px max(16px, env(safe-area-inset-bottom)); }
+      .letter-modal-box.is-fullscreen .letter-editor-paper { height: calc(100dvh - 270px); min-height: 300px; }
+      .letter-modal-box.is-fullscreen .letter-editor-content { padding: 30px 24px; }
+      .letter-modal-box.is-fullscreen .letter-form { gap: 10px; }
+      .letter-modal-box.is-fullscreen .letter-prompt { display: none; }
+      .letter-modal-box.is-fullscreen .letter-modal-head { position: sticky; top: 0; z-index: 2; background: #fff6fa; }
+      #read-letter-modal { position: fixed; inset: 0; z-index: 1000; align-items: stretch; justify-content: center; overflow-y: auto; padding: 0; background: radial-gradient(circle at 85% 8%, #ffd6e6aa, transparent 40%), radial-gradient(circle at 8% 70%, #e8defbaa, transparent 38%), var(--hearts), linear-gradient(160deg, #fff3f8, #fffafd 50%, #f6f0ff); opacity: 1; backdrop-filter: none; -webkit-backdrop-filter: none; }
+      #read-letter-modal.is-open { animation: none; }
+      #read-letter-modal .letter-read-modal-box { width: min(900px, 100%); max-width: none; height: auto; min-height: 100dvh; max-height: none; overflow: visible; padding: clamp(28px, 5vw, 56px); border: 0; border-radius: 0; background: transparent; box-shadow: none; animation: none; }
+      #read-letter-modal .letter-read-modal-box::before { display: none; }
+      .letter-modal-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 6px 0 15px; }
+      .letter-modal-head h3 { margin: 0; color: var(--rasp); font: 700 clamp(30px, 6vw, 40px)/1 var(--hand); }
+      .letter-close-btn { display: grid; width: 36px; height: 36px; flex: none; place-items: center; border: 0; border-radius: 50%; background: #ffe3ee; color: var(--rasp); font-size: 20px; cursor: pointer; transition: transform .25s cubic-bezier(.34, 1.56, .64, 1); }
+      .letter-close-btn:hover { transform: rotate(90deg) scale(1.1); }
+      .letter-form { display: grid; gap: 12px; margin-top: 0; }
+      .letter-form label { display: grid; gap: 6px; color: var(--ink2); font-size: 12px; font-weight: 700; }
+      .letter-form select, .letter-form input { width: 100%; min-height: 44px; margin: 0; padding: 10px 14px; border: 1.5px solid #fbd9e5; border-radius: 15px; background: #fff; color: var(--ink); font: 600 13.5px var(--ui); box-sizing: border-box; outline: none; transition: border-color .2s ease, box-shadow .2s ease; }
+      .letter-form select:focus, .letter-form input:focus { border-color: var(--bubble); box-shadow: 0 0 0 4px #ffe3ee; }
+      .nb-ruling { background: transparent; }
 
-      /* ═══════════════════════════════════════════════════════
-         NOTEPAD PAPER — exactly like the reference image
-         • Red vertical margin line on the left
-         • Light blue horizontal ruling lines
-         • Handwriting font, text sits ON each line
-         ═══════════════════════════════════════════════════════ */
-      .nb-ruling {
-        /* Kept for backward-compat; visual is defined on .letter-editor-paper/.letter-paper */
-        background: transparent;
-      }
-
-      /* Editorial handwriting fonts shared by the editor + read view */
-      .letter-editor-content,
-      .letter-stage-text,
-      .letter-rich-text {
-        font-family: "Caveat", "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
-      }
-
-      /* ── Editor paper ───────────────────────────────── */
-      .letter-editor-paper {
-        position: relative;
-        width: 100%;
-        height: clamp(300px, 56dvh, 650px);
-        min-height: 300px;
-        overflow: auto;
-        border: 1px solid #e5d5de;
-        border-radius: 6px;
-        background-color: #ffffff;
-        /* Vertical pink margin line at 56px, horizontal blue ruling every 34px */
-        background-image:
-          linear-gradient(90deg,
-            transparent 0,
-            transparent 55px,
-            #f5a8bd 55px,
-            #f5a8bd 57px,
-            transparent 57px),
-          repeating-linear-gradient(to bottom,
-            transparent 0,
-            transparent 33px,
-            #bed8ee 33px,
-            #bed8ee 34px);
-        background-size: 100% 100%, 100% 34px;
-        background-position: 0 0, 0 6px;
-        background-repeat: no-repeat, repeat;
-        box-shadow: 0 4px 16px #30132112;
-        -webkit-overflow-scrolling: touch;
-        touch-action: manipulation;
-      }
-      .letter-editor-content {
-        min-height: 100%;
-        width: 100%;
-        padding: 6px 22px 40px 74px; /* text starts right of margin line */
-        outline: none;
-        color: #1e3150;
-        font-size: var(--letter-compose-font-size, 20px);
-        line-height: 34px; /* MUST match ruling pitch so text sits ON the line */
-        caret-color: #c83f78;
-        overflow-wrap: anywhere;
-        white-space: pre-wrap;
-        transform-origin: top left;
-        touch-action: manipulation;
-        -webkit-user-select: text;
-        user-select: text;
-      }
-      .letter-editor-content:empty:before { content: attr(data-placeholder); color: #b38d9e; white-space: pre-wrap; pointer-events: none; }
+      /* ───────── Writing paper ───────── */
+      .letter-editor-content, .letter-stage-text, .letter-rich-text { font-family: var(--hand); }
+      .letter-editor-paper { position: relative; width: 100%; height: clamp(300px, 56dvh, 650px); min-height: 300px; overflow: auto; border: 1.5px solid #ffd0df; border-radius: 18px; background-color: #fffdfa; background-image: linear-gradient(90deg, transparent 0, transparent 55px, #ffa3c1 55px, #ffa3c1 57px, transparent 57px), repeating-linear-gradient(to bottom, transparent 0, transparent 33px, #ffd9e6 33px, #ffd9e6 34px); background-size: 100% 100%, 100% 34px; background-position: 0 0, 0 6px; background-repeat: no-repeat, repeat; box-shadow: 0 14px 28px -16px #d6457a77; -webkit-overflow-scrolling: touch; touch-action: manipulation; }
+      .letter-editor-content { min-height: 100%; width: 100%; padding: 6px 22px 40px 74px; outline: none; color: var(--ink); font-size: var(--letter-compose-font-size, 20px); line-height: 34px; caret-color: var(--rasp); overflow-wrap: anywhere; white-space: pre-wrap; transform-origin: top left; touch-action: manipulation; -webkit-user-select: text; user-select: text; }
+      .letter-editor-content:empty:before { content: attr(data-placeholder); color: #d3a3b8; white-space: pre-wrap; pointer-events: none; }
       .letter-editor-content p { margin: 0; }
-      .letter-editor-toolbar { display:inline-flex; align-items:center; gap:8px; width:fit-content; padding:4px 8px; border:1px solid #f0dce6; border-radius:999px; background:#fffafd; }
-      .letter-editor-toolbar button { min-width:34px; min-height:32px; padding:5px 8px; border-radius:999px; background:#fff; color:#754258; border:1px solid #f0dce6; font-size:13px; font-weight:800; touch-action:manipulation; }
-      .letter-font-label { color:#754258; font-size:11px; font-weight:700; }
-      .letter-font-size-value { min-width:34px; color:#947887; font-size:10px; text-align:center; }
-      .letter-draft-state { margin-left:auto; color:#8c7180; font-size:10px; font-weight:700; }
+      .letter-editor-toolbar { display: inline-flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; padding: 4px 8px; border: 1.5px solid #ffd9e6; border-radius: 999px; background: #fff; }
+      .letter-editor-toolbar button { min-width: 34px; min-height: 32px; padding: 5px 9px; border: 0; border-radius: 999px; background: #ffe3ee; color: var(--rasp); font: 800 13px var(--ui); touch-action: manipulation; transition: transform .2s cubic-bezier(.34, 1.56, .64, 1); }
+      .letter-editor-toolbar button:active { transform: scale(.9); }
+      .letter-font-label { color: var(--ink2); font-size: 11px; font-weight: 700; }
+      .letter-font-size-value { min-width: 34px; color: var(--muted); font-size: 10.5px; font-weight: 700; text-align: center; }
+      .letter-draft-state { margin-left: auto; color: var(--muted); font-size: 10.5px; font-weight: 700; }
+      .letter-prompt { margin: 0; color: var(--muted); font: 600 19px/1.2 var(--hand); text-align: center; }
+      .letter-send-btn { background: linear-gradient(135deg, #ff8fb3, #d6457a); color: #fff; box-shadow: 0 12px 22px -8px #d6457acc; }
+      .letter-send-btn:disabled { opacity: .65; cursor: wait; }
+      .letter-compose-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 3px; }
+      .letter-compose-actions .letter-secondary-action { min-height: 38px; padding: 8px 13px; border: 1.5px solid #ffd0df; border-radius: 999px; background: #fff; color: var(--ink2); font: 700 12px var(--ui); transition: transform .25s cubic-bezier(.34, 1.56, .64, 1); }
+      .letter-compose-actions .letter-secondary-action:active { transform: scale(.94); }
+      .letter-compose-actions .letter-schedule-action.is-active { border-color: var(--bubble); background: #ffe3ee; color: var(--rasp); }
+      .letter-compose-actions .letter-send-btn { min-height: 44px; padding: 10px 20px; border: 0; border-radius: 999px; font: 700 13.5px var(--ui); cursor: pointer; }
 
-      .letter-prompt { margin:0; color:#9a7c89; font-size:10px; text-align:center; }
-      .read-letter-actions button { min-height:40px; padding:9px 14px; border-radius:12px; font-size:12px; font-weight:700; cursor:pointer; border:none; }
-      .letter-send-btn { background:linear-gradient(135deg,#e85c91,#c73d76); color:#fff; box-shadow:0 6px 16px #d7478028; }
-      .letter-send-btn:disabled { opacity:.65; cursor:wait; }
-      .letter-compose-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px; margin-top:3px; }
-      .letter-compose-actions .letter-secondary-action { min-height:36px; padding:8px 10px; border:1px solid #efdde5; border-radius:11px; background:#fff; color:#765a68; font-size:11px; font-weight:700; }
-      .letter-compose-actions .letter-schedule-action.is-active { border-color:#d982a7; background:#fff0f6; color:#a72f62; }
-      .letter-compose-actions .letter-send-btn { min-height:42px; padding:10px 18px; font-size:13px; }
-      @media(max-width:600px) {
-        .letter-compose-actions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
-        .letter-compose-actions .letter-secondary-action { min-width:0; padding:8px 5px; }
-        .letter-compose-actions .letter-send-btn { grid-column:1/-1; width:100%; }
-        .letter-editor-toolbar { gap:6px; }
-        .letter-draft-state { font-size:9px; }
-      }
+      /* ───────── Reading paper ───────── */
+      .letter-paper { position: relative; width: min(100%, 600px); max-height: 82dvh; min-height: 0; margin: 0 auto; display: flex; flex-direction: column; }
+      #read-letter-modal .letter-paper { width: min(100%, 720px); min-height: clamp(320px, 52vh, 560px); max-height: none; overflow: visible; border: 0; border-radius: 22px; background: radial-gradient(ellipse at 100% 0%, #ffe3eeb3, transparent 42%), var(--hearts), linear-gradient(180deg, #fffefb, #fff7f6); box-shadow: 0 0 0 9px #fff, 0 26px 50px -16px #d6457a77; outline: 2px dashed #ffb3cc; outline-offset: 6px; }
+      #read-letter-modal .letter-paper::before { content: ""; position: absolute; top: -14px; left: 50%; z-index: 2; width: 96px; height: 26px; translate: -50% 0; rotate: -3deg; border-radius: 3px; background: repeating-linear-gradient(45deg, #ffc7dacc 0 8px, #ffe9f1d9 8px 16px); box-shadow: 0 2px 4px #d6457a22; }
+      .letter-paper::after { content: "♡"; position: absolute; right: 24px; bottom: 18px; color: #ff9fbd; font: 26px Georgia, serif; opacity: .8; pointer-events: none; animation: letter-heart-beat 2.6s ease-in-out infinite; }
+      .letter-modal-overlay.is-open .letter-paper { animation: letter-paper-unfold .85s .08s cubic-bezier(.2, .75, .2, 1) both; }
+      .letter-paper-header { display: flex; align-items: center; justify-content: flex-start; gap: 12px; flex: none; min-height: 68px; padding: 22px 26px 12px; border-bottom: 2px dotted #ffd0df; background: transparent; }
+      .letter-paper-avatar { display: grid; width: 46px; height: 46px; flex: none; place-items: center; overflow: hidden; border: 3px solid #fff; border-radius: 50%; background: #ffe4ef; box-shadow: 0 0 0 2.5px #ffa3c1, 0 8px 14px -6px #d6457a88; color: var(--rasp); font-weight: 800; font-size: 16px; }
+      .letter-paper-avatar img { width: 100%; height: 100%; object-fit: cover; }
+      .letter-paper-meta-text { display: grid; gap: 1px; color: var(--muted); font: 600 12px/1.3 var(--ui); text-align: left; }
+      .letter-paper-meta-text strong { color: var(--rasp); font: 700 27px/1 var(--hand); }
+      .letter-paper-meta-text span { color: var(--muted); font-size: 11.5px; }
+      .letter-paper-body { flex: 1; min-height: 150px; padding: 18px 30px 8px; }
+      .letter-stage-text, .letter-rich-text { color: var(--ink); font: 500 clamp(24px, 5.5vw, 28px)/1.55 var(--hand); letter-spacing: .005em; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .letter-stage-text p, .letter-rich-text p { margin: 0; }
+      .letter-stage-text b, .letter-stage-text strong, .letter-rich-text b, .letter-rich-text strong { font-weight: 700; }
+      .letter-paper-tail { flex: none; min-height: 70px; }
+      .letter-paper-tail::before { content: "with all my love ♡"; display: block; padding: 18px 40px 0 0; color: #e0799c; font: 700 26px var(--hand); text-align: right; }
 
-      /* ── READ LETTER PAPER (reference-matching) ───────── */
-      .letter-paper {
-        position: relative;
-        width: min(100%, 600px);   /* A5-ish */
-        max-height: 82dvh;
-        min-height:0;
-        margin: 0 auto;
-        overflow-y: auto;
-        display: flex;
-        flex-direction: column;
-        border: 1px solid #e3d3dc;
-        border-radius: 4px;
-        background-color: #ffffff;
-        /* Pink margin line at 60px, blue ruling every 34px */
-        background-image:
-          linear-gradient(90deg,
-            transparent 0,
-            transparent 59px,
-            #f5a8bd 59px,
-            #f5a8bd 61px,
-            transparent 61px),
-          repeating-linear-gradient(to bottom,
-            transparent 0,
-            transparent 33px,
-            #bed8ee 33px,
-            #bed8ee 34px);
-        background-size: 100% 100%, 100% 34px;
-        background-position: 0 0, 0 10px;
-        background-repeat: no-repeat, repeat;
-        box-shadow: 0 14px 40px rgba(48,19,33,.14);
-        -webkit-overflow-scrolling: touch;
-        touch-action: manipulation;
-      }
+      /* ───────── Replies & actions ───────── */
+      .letter-replies-section { margin-top: 28px; }
+      .letter-replies-title { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; color: var(--rasp); font: 700 27px/1.1 var(--hand); }
+      .letter-replies-title::after { content: ""; width: 44px; height: 0; border-top: 2px dotted #ffb3cc; }
+      .letter-reply-card { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; margin-bottom: 10px; padding: 14px 16px; border: 2.5px solid transparent; border-radius: 19px; background: linear-gradient(#fffafc, #fffafc) padding-box, var(--airmail-soft) border-box; box-shadow: 0 10px 20px -12px #d6457a77; box-sizing: border-box; color: inherit; font: inherit; text-align: left; cursor: pointer; touch-action: manipulation; transition: transform .3s cubic-bezier(.34, 1.56, .64, 1), box-shadow .25s ease; }
+      .letter-reply-card:hover { transform: translateY(-2px) rotate(-.5deg); box-shadow: 0 16px 24px -12px #d6457a88; }
+      .letter-reply-card:active { transform: scale(.97); }
+      .letter-reply-card:focus-visible { outline: 3px solid var(--bubble); outline-offset: 3px; }
+      .letter-reply-envelope { display: grid; width: 44px; height: 38px; flex: none; place-items: center; border: 1px solid #ffc2d6; border-radius: 11px; background: linear-gradient(145deg, #fff, #ffe3ee); font-size: 21px; box-shadow: 0 4px 10px -4px #d6457a77; }
+      .letter-reply-card-copy { min-width: 0; flex: 1; }
+      .letter-reply-card-head { margin: 0 0 2px; color: var(--ink); font: 700 24px/1 var(--hand); }
+      .letter-reply-card-hint { display: flex; align-items: center; gap: 5px; color: var(--rasp); font-size: 11.5px; font-weight: 700; }
+      .letter-reply-card-date { display: block; margin-top: 3px; color: var(--muted); font-size: 10.5px; font-weight: 600; }
+      .letter-reply-card-arrow { flex: none; color: var(--bubble); font-size: 22px; }
+      .letter-replies-empty { color: var(--muted); font-size: 12px; font-style: italic; }
+      .read-letter-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; margin: 22px auto 0; }
+      .read-letter-actions button { min-height: 44px; padding: 10px 18px; border: 1.5px solid #ffd0df; border-radius: 999px; background: #fff; color: var(--ink2); font: 700 12.5px var(--ui); cursor: pointer; box-shadow: 0 8px 16px -10px #d6457a77; transition: transform .25s cubic-bezier(.34, 1.56, .64, 1), box-shadow .2s ease; }
+      .read-letter-actions button:hover { transform: translateY(-2px) scale(1.04); }
+      .read-letter-actions button:active { transform: scale(.95); }
+      .read-letter-actions .letter-reply-btn { border: 0; background: linear-gradient(135deg, #ff8fb3, #d6457a); color: #fff; box-shadow: 0 12px 22px -8px #d6457acc; }
+      .letter-reply-btn[hidden] { display: none; }
+      .read-letter-actions .letter-read-close { background: #ffe9f1; color: var(--rasp); }
+      .read-letter-actions .letter-delete-btn { color: #d93a50; }
+      .read-letter-actions button:disabled { opacity: .55; cursor: wait; }
 
-      /* Sender photo and timestamp stay in the paper's top corner. */
-      .letter-paper-header {
-        display: flex;
-        align-items: center;
-        justify-content:flex-end;
-        gap: 10px;
-        padding: 10px 14px 8px 76px;
-        min-height: 48px;
-        background: transparent;
-        border-bottom: 0;
-        flex: none;
-      }
-      .letter-paper-avatar { width:32px; height:32px; flex:none; border-radius:50%; overflow:hidden; border:2px solid #f5a8bd; background:#ffe4ef; color:#96365f; font-weight:800; font-size:13px; display:grid; place-items:center; }
-      .letter-paper-avatar img { width:100%; height:100%; object-fit:cover; }
-      .letter-paper-meta-text { color:#7a8fa8; font:600 12px/1.25 "DM Sans",sans-serif; text-align:right; }
+      /* ───────── Animations ───────── */
+      @keyframes letter-overlay-in { to { opacity: 1; } }
+      @keyframes letter-modal-in { from { opacity: 0; transform: translateY(24px) scale(.94); } 60% { opacity: 1; transform: translateY(-3px) scale(1.01); } to { opacity: 1; transform: translateY(0) scale(1); } }
+      @keyframes letter-paper-unfold { 0% { opacity: 0; transform: perspective(900px) rotateX(-18deg) translateY(-12px) scale(.96); } 55% { opacity: 1; transform: perspective(900px) rotateX(4deg) translateY(0) scale(1.01); } 100% { opacity: 1; transform: perspective(900px) rotateX(0) translateY(0) scale(1); } }
+      @keyframes letter-envelope-float { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-4px) rotate(-3deg); } }
+      @keyframes letter-hint-glow { 0%, 100% { opacity: .8; } 50% { opacity: 1; } }
+      @keyframes letter-hint-nudge { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(3px); } }
+      @keyframes letter-swing { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(4deg); } 70% { transform: rotate(-4deg); } }
+      @keyframes letter-pop { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+      @keyframes letter-heart-beat { 0%, 100% { transform: scale(1); } 14% { transform: scale(1.2); } 28% { transform: scale(1); } 42% { transform: scale(1.12); } 70% { transform: scale(1); } }
 
-      /* Body — text sits on the ruling */
-      .letter-paper-body {
-        padding: 0 22px 0 76px;
-        flex: none;
-        min-height:0;
+      /* ───────── Responsive ───────── */
+      @media (max-width: 600px) {
+        .letter-modal-overlay { padding: 0; align-items: stretch; }
+        .letter-modal-box { width: 100%; max-width: none; max-height: 100dvh; height: 100dvh; border-radius: 0; padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom)); }
+        .letter-editor-paper { height: calc(100dvh - 350px); min-height: 240px; }
+        .letter-modal-box.is-fullscreen .letter-editor-paper { height: calc(100dvh - 340px); min-height: 240px; }
+        .letter-compose-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+        .letter-compose-actions .letter-secondary-action { min-width: 0; padding: 8px 5px; }
+        .letter-compose-actions .letter-send-btn { grid-column: 1 / -1; width: 100%; }
+        .letter-editor-toolbar { gap: 6px; }
+        .letter-draft-state { font-size: 9.5px; }
+        #read-letter-modal { align-items: stretch; padding: 0; }
+        #read-letter-modal .letter-read-modal-box { width: 100%; height: auto; min-height: 100dvh; max-height: none; border-radius: 0; padding: max(34px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom)); }
+        #read-letter-modal .letter-paper { width: 100%; min-height: clamp(300px, 44vh, 440px); max-height: none; border-radius: 20px; }
+        .letter-paper-header { padding: 20px 18px 10px; }
+        .letter-paper-body { padding: 16px 20px 8px; }
+        .letter-editor-content { padding-left: 66px; padding-right: 14px; }
+        .read-letter-actions { gap: 8px; }
+        .read-letter-actions button { padding: 10px 14px; }
       }
-      .letter-stage-text,
-      .letter-rich-text {
-        font-size: calc(21px * var(--letter-font-scale, 1));
-        line-height: 34px;   /* MUST match ruling pitch */
-        color: #1e3150;
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
+      @media (max-width: 480px) {
+        .letters-card { padding: 16px; border-radius: 24px; }
+        .letters-card::before { margin: -16px -16px 14px; border-radius: 24px 24px 0 0; }
+        .letters-header { align-items: flex-start; }
+        .letters-text h3 { font-size: 32px; }
+        .write-letter-btn { padding: 10px 13px; font-size: 11.5px; }
+        .letter-item { padding: 12px 10px 12px 12px; }
+        .letter-left { gap: 10px; }
+        .letter-info h4 { font-size: 22px; }
+        .letter-date { font-size: 10.5px; padding: 5px 7px; }
       }
-      .letter-stage-text p,
-      .letter-rich-text p { margin: 0; }
-      .letter-paper-tail { height:136px; flex:none; }
-      .letter-stage-text b,
-      .letter-stage-text strong,
-      .letter-rich-text b,
-      .letter-rich-text strong { font-weight: 700; }
-
-      .letter-paper::after { content:"♡"; position:absolute; right:16px; bottom:12px; color:#e7a5bd; font:20px Georgia,serif; opacity:.7; pointer-events:none; }
-      .letter-modal-overlay.is-open .letter-paper { animation:letter-paper-unfold .85s .08s cubic-bezier(.2,.75,.2,1) both; }
-
-      /* ── Reply block inside read modal ──────────────── */
-      .letter-replies-section { margin-top:18px; }
-      .letter-replies-title { font-size:12px; font-weight:800; color:#754258; margin:0 0 8px; letter-spacing:.02em; }
-      .letter-reply-card {
-        display:flex; align-items:center; gap:12px; width:100%; box-sizing:border-box;
-        margin-bottom:9px; padding:13px 15px; position:relative; text-align:left;
-        border:1px solid #f0d6e2; border-left:4px solid #c98eae; border-radius:16px;
-        background:linear-gradient(125deg,#fff8fb 0%,#fffdf9 65%,#fff4f8 100%);
-        box-shadow:0 5px 16px #7431490b; color:inherit; cursor:pointer;
-        transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;
-        font:inherit; touch-action:manipulation;
-      }
-      .letter-reply-card:hover { transform:translateY(-1px); border-color:#e5adc6; box-shadow:0 8px 20px #74314912; }
-      .letter-reply-card:focus-visible { outline:3px solid #e9a4c0; outline-offset:3px; }
-      .letter-reply-envelope { width:43px; height:38px; flex:none; display:grid; place-items:center; border:1px solid #f0c9d9; border-radius:11px; background:linear-gradient(145deg,#fff,#ffe7f0); font-size:21px; box-shadow:0 3px 8px #9a476310; }
-      .letter-reply-card-copy { min-width:0; flex:1; }
-      .letter-reply-card-head { font-size:12px; color:#714457; margin:0 0 4px; font-weight:800; }
-      .letter-reply-card-hint { display:flex; align-items:center; gap:5px; color:#b34b79; font-size:11px; font-weight:700; }
-      .letter-reply-card-date { display:block; margin-top:3px; color:#9b8790; font-size:10px; font-weight:500; }
-      .letter-reply-card-arrow { flex:none; color:#c680a4; font-size:20px; }
-      .letter-replies-empty { font-size:12px; color:#9b8790; font-style:italic; }
-
-      .read-letter-actions { display:flex; flex-wrap:wrap; justify-content:center; gap:8px 18px; margin-top:14px; }
-      .read-letter-actions button { min-height:0; padding:2px 0; border:0; background:none; color:#8b526b; font:600 13px/1.4 "DM Sans",sans-serif; text-decoration:underline; text-underline-offset:3px; cursor:pointer; }
-      .read-letter-actions .letter-reply-btn { color:#a72f62; }
-      .letter-reply-btn[hidden] { display:none; }
-      .read-letter-actions .letter-read-close { color:#765a68; }
-      .read-letter-actions .letter-delete-btn { color:#bd3158; }
-      .read-letter-actions button:disabled { opacity:.55; cursor:wait; }
-
-      /* A soft keepsake page for reading, with calm typography and room to breathe. */
-      #read-letter-modal .letter-paper {
-        position:relative;
-        width:min(100%,720px);
-        min-height:clamp(320px,52vh,560px);
-        padding-top:8px;
-        border:1px solid #f0d5df;
-        border-radius:20px;
-        background:
-          radial-gradient(ellipse at 100% 0%,#ffe8f0a8,transparent 38%),
-          linear-gradient(180deg,#fffefa,#fffaf8);
-        box-shadow:0 20px 48px #85365318,0 3px 10px #8536530b;
-      }
-      #read-letter-modal .letter-paper::before {
-        content:"";
-        position:absolute;
-        top:0;right:0;left:0;
-        height:6px;
-        border-radius:20px 20px 0 0;
-        background:linear-gradient(90deg,#f5a9c3,#e879a2 48%,#f4c6d4);
-      }
-      #read-letter-modal .letter-paper::after { right:24px; bottom:20px; color:#dc82a5; font-size:25px; }
-      #read-letter-modal .letter-paper-header {
-        justify-content:flex-end;
-        min-height:68px;
-        padding:14px 24px 12px 78px;
-        border-bottom:1px solid #f5e5e9;
-      }
-      #read-letter-modal .letter-paper-avatar { width:42px; height:42px; border:2px solid #fff; box-shadow:0 0 0 2px #efb2c8,0 5px 13px #8e3e5a20; }
-      #read-letter-modal .letter-paper-meta-text { display:grid; gap:3px; color:#9b7181; font:500 12px/1.35 "DM Sans",sans-serif; }
-      #read-letter-modal .letter-paper-meta-text strong { color:#8d3458; font-size:14px; font-weight:800; }
-      #read-letter-modal .letter-paper-meta-text span { color:#a58d96; font-size:11px; }
-      #read-letter-modal .letter-paper-body { flex:1; min-height:150px; padding:22px 36px 16px 78px; }
-      #read-letter-modal .letter-stage-text,
-      #read-letter-modal .letter-rich-text {
-        color:#503440;
-        font:400 clamp(19px,2.5vw,22px)/1.75 Georgia,"Times New Roman",serif;
-        letter-spacing:.01em;
-      }
-      #read-letter-modal .letter-paper-tail { height:54px; }
-      .letter-replies-section { margin-top:24px; }
-      .letter-replies-title { display:flex; align-items:center; gap:8px; color:#783954; font:700 14px/1.3 "DM Sans",sans-serif; }
-      .letter-replies-title::after { content:""; width:38px; height:1px; background:#e9bdcc; }
-      .letter-reply-card { padding:15px 17px; border-color:#f0d2df; border-left-color:#d986a8; border-radius:19px; background:linear-gradient(125deg,#fff 0%,#fff8fb 100%); }
-      .letter-reply-card-head { font-size:14px; }
-      .letter-reply-card-hint { font-size:12px; }
-      .letter-reply-card-date { font-size:11px; }
-      .read-letter-actions { gap:9px; margin:18px auto 0; }
-      .read-letter-actions button { min-height:42px; padding:10px 16px; border:1px solid #f0d5e0; border-radius:999px; background:#fffafd; color:#86556c; font:700 12px/1.2 "DM Sans",sans-serif; text-decoration:none; box-shadow:0 4px 12px #7431490a; }
-      .read-letter-actions .letter-reply-btn { border-color:#d95489; background:linear-gradient(135deg,#e96c9d,#cf4d80); color:#fff; box-shadow:0 7px 17px #d7478030; }
-      .read-letter-actions .letter-delete-btn { color:#a84560; }
-      .read-letter-actions .letter-read-close { border-color:#e7c5d2; background:#fff4f8; color:#75445b; }
-      .read-letter-actions button:hover { transform:translateY(-1px); box-shadow:0 7px 16px #74314916; }
-      @media(max-width:600px) {
-        #read-letter-modal .letter-paper { min-height:clamp(300px,44vh,440px); border-radius:17px; }
-        #read-letter-modal .letter-paper-header { min-height:62px; padding:12px 14px 10px 62px; }
-        #read-letter-modal .letter-paper-body { padding:20px 20px 14px 62px; }
-        #read-letter-modal .letter-paper-tail { height:48px; }
-        .read-letter-actions { gap:8px; }
-        .read-letter-actions button { padding:10px 13px; }
-      }
-
-      /* ── Animations ─────────────────────────────────── */
-      @keyframes letter-overlay-in { to { opacity:1; } }
-      @keyframes letter-modal-in { from { opacity:0; transform:translateY(16px) scale(.97); } to { opacity:1; transform:translateY(0) scale(1); } }
-      @keyframes letter-paper-unfold {
-        0% { opacity:0; transform:perspective(900px) rotateX(-16deg) translateY(-9px) scale(.98); }
-        55% { opacity:1; transform:perspective(900px) rotateX(3deg) translateY(0) scale(1); }
-        100% { opacity:1; transform:perspective(900px) rotateX(0) translateY(0) scale(1); }
-      }
-      @keyframes letter-envelope-float { 0%,100% { transform:translateY(0) rotate(0); } 50% { transform:translateY(-3px) rotate(-2deg); } }
-      @keyframes letter-hint-glow { 0%,100% { opacity:.78; } 50% { opacity:1; } }
-      @keyframes letter-hint-nudge { 0%,100% { transform:translateX(0); } 50% { transform:translateX(3px); } }
-
-      /* ── Mobile ─────────────────────────────────────── */
-      @media (max-width:480px) {
-        .letters-card { padding:16px; border-radius:20px; }
-        .letters-header { align-items:flex-start; }
-        .write-letter-btn { padding:10px 12px; font-size:11px; }
-        .letter-item { padding:11px; }
-        .letter-date { font-size:11px; }
-        .letter-modal-overlay { padding:10px; }
-        .letter-modal-box { padding:18px; max-height:calc(100dvh - 20px); }
-      }
-      @media(max-width:600px) {
-        .letter-modal-overlay { padding:0; align-items:stretch; }
-        .letter-modal-box { width:100%; max-width:none; max-height:100dvh; height:100dvh; border-radius:0; padding:max(14px,env(safe-area-inset-top)) 14px max(14px,env(safe-area-inset-bottom)); }
-        .letter-editor-paper { height:calc(100dvh - 350px); min-height:240px; }
-        .letter-modal-box.is-fullscreen .letter-editor-paper { height:calc(100dvh - 340px); min-height:240px; }
-        #read-letter-modal { align-items:stretch; padding:0; }
-        #read-letter-modal .letter-read-modal-box { width:100%; height:auto; min-height:100dvh; max-height:none; border-radius:0; padding:max(18px,env(safe-area-inset-top)) 14px max(18px,env(safe-area-inset-bottom)); }
-        #read-letter-modal .letter-paper { width:100%; min-height:0; max-height:none; border-radius:2px; }
-        .letter-paper-header { padding-left:64px; padding-right:12px; }
-        .letter-paper-body { padding-left:64px; padding-right:14px; }
-        .letter-editor-content { padding-left:66px; padding-right:14px; }
-        .read-letter-actions { gap:8px 14px; }
-      }
-      @media (prefers-reduced-motion:reduce) {
-        .letter-modal-overlay.is-open,.letter-modal-overlay.is-open .letter-modal-box,.letter-modal-overlay.is-open .letter-paper { animation-duration:.01ms; animation-delay:0ms; }
-        .letter-item,.write-letter-btn,.letter-envelope,.letter-unread-dot,.letter-open-hint,.letter-open-hint .hint-arrow { transition:none; animation:none; }
+      @media (prefers-reduced-motion: reduce) {
+        .letter-modal-overlay.is-open, .letter-modal-overlay.is-open .letter-modal-box, .letter-modal-overlay.is-open .letter-paper { animation-duration: .01ms; animation-delay: 0ms; }
+        .letters-scope *, .letters-scope *::before, .letters-scope *::after { animation: none !important; transition: none !important; }
       }
     </style>
 
