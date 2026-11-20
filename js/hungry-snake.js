@@ -10,7 +10,6 @@ let disposed = false;
 const N = 22, BOXES = 48, TICK = 140;
 const DIR = { u: [0, -1], l: [-1, 0], r: [1, 0], d: [0, 1] };
 const DL = Object.values(DIR);
-const wr = v => (v + N) % N;
 
 /* ---------- CSS ---------- */
 const css = `
@@ -84,11 +83,11 @@ const markup = document.createElement('template');
 markup.innerHTML = `
 <div id="menu" class="screen">
  <div class="snk">🐍</div><h1>ಹಾವು ಹಣಾಹಣಿ</h1>
- <p class="sub">ಬೋರ್ಡ್‌ನಲ್ಲಿ ಬಿದ್ದಿರುವ ಎಲ್ಲಾ ಬಾಕ್ಸ್ ತಿನ್ನಿ!<br>ಎದುರಾಳಿ ಹಾವಿನ ದೇಹಕ್ಕೆ ಕಚ್ಚಿದರೆ ಅದರ ಹಿಂಭಾಗದ ಬಾಕ್ಸ್‌ಗಳು ನಿಮ್ಮದಾಗುತ್ತವೆ.<br>ಕೊನೆಗೆ ಹೆಚ್ಚು ಬಾಕ್ಸ್ ಇರುವವರೇ ವಿಜೇತ 🏆</p>
+ <p class="sub">ಬೋರ್ಡ್‌ನಲ್ಲಿರುವ ಬಾಕ್ಸ್‌ಗಳನ್ನು ತಿನ್ನಿ!<br>ನಿಮ್ಮ ಅಥವಾ ಎದುರಾಳಿಯ ಬಾಲಕ್ಕೆ ತಾಗಿದರೆ ಬಾಲದ ಭಾಗಗಳು ಕಳಚಿ ಬಾಕ್ಸ್‌ಗಳಾಗಿ ಬೀಳುತ್ತವೆ. ಅವನ್ನು ನಂತರ ಯಾರಾದರೂ ತಿನ್ನಬಹುದು.<br>ಕೊನೆಗೆ ಹೆಚ್ಚು ಬಾಕ್ಸ್ ಇರುವವರೇ ವಿಜೇತ 🏆</p>
  <button class="btn g" data-m="pvp">👥 ಇಬ್ಬರು ಆಡಿ</button>
  <button class="btn o" data-m="cpu">🤖 ಕಂಪ್ಯೂಟರ್ ಜೊತೆ ಆಡಿ</button>
  <div class="row"><button class="btn s" id="snd">🔊</button><button class="btn s" id="fs">⛶</button></div>
- <p class="help">ಆಟಗಾರ 1: W A S D &nbsp;|&nbsp; ಆಟಗಾರ 2: ← ↑ → ↓<br>ಮೊಬೈಲ್: ಬಟನ್ ಒತ್ತಿ (ಕಂಪ್ಯೂಟರ್ ಮೋಡ್‌ನಲ್ಲಿ ಸ್ವೈಪ್ ಕೂಡ)<br>ಗೋಡೆ ದಾಟಿದರೆ ಇನ್ನೊಂದು ಬದಿಯಿಂದ ಹೊರಬರುತ್ತೀರಿ. ನಿಮ್ಮ ದೇಹಕ್ಕೆ ಅಥವಾ ಎದುರಾಳಿಯ ತಲೆಗೆ ತಾಗಿದರೆ ನಿಲ್ಲುತ್ತೀರಿ.</p>
+ <p class="help">ಆಟಗಾರ 1: W A S D &nbsp;|&nbsp; ಆಟಗಾರ 2: ← ↑ → ↓<br>ಮೊಬೈಲ್: ಬಟನ್ ಒತ್ತಿ (ಕಂಪ್ಯೂಟರ್ ಮೋಡ್‌ನಲ್ಲಿ ಸ್ವೈಪ್ ಕೂಡ)<br>ಗೋಡೆಯ ಅಂಚಿಗೆ ತಾಗಿದರೆ ಹಾವು ನಿಲ್ಲುತ್ತದೆ. ನಿಮ್ಮದೇ ಬಾಲಕ್ಕೆ ತಾಗಿದರೆ ಬಾಲದ ಭಾಗ ಕಳಚುತ್ತದೆ; ಬಿದ್ದ ಬಾಕ್ಸ್‌ಗಳನ್ನು ನಂತರ ಇಬ್ಬರೂ ತಿನ್ನಬಹುದು.</p>
 </div>
 <div id="game" class="screen hidden">
  <div id="hud"><button id="home" class="btn s">🏠</button><div class="pill g" id="s0"></div><div class="pill o" id="s1"></div></div>
@@ -129,7 +128,7 @@ const sBite = () => { snd(200, .25, 'sawtooth', .13, .4); snd(700, .15, 'square'
 const sWin = () => [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => snd(f, .22, 'triangle', .13, 0, i * .13));
 
 /* ---------- ಪಟಾಕಿ / ಕಾನ್ಫೆಟ್ಟಿ / ಕಣಗಳು ---------- */
-let P = [], FW = null;
+let P = [], FW = null, fallingBoxes = [];
 function burst(x, y, col, n = 20, sp = 4, g = .08, life = 45) {
   for (let i = 0; i < n; i++) {
     const a = Math.random() * 6.283, s = Math.random() * sp + .5;
@@ -162,12 +161,17 @@ function fxLoop() {
 /* ---------- ಆಟದ ಸ್ಥಿತಿ ---------- */
 const COL = [{ c1: '#6cc04a', c2: '#f3e6c4', h: '#7fd05a' }, { c1: '#ffb74d', c2: '#fff1cf', h: '#ffd27a' }];
 const BC = ['#6cc04a', '#f3e6c4'];
-let mode = 'pvp', S = null, boxes = new Map(), state = 'idle', lastTick = 0, dpr = 1, bt, timers = [], cache = [-1, -1, -1];
+let mode = 'pvp', S = null, boxes = new Map(), state = 'idle', lastTick = 0, dpr = 1, bt, timers = [], cache = [-1, -1, -1], remoteBoxesSeen = false;
 let countStartedAt = 0, countdownStep = -1, raf = 0, inputSeq = 0, lastRemoteInput = 0;
 let resultShown = false;
 const N0 = () => opts.names?.[0] || 'ಆಟಗಾರ 1';
 const N1 = () => opts.names?.[1] || 'ಆಟಗಾರ 2';
 const len = s => s.b.length + s.grow;
+const boxCount = () => [...boxes.values()].reduce((total, box) => total + (box.count || 1), 0);
+function showFallingBox(box, startedAt = performance.now()) {
+  fallingBoxes.push({ ...box, startedAt });
+  if (fallingBoxes.length > 240) fallingBoxes.splice(0, fallingBoxes.length - 240);
+}
 const later = (f, ms) => timers.push(setTimeout(f, ms));
 const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
 
@@ -179,9 +183,11 @@ function hud(pulse) {
   const L = S.map(len);
   $('s0').textContent = `🟢 ${N0()} · ${L[0]}`; $('s1').textContent = `🟠 ${N1()} · ${L[1]}`;
   $('n0').textContent = `🟢 ${N0()}: ${L[0]} ಬಾಕ್ಸ್`; $('n1').textContent = `🟠 ${N1()}: ${L[1]} ಬಾಕ್ಸ್`;
-  $('left').textContent = `ಉಳಿದ: ${boxes.size}`;
+  const remainingBoxes = boxCount();
+  const looseSignature = [...boxes.values()].map(b => `${b.x},${b.y}:${b.k}:${b.count || 1}`).sort().join('|');
+  $('left').textContent = `ಉಳಿದ: ${remainingBoxes}`;
   $('t0').style.width = (L[0] / (L[0] + L[1]) * 100) + '%'; $('t1').style.width = (L[1] / (L[0] + L[1]) * 100) + '%';
-  if (cache[2] !== boxes.size) { cache[2] = boxes.size; $('loose').innerHTML = [...boxes.values()].map(b => `<i class="k${b.k}"></i>`).join(''); }
+  if (cache[2] !== looseSignature) { cache[2] = looseSignature; $('loose').innerHTML = [...boxes.values()].flatMap(b => Array.from({ length: b.count || 1 }, () => `<i class="k${b.k}"></i>`)).join(''); }
   [0, 1].forEach(i => { if (cache[i] !== L[i]) { cache[i] = L[i];
     $('st' + i).innerHTML = Array.from({ length: Math.min(L[i], 80) }, (_, j) => `<i class="${i ? 'n' : 'm'}${j % 2}"></i>`).join(''); } });
   if (pulse !== undefined) { const e = $('s' + pulse); e.classList.add('pop'); setTimeout(() => e.classList.remove('pop'), 350); }
@@ -195,7 +201,7 @@ window.addEventListener('resize', resize);
 
 function mk(x, y, d) { const b = []; for (let i = 0; i < 3; i++) b.push([x - d[0] * i, y - d[1] * i]); return { b, prev: b.slice(), dir: d, q: [], grow: 0, t: null, blk: false }; }
 function startGame(m) {
-  mode = m; clearTimers(); fireworks(false); P = []; cache = [-1, -1, -1];
+  mode = m; clearTimers(); fireworks(false); P = []; fallingBoxes = []; remoteBoxesSeen = false; cache = [-1, -1, -1];
   $('menu').classList.add('hidden'); $('end').classList.add('hidden'); $('game').classList.remove('hidden');
   $('game').classList.toggle('cpu', m === 'cpu'); $('game').classList.toggle('online', Boolean(online));
   $('pad0').classList.toggle('local-pad', !online || playerIndex === 0);
@@ -222,6 +228,7 @@ function publishSnapshot() {
 }
 function applySnapshot(value) {
   if (!online || online.authoritative || !value || !Array.isArray(value.snakes) || value.snakes.length !== 2) return;
+  if (value.state === 'count' && state !== 'count') { remoteBoxesSeen = false; fallingBoxes = []; }
   S = value.snakes.map(s => ({
     b: Array.isArray(s.b) ? s.b.map(c => [...c]) : [],
     prev: Array.isArray(s.prev) ? s.prev.map(c => [...c]) : [],
@@ -229,7 +236,17 @@ function applySnapshot(value) {
     q: Array.isArray(s.q) ? s.q.map(d => [...d]) : [],
     grow: Number(s.grow) || 0, t: null, blk: false
   }));
-  boxes = new Map((Array.isArray(value.boxes) ? value.boxes : []).map(box => [`${box.x},${box.y}`, box]));
+  const nextBoxes = new Map((Array.isArray(value.boxes) ? value.boxes : []).map(box => [`${box.x},${box.y}`, box]));
+  if (remoteBoxesSeen) {
+    const now = performance.now();
+    nextBoxes.forEach((box, key) => {
+      const previousCount = boxes.get(key)?.count || (boxes.has(key) ? 1 : 0);
+      const added = Math.max(0, (box.count || 1) - previousCount);
+      for (let i = 0; i < added; i++) showFallingBox(box, now);
+    });
+  }
+  remoteBoxesSeen = true;
+  boxes = nextBoxes;
   const oldState = state;
   state = value.state;
   countStartedAt = Number(value.countStartedAt) || 0;
@@ -289,7 +306,8 @@ function ai(s) {
     const seen = new Set([sx + ',' + sy]), q = [[sx, sy, 0]];
     while (q.length) {
       const [x, y, d] = q.shift(); if (boxes.has(x + ',' + y)) return d; if (d > 40) break;
-      for (const dd of DL) { const nx = wr(x + dd[0]), ny = wr(y + dd[1]), k = nx + ',' + ny;
+      for (const dd of DL) { const nx = x + dd[0], ny = y + dd[1], k = nx + ',' + ny;
+        if (nx < 0 || nx >= N || ny < 0 || ny >= N) continue;
         if (seen.has(k) || own.has(k) || (nx === oh[0] && ny === oh[1])) continue; seen.add(k); q.push([nx, ny, d + 1]); }
     }
     return 99;
@@ -297,7 +315,8 @@ function ai(s) {
   let best = null, bs = -1e9;
   for (const d of DL) {
     if (d[0] === -s.dir[0] && d[1] === -s.dir[1]) continue;
-    const nx = wr(h[0] + d[0]), ny = wr(h[1] + d[1]), k = nx + ',' + ny;
+    const nx = h[0] + d[0], ny = h[1] + d[1], k = nx + ',' + ny;
+    if (nx < 0 || nx >= N || ny < 0 || ny >= N) continue;
     if (own.has(k) || (nx === oh[0] && ny === oh[1])) continue;
     let sc = -dist(nx, ny); if (boxes.has(k)) sc += 50;
     const j = bodyIdx.get(k); if (j > 0) sc += (o.b.length - j) * 4 + 30;
@@ -312,25 +331,73 @@ function screenFx(gx, gy, col, n) {
 }
 function step() {
   if (mode === 'cpu') ai(S[1]);
-  S.forEach(s => { s.dir = s.q.length ? s.q.shift() : s.dir; s.t = [wr(s.b[0][0] + s.dir[0]), wr(s.b[0][1] + s.dir[1])]; });
-  S.forEach((s, i) => {
-    const o = S[1 - i], [tx, ty] = s.t, tail = s.grow > 0 ? -1 : s.b.length - 1;
-    s.blk = s.b.some((c, j) => j !== tail && c[0] === tx && c[1] === ty) || (o.b[0][0] === tx && o.b[0][1] === ty) || (o.t[0] === tx && o.t[1] === ty);
+  S.forEach(s => {
+    s.dir = s.q.length ? s.q.shift() : s.dir;
+    s.t = [s.b[0][0] + s.dir[0], s.b[0][1] + s.dir[1]];
+    s.blk = s.t[0] < 0 || s.t[0] >= N || s.t[1] < 0 || s.t[1] >= N;
   });
-  S.forEach(s => { s.prev = s.b.slice(); if (s.blk) return; s.b.unshift(s.t); if (s.grow > 0) s.grow--; else s.b.pop(); });
+  // Head-to-head contact still stops movement. Body contact cuts the tail.
+  S.forEach((s, i) => {
+    const o = S[1 - i], [tx, ty] = s.t;
+    if (s.blk) return;
+    if ((tx === o.b[0][0] && ty === o.b[0][1]) ||
+        (o.t[0] === s.b[0][0] && o.t[1] === s.b[0][1]) ||
+        (tx === o.t[0] && ty === o.t[1])) s.blk = true;
+  });
+
+  // Record every cut before moving either snake, so simultaneous contact is
+  // resolved consistently on the authoritative game state.
+  const cutAt = [-1, -1];
+  const markCut = (snakeIndex, segmentIndex) => {
+    if (segmentIndex > 0) cutAt[snakeIndex] = cutAt[snakeIndex] < 0 ? segmentIndex : Math.min(cutAt[snakeIndex], segmentIndex);
+  };
+  S.forEach((s, i) => {
+    if (s.blk) return;
+    const o = S[1 - i], [tx, ty] = s.t;
+    const ownHit = s.b.findIndex((c, j) => j > 0 && !(s.grow === 0 && j === s.b.length - 1) && c[0] === tx && c[1] === ty);
+    if (ownHit > 0) markCut(i, ownHit);
+    const otherHit = o.b.findIndex((c, j) => j > 0 && !(o.grow === 0 && !o.blk && j === o.b.length - 1) && c[0] === tx && c[1] === ty);
+    if (otherHit > 0) markCut(1 - i, otherHit);
+  });
+
+  const dropped = [], cutLengths = [0, 0];
+  S.forEach((s, i) => {
+    s.prev = s.b.slice();
+    if (cutAt[i] > 0) {
+      const cut = s.b.splice(cutAt[i]);
+      cutLengths[i] = cut.length;
+      s.prev = s.prev.slice(0, cutAt[i]);
+      cut.forEach((cell, segmentIndex) => dropped.push({ x: cell[0], y: cell[1], k: segmentIndex % 2 }));
+    }
+  });
+  S.forEach(s => { if (!s.blk) { s.b.unshift(s.t); if (s.grow > 0) s.grow--; else s.b.pop(); } });
+
   let pulse;
   S.forEach((s, i) => {
     if (s.blk) return;
-    const o = S[1 - i], [x, y] = s.b[0], k = x + ',' + y;
-    const j = o.b.findIndex((c, q) => q > 0 && c[0] === x && c[1] === y);
-    if (j > 0) {
-      const cut = o.b.splice(j); s.grow += cut.length; o.prev = o.prev.slice(0, o.b.length); pulse = i;
-      screenFx(x, y, '#ff5a4a', 28); sBite(); buzz([40, 30, 60]); banner(`😮 ಕಚ್ಚಿದರು! +${cut.length}`, 900);
+    const [x, y] = s.b[0], k = x + ',' + y;
+    if (boxes.has(k)) {
+      const b = boxes.get(k);
+      if ((b.count || 1) > 1) b.count--; else boxes.delete(k);
+      s.grow++; pulse = i; screenFx(x, y, BC[b.k], 16); sEat(); buzz(10);
     }
-    if (boxes.has(k)) { const b = boxes.get(k); boxes.delete(k); s.grow++; pulse = i; screenFx(x, y, BC[b.k], 16); sEat(); buzz(10); }
+  });
+  // New cut blocks are added after this tick's pickups. If two boxes share a
+  // tile, keep them as a stack so none of the cut length is lost.
+  dropped.forEach(box => {
+    const k = box.x + ',' + box.y, existing = boxes.get(k);
+    if (existing) existing.count = (existing.count || 1) + 1;
+    else boxes.set(k, { ...box, count: 1 });
+    showFallingBox(box);
+  });
+  cutLengths.forEach((count, i) => {
+    if (!count) return;
+    pulse = i; const [x, y] = S[i].b[0];
+    screenFx(x, y, '#ff5a4a', 28); sBite(); buzz([40, 30, 60]);
+    banner(`🐍 ಬಾಲ ಕಳಚಿತು · ${count} ಬಾಕ್ಸ್ ಬಿದ್ದಿವೆ`, 900);
   });
   hud(pulse);
-  if (!boxes.size) finish();
+  if (!boxCount()) finish();
 }
 function finish() {
   state = 'over'; const L = S.map(len);
@@ -387,6 +454,13 @@ function draw(now, t) {
     ctx.fillStyle = BC[b.k]; rr(cx, cy, z, z, c * .16);
     ctx.fillStyle = '#0002'; ctx.beginPath(); ctx.arc(cx, cy, z * .13, 0, 6.283); ctx.fill();
     ctx.fillStyle = '#fff6'; ctx.beginPath(); ctx.arc(cx - z * .25, cy - z * .25, z * .1, 0, 6.283); ctx.fill();
+    if ((b.count || 1) > 1) { ctx.fillStyle = '#25402a'; ctx.font = `700 ${c * .28}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(b.count, cx, cy); }
+  }
+  fallingBoxes = fallingBoxes.filter(box => now - box.startedAt < 240);
+  for (const box of fallingBoxes) {
+    const progress = Math.max(0, Math.min(1, (now - box.startedAt) / 240));
+    const z = c * .6 * (1 - progress * .18), cx = (box.x + .5) * c, cy = (box.y + .5 - (1 - progress) * .7) * c;
+    ctx.save(); ctx.globalAlpha = 1 - progress * .45; ctx.fillStyle = BC[box.k]; rr(cx, cy, z, z, c * .16); ctx.restore();
   }
   S.forEach((s, i) => drawSnake(s, i, t, c));
 }

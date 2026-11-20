@@ -88,6 +88,10 @@ export function openAirHockey(opts = {}) {
   let trail = [], vw = 0, vh = 0, dpr = 1, S = 1, ox = 0, oy = 0, cache = null, raf = 0, last = performance.now(), acc = 0;
   let muted = false;
   let lastOnlineSnapshotAt = 0, lastOnlineInputAt = 0, lastOnlineInput = 0, onlineInputSeq = 0, onlineActionSeq = 0, lastOnlineActionSeq = 0, onlineWon = false;
+  // Keep remote motion snapshots briefly so the non-host can render between
+  // network updates instead of snapping the puck and striker every 50 ms.
+  const remoteMotion = [];
+  const REMOTE_RENDER_DELAY = 80;
   const onlineUnsubs = [];
   try { muted = localStorage.getItem("olw-ah-muted") === "1"; } catch {}
 
@@ -325,12 +329,13 @@ export function openAirHockey(opts = {}) {
   function applyOnlineSnapshot(snapshot) {
     if (!snapshot || online?.authoritative) return;
     const oldScore = [...score], oldState = state;
+    if (snapshot.puck && Number.isFinite(snapshot.puck.x) && Number.isFinite(snapshot.puck.y)) {
+      remoteMotion.push({ receivedAt: performance.now(), snapshot });
+      if (remoteMotion.length > 12) remoteMotion.shift();
+    }
     target = snapshot.target || target;
     score = Array.isArray(snapshot.score) ? [...snapshot.score] : score;
     lastScorer = Number.isInteger(snapshot.lastScorer) ? snapshot.lastScorer : lastScorer;
-    if (snapshot.puck) Object.assign(puck, snapshot.puck);
-    if (Array.isArray(snapshot.pads)) snapshot.pads.forEach((pad, index) => { if (pads[index] && pad) Object.assign(pads[index], pad); });
-    if (Array.isArray(snapshot.trail)) trail = snapshot.trail;
     if (Number.isFinite(snapshot.shake)) shake = snapshot.shake;
     if (Number.isFinite(snapshot.flash)) flash = snapshot.flash;
     if (score.some((value, index) => value > oldScore[index])) {
@@ -355,7 +360,32 @@ export function openAirHockey(opts = {}) {
         }
       }
     }
-    last = performance.now();
+  }
+
+  function sampleRemoteMotion(now) {
+    if (!online || online.authoritative || !remoteMotion.length) return;
+    const renderAt = now - REMOTE_RENDER_DELAY;
+    while (remoteMotion.length > 2 && remoteMotion[1].receivedAt <= renderAt) remoteMotion.shift();
+    const a = remoteMotion[0], b = remoteMotion[1] || a;
+    const span = b.receivedAt - a.receivedAt;
+    const t = span > 0 ? clamp((renderAt - a.receivedAt) / span, 0, 1) : 1;
+    const mix = (left, right) => Number.isFinite(left) && Number.isFinite(right) ? left + (right - left) * t : right;
+    const puckA = a.snapshot.puck, puckB = b.snapshot.puck;
+    puck.x = mix(puckA.x, puckB.x); puck.y = mix(puckA.y, puckB.y);
+    puck.vx = mix(puckA.vx, puckB.vx); puck.vy = mix(puckA.vy, puckB.vy);
+    const padsA = a.snapshot.pads || [], padsB = b.snapshot.pads || [];
+    pads.forEach((pad, index) => {
+      // The local striker already follows touch input continuously. Interpolate
+      // only the partner's striker to avoid remote updates pulling it backward.
+      if (index === online.playerIndex) return;
+      const from = padsA[index], to = padsB[index];
+      if (!from || !to) return;
+      pad.x = mix(from.x, to.x); pad.y = mix(from.y, to.y);
+      pad.vx = mix(from.vx, to.vx); pad.vy = mix(from.vy, to.vy);
+      pad.pulse = mix(from.pulse, to.pulse);
+    });
+    trail.push({ x: puck.x, y: puck.y });
+    if (trail.length > 12) trail.shift();
   }
 
   function applyRemoteInput(input) {
@@ -438,6 +468,7 @@ export function openAirHockey(opts = {}) {
       else if (state === "goal") { movePads(dt); if (stateT > 1.15) serve(); }
       else if (state === "won" || state === "menu") movePads(dt);
     } else if (state !== "paused") movePads(dt);
+    sampleRemoteMotion(now);
     pads.forEach((p) => (p.pulse = Math.max(0, p.pulse - dt * 3.2))); shake = Math.max(0, shake - dt * 3);
     if (state !== "paused") updateFX(dt);
     if (online?.authoritative && now - lastOnlineSnapshotAt >= 50) { lastOnlineSnapshotAt = now; online.publishState?.(onlineSnapshot()); }

@@ -1539,7 +1539,7 @@ export function renderGames(el, user, profile) {
     if (room?.matchId && room.matchId === hungrySnakeExitedMatchId) {
       closeHungrySnakeMount();
       statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">This Hungry Snake match ended.</p>${playersMarkup}<button type="button" class="primary" data-room-start>Start another match</button></div>`;
-      content.innerHTML = `<article class="game-panel"><h2>Hungry Snake 🐍</h2><p class="games-instructions">Collect the boxes and bite your partner's snake to win them. You each control your snake from your own phone.</p></article>`;
+      content.innerHTML = `<article class="game-panel"><h2>Hungry Snake 🐍</h2><p class="games-instructions">Collect boxes, protect your tail, and bite to make tail blocks fall as food either player can collect. The board edges stop your snake. You each control your snake from your own phone.</p></article>`;
       return;
     }
 
@@ -1550,7 +1550,7 @@ export function renderGames(el, user, profile) {
         ? room.winnerUid ? `${esc(getDisplayName(room.winnerUid, players[room.winnerUid]?.name || "Your partner"))} won Hungry Snake!` : "It's a draw!"
         : room?.status === "cancelled" ? "This Hungry Snake match ended." : "Start a match, then your partner joins from their device.";
       statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${result}</p>${playersMarkup}<button type="button" class="primary" data-room-start>${room ? "Play another match" : "Start a match"}</button></div>`;
-      content.innerHTML = `<article class="game-panel"><h2>Hungry Snake 🐍</h2><p class="games-instructions">Collect boxes and bite your partner's snake to steal its tail. Both players move at the same time from their own phones.</p></article>`;
+      content.innerHTML = `<article class="game-panel"><h2>Hungry Snake 🐍</h2><p class="games-instructions">Collect boxes, protect your tail, and bite to make tail blocks fall as food either player can collect. The board edges stop your snake. Both players move at the same time from their own phones.</p></article>`;
       return;
     }
     if (room.status === "waiting") {
@@ -1674,7 +1674,7 @@ export function renderGames(el, user, profile) {
       "guess-the-answer": ["Guess the Answer", "Send each other questions with hints, guess the answers, and compare scores.", "💬"],
       battleship: ["Battleship", "Hide your fleet and find your partner's ships.", "🚢"],
       "air-hockey": ["Air Hockey", "Move your striker and score goals against your partner.", "🏒"],
-      "hungry-snake": ["Hungry Snake", "Collect boxes and bite your partner's snake to take its tail.", "🐍", "LIVE 2 PLAYERS"],
+      "hungry-snake": ["Hungry Snake", "Collect boxes, protect your tail, and bite to drop tail blocks as shared food.", "🐍", "LIVE 2 PLAYERS"],
       "true-false": ["True or False", "Guess together, then learn a surprising fact.", "💡"]
     }[activeGame];
     if (renderedShellGame !== activeGame) {
