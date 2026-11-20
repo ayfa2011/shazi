@@ -197,10 +197,18 @@ async function fetchMediaFromNetwork(fileId, mimeType) {
   }, TELEGRAM_MEDIA_TIMEOUT_MS);
   try {
     response = await authorizedRequest(url.toString(), { signal: controller.signal });
+    // Cloudflare or Telegram can briefly return a gateway error. Retry the
+    // idempotent media GET once before falling back to the offline cache.
+    if (response.status >= 500 && response.status <= 599 && !controller.signal.aborted) {
+      await new Promise(resolve => setTimeout(resolve, 350));
+      if (!controller.signal.aborted) response = await authorizedRequest(url.toString(), { signal: controller.signal });
+    }
     if (!response.ok) {
       const cached = await idbGet(cacheKey).catch(() => null);
       if (cached?.blob) return cached.blob;
-      throw new Error(`Could not load this Telegram media (HTTP ${response.status}).`);
+      const details = await response.clone().json().catch(() => ({}));
+      const reason = details.error || details.message;
+      throw new Error(`Could not load this Telegram media (HTTP ${response.status})${reason ? `: ${reason}` : ""}.`);
     }
     const blob = await response.blob();
     const requestedType = String(mimeType || "").trim().toLowerCase();
