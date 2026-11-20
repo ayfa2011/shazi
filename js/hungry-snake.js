@@ -147,6 +147,7 @@ function fireworks(on) {
   shoot(); FW = setInterval(() => { shoot(); confetti(); }, 380);
 }
 function fxLoop() {
+  if (!P.length) return;
   fc.clearRect(0, 0, innerWidth, innerHeight);
   P = P.filter(p => p.l > 0);
   for (const p of P) {
@@ -161,7 +162,7 @@ function fxLoop() {
 /* ---------- ಆಟದ ಸ್ಥಿತಿ ---------- */
 const COL = [{ c1: '#6cc04a', c2: '#f3e6c4', h: '#7fd05a' }, { c1: '#ffb74d', c2: '#fff1cf', h: '#ffd27a' }];
 const BC = ['#6cc04a', '#f3e6c4'];
-let mode = 'pvp', S = null, boxes = new Map(), state = 'idle', lastTick = 0, dpr = 1, bt, timers = [], cache = [-1, -1, -1], remoteBoxesSeen = false;
+let mode = 'pvp', S = null, boxes = new Map(), state = 'idle', lastTick = 0, dpr = 1, bt, timers = [], cache = [-1, -1, -1], remoteBoxesSeen = false, boardBg = null;
 let countStartedAt = 0, countdownStep = -1, raf = 0, inputSeq = 0, lastRemoteInput = 0;
 let resultShown = false;
 const N0 = () => opts.names?.[0] || 'ಆಟಗಾರ 1';
@@ -194,8 +195,20 @@ function hud(pulse) {
 }
 function resize() {
   dpr = Math.min(2, window.devicePixelRatio || 1);
-  const w = $('board').clientWidth; cv.width = cv.height = Math.round(w * dpr);
-  fx.width = innerWidth * dpr; fx.height = innerHeight * dpr; fc.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const w = $('board').clientWidth, boardSize = Math.max(1, Math.round(w * dpr));
+  if (cv.width !== boardSize || cv.height !== boardSize || !boardBg) {
+    cv.width = cv.height = boardSize;
+    boardBg = document.createElement('canvas'); boardBg.width = boardBg.height = boardSize;
+    const bg = boardBg.getContext('2d'), cell = boardSize / N;
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      bg.fillStyle = (x + y) % 2 ? '#e4f3cf' : '#d6ecbc';
+      bg.fillRect(x * cell, y * cell, cell + 1, cell + 1);
+    }
+  }
+  const fxWidth = Math.max(1, Math.round(innerWidth * dpr)), fxHeight = Math.max(1, Math.round(innerHeight * dpr));
+  if (fx.width !== fxWidth) fx.width = fxWidth;
+  if (fx.height !== fxHeight) fx.height = fxHeight;
+  fc.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 window.addEventListener('resize', resize);
 
@@ -251,10 +264,11 @@ function applySnapshot(value) {
   state = value.state;
   countStartedAt = Number(value.countStartedAt) || 0;
   lastTick = performance.now();
+  const gameWasHidden = $('game').classList.contains('hidden');
   $('menu').classList.add('hidden'); $('game').classList.remove('hidden'); $('game').classList.add('online');
   $('pad0').classList.toggle('local-pad', playerIndex === 0);
   $('pad1').classList.toggle('local-pad', playerIndex === 1);
-  resize();
+  if (gameWasHidden) resize();
   if (oldState !== state) { cache = [-1, -1, -1]; resultShown = false; }
   hud();
   if (oldState === 'count' && state === 'play') { banner('ಹೋಗಿ! 🐍', 600); snd(880, .3, 'square', .08); }
@@ -447,7 +461,7 @@ function drawSnake(s, i, t, c) {
 }
 function draw(now, t) {
   const c = cv.width / N; ctx.clearRect(0, 0, cv.width, cv.height);
-  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { ctx.fillStyle = (x + y) % 2 ? '#e4f3cf' : '#d6ecbc'; ctx.fillRect(x * c, y * c, c + 1, c + 1); }
+  if (boardBg) ctx.drawImage(boardBg, 0, 0);
   ctx.lineWidth = c * .05; ctx.strokeStyle = '#0003';
   for (const b of boxes.values()) {
     const z = c * .6 * (1 + .06 * Math.sin(now / 300 + b.x * 3 + b.y * 2)), cx = (b.x + .5) * c, cy = (b.y + .5) * c;
