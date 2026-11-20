@@ -15,6 +15,7 @@ const sosPresenceRef = uid => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/so
 const gameMatchRef = game => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/matches/${game}`);
 const trueFalseBankRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/questionBanks/trueFalse`);
 const airHockeySyncRef = (matchId, channel) => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/airHockeyMatches/${matchId}/${channel}`);
+const hungrySnakeSyncRef = (matchId, channel) => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/hungrySnakeMatches/${matchId}/${channel}`);
 const SOS_ROWS = 10;
 const SOS_COLUMNS = 10;
 const SOS_CELL_COUNT = SOS_ROWS * SOS_COLUMNS;
@@ -54,6 +55,8 @@ let activeSosPresenceUid = "";
 let activeBattleshipController = null;
 let disposeMountedAirHockey = null;
 let leaveMountedAirHockey = null;
+let disposeMountedHungrySnake = null;
+let leaveMountedHungrySnake = null;
 function shuffle(items) {
   const shuffled = [...items];
   for (let index = shuffled.length - 1; index > 0; index--) {
@@ -78,6 +81,7 @@ const gameTitles = {
   "memory-match": "Memory Match",
   "emoji-quiz": "Emoji Quiz",
   "air-hockey": "Air Hockey",
+  "hungry-snake": "Hungry Snake",
 
   battleship: "Battleship",
   sos: "SOS",
@@ -245,6 +249,7 @@ function gameWinner(game, playerUids, results) {
 function formatGameScore(game, score) {
   if (score == null) return "—";
   if (game === "memory-match") return `${score} moves`;
+  if (game === "hungry-snake") return `${score} boxes`;
   return `${score} points`;
 }
 
@@ -481,6 +486,7 @@ function gamesHome() {
       ${gameCard("guess-the-answer", "💬", "Guess the Answer")}
       ${gameCard("battleship", "🚢", "Battleship")}
       ${gameCard("air-hockey", "🏒", "Air Hockey")}
+      ${gameCard("hungry-snake", "🐍", "Hungry Snake")}
       ${gameCard("ludo", "🎲", "Ludo")}
     </div>
   </section>`;
@@ -712,6 +718,13 @@ function isValidGameRoom(room, game) {
       (room.quizPhase === "guesser" && (!room.quizRound || typeof room.quizRound.emojis !== "string")))) return false;
   if (game === "true-false") return isValidTrueFalseRoom(room);
   if (game === "battleship") return isValidBattleshipRoom(room);
+  if (game === "hungry-snake") return room.status === "waiting"
+    ? !room.turnUid
+    : room.status === "playing"
+      ? room.playerUids.length === 2
+      : room.status === "finished"
+        ? !room.turnUid && (!room.winnerUid || room.playerUids.includes(room.winnerUid))
+        : !room.turnUid;
   if (room.status === "waiting") return !room.turnUid;
   if (room.status === "playing") return room.playerUids.includes(room.turnUid);
   return !room.turnUid && (!room.winnerUid || room.playerUids.includes(room.winnerUid));
@@ -745,6 +758,10 @@ export function renderGames(el, user, profile) {
   disposeMountedAirHockey?.();
   disposeMountedAirHockey = null;
   leaveMountedAirHockey = null;
+  leaveMountedHungrySnake?.();
+  disposeMountedHungrySnake?.();
+  disposeMountedHungrySnake = null;
+  leaveMountedHungrySnake = null;
   activeBattleshipController?.dispose();
   activeBattleshipController = null;
   stopGames?.();
@@ -777,6 +794,9 @@ export function renderGames(el, user, profile) {
   let airHockeyMatchId = "";
   let airHockeyLoadingId = "";
   let airHockeyExitedMatchId = "";
+  let hungrySnakeMatchId = "";
+  let hungrySnakeLoadingId = "";
+  let hungrySnakeExitedMatchId = "";
   const battleshipGame = createBattleshipGame({
     el, user, profile,
     getRoom: () => gameRoomState,
@@ -1453,6 +1473,146 @@ export function renderGames(el, user, profile) {
     });
   }
 
+  async function finishHungrySnakeMatch(matchId, winnerIndex, scores) {
+    try {
+      await runTransaction(gameMatchRef("hungry-snake"), current => {
+        if (current?.matchId !== matchId || current.status !== "playing" || !Array.isArray(scores) || scores.length !== 2) return;
+        const winnerUid = winnerIndex >= 0 ? current.playerUids[winnerIndex] : "";
+        const players = Object.fromEntries(current.playerUids.map((uid, index) => [uid, {
+          ...current.players[uid], score: Number(scores[index]) || 0, completed: true, state: null
+        }]));
+        return { ...current, players, status: "finished", winnerUid, turnUid: "", updatedAt: Date.now() };
+      });
+    } catch (error) { console.error("Hungry Snake result could not be saved:", error); }
+  }
+
+  async function restartHungrySnakeMatch(matchId) {
+    try {
+      const transaction = await runTransaction(gameMatchRef("hungry-snake"), current => {
+        if (current?.matchId !== matchId || !["playing", "finished"].includes(current.status) || !current.playerUids.includes(user.uid)) return;
+        const now = Date.now(), nextMatchId = `${now}-${user.uid}`;
+        const players = Object.fromEntries(current.playerUids.map(uid => [uid, {
+          name: current.players[uid]?.name || getDisplayName(uid, "Partner"), score: 0, completed: false, state: null
+        }]));
+        return { ...current, matchId: nextMatchId, status: "playing", players, winnerUid: "", turnUid: "", createdAt: now, updatedAt: now };
+      });
+      if (!transaction.committed) toast("Hungry Snake could not restart. Please try again.");
+    } catch (error) { console.error("Hungry Snake could not restart:", error); toast("Hungry Snake could not restart."); }
+  }
+
+  function leaveHungrySnakeMatch(matchId) {
+    if (!rtdb || !matchId) return;
+    void runTransaction(gameMatchRef("hungry-snake"), current => {
+      if (current?.matchId !== matchId || current.status !== "playing" || !current.playerUids.includes(user.uid)) return;
+      return { ...current, status: "cancelled", turnUid: "", updatedAt: Date.now() };
+    }).catch(error => console.error("Hungry Snake match could not be ended:", error));
+  }
+
+  function closeHungrySnakeMount() {
+    disposeMountedHungrySnake?.();
+    disposeMountedHungrySnake = null;
+    leaveMountedHungrySnake = null;
+    hungrySnakeMatchId = "";
+    hungrySnakeLoadingId = "";
+  }
+
+  function renderHungrySnakeRoom(room, statusEl, content) {
+    if (!rtdb) {
+      closeHungrySnakeMount();
+      statusEl.innerHTML = `<p class="error">Hungry Snake needs Firebase Realtime Database to connect both players.</p>`;
+      content.replaceChildren();
+      return;
+    }
+    if (room && !isValidGameRoom(room, "hungry-snake")) {
+      closeHungrySnakeMount();
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="error">This Hungry Snake match has incomplete saved data. Start a fresh match.</p><button type="button" class="primary" data-room-start>Start a fresh match</button></div>`;
+      content.replaceChildren();
+      return;
+    }
+
+    const players = room?.players || {};
+    const playerUids = room?.playerUids || [];
+    const names = playerUids.map(uid => getDisplayName(uid, players[uid]?.name || "Player"));
+    const scores = playerUids.map(uid => Number(players[uid]?.score) || 0);
+    const playersMarkup = room ? `<div class="game-room-player-row">${playerUids.map((uid, index) => `<div class="game-room-player">${gamePlayerAvatar(uid, players[uid]?.name)}<span>${esc(names[index] || "Player")}</span><strong>${scores[index] || 0} boxes</strong></div>`).join("")}</div>` : "";
+
+    if (room?.matchId && room.matchId === hungrySnakeExitedMatchId) {
+      closeHungrySnakeMount();
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">This Hungry Snake match ended.</p>${playersMarkup}<button type="button" class="primary" data-room-start>Start another match</button></div>`;
+      content.innerHTML = `<article class="game-panel"><h2>Hungry Snake 🐍</h2><p class="games-instructions">Collect the boxes and bite your partner's snake to win them. You each control your snake from your own phone.</p></article>`;
+      return;
+    }
+
+    if ((room?.status !== "playing" && room?.status !== "finished" || hungrySnakeMatchId && hungrySnakeMatchId !== room?.matchId) && (disposeMountedHungrySnake || hungrySnakeLoadingId)) closeHungrySnakeMount();
+
+    if (!room || room.status === "finished" || room.status === "cancelled") {
+      const result = room?.status === "finished"
+        ? room.winnerUid ? `${esc(getDisplayName(room.winnerUid, players[room.winnerUid]?.name || "Your partner"))} won Hungry Snake!` : "It's a draw!"
+        : room?.status === "cancelled" ? "This Hungry Snake match ended." : "Start a match, then your partner joins from their device.";
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${result}</p>${playersMarkup}<button type="button" class="primary" data-room-start>${room ? "Play another match" : "Start a match"}</button></div>`;
+      content.innerHTML = `<article class="game-panel"><h2>Hungry Snake 🐍</h2><p class="games-instructions">Collect boxes and bite your partner's snake to steal its tail. Both players move at the same time from their own phones.</p></article>`;
+      return;
+    }
+    if (room.status === "waiting") {
+      const isCreator = room.playerUids[0] === user.uid;
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${isCreator ? "Waiting for your partner to join from their device…" : `${esc(getDisplayName(room.playerUids[0], players[room.playerUids[0]]?.name || "Your partner"))} is waiting. Join Hungry Snake to play!`}</p>${playersMarkup}${isCreator ? `<button type="button" class="secondary" data-room-cancel>Cancel match</button>` : `<button type="button" class="primary" data-room-start>Join match</button>`}</div>`;
+      content.innerHTML = `<article class="game-panel"><h2>Hungry Snake 🐍</h2><p class="games-instructions">The match opens as soon as both players join. Each person controls their own snake.</p></article>`;
+      return;
+    }
+    if (!room.playerUids.includes(user.uid)) {
+      statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">This match is already in progress with your partner.</p></div>`;
+      content.replaceChildren();
+      return;
+    }
+
+    const playerIndex = room.playerUids.indexOf(user.uid);
+    const partnerUid = room.playerUids.find(uid => uid !== user.uid);
+    statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${room.status === "finished" ? room.winnerUid === user.uid ? "You won Hungry Snake! 🎉" : room.winnerUid ? `${esc(getDisplayName(room.winnerUid, players[room.winnerUid]?.name || "Your partner"))} won Hungry Snake!` : "It's a draw! 🤝" : playerIndex === 0 ? "Connected! You control the green snake." : "Connected! You control the orange snake."}</p>${playersMarkup}</div>`;
+    if (hungrySnakeMatchId === room.matchId && disposeMountedHungrySnake) return;
+    content.innerHTML = `<p class="games-instructions">Connecting your shared snake board…</p>`;
+    if (hungrySnakeLoadingId === room.matchId) return;
+
+    const matchId = room.matchId;
+    hungrySnakeLoadingId = matchId;
+    import("./hungry-snake.js").then(({ openHungrySnake }) => {
+      if (activeGame !== "hungry-snake" || !el.isConnected || gameRoomState?.matchId !== matchId || !["playing", "finished"].includes(gameRoomState?.status)) return;
+      const isHost = playerIndex === 0;
+      const stateRef = hungrySnakeSyncRef(matchId, "state");
+      const inputRef = hungrySnakeSyncRef(matchId, `inputs/${isHost ? partnerUid : user.uid}`);
+      const actionRef = hungrySnakeSyncRef(matchId, "action");
+      const closeGame = openHungrySnake({
+        names: room.playerUids.map((uid, index) => getDisplayName(uid, players[uid]?.name || `Player ${index + 1}`)),
+        online: {
+          authoritative: isHost, autoStart: true, playerIndex,
+          subscribeState(callback) { return onValue(stateRef, snapshot => callback(snapshot.val())); },
+          publishState(snapshot) { void set(stateRef, snapshot).catch(error => console.warn("Hungry Snake state sync failed:", error)); },
+          sendInput(input) { void set(inputRef, input).catch(error => console.warn("Hungry Snake control sync failed:", error)); },
+          subscribeInput(callback) { return onValue(inputRef, snapshot => callback(snapshot.val())); },
+          sendAction(action) { void set(actionRef, { ...action, at: Date.now() }).catch(error => console.warn("Hungry Snake action sync failed:", error)); },
+          subscribeAction(callback) { return onValue(actionRef, snapshot => callback(snapshot.val())); },
+          onFinish({ winnerIndex, scores }) { if (isHost) void finishHungrySnakeMatch(matchId, winnerIndex, scores); },
+          onAgain() { if (isHost) void restartHungrySnakeMatch(matchId); }
+        },
+        onExit() {
+          leaveHungrySnakeMatch(matchId);
+          hungrySnakeExitedMatchId = matchId;
+          closeHungrySnakeMount();
+          activeGame = ""; gameRoomState = null; activeState = null;
+          stopGameMatch?.(); stopGameMatch = null;
+          renderCurrentGame();
+        }
+      });
+      hungrySnakeMatchId = matchId;
+      hungrySnakeLoadingId = "";
+      disposeMountedHungrySnake = closeGame;
+      leaveMountedHungrySnake = () => leaveHungrySnakeMatch(matchId);
+    }).catch(error => {
+      hungrySnakeLoadingId = "";
+      console.error("Hungry Snake could not be loaded:", error);
+      statusEl.innerHTML = `<p class="error">Hungry Snake could not be loaded. Please refresh and try again.</p>`;
+    });
+  }
+
   function renderCurrentGame() {
     if (!activeGame) {
       document.body.classList.remove("sos-fullscreen");
@@ -1514,6 +1674,7 @@ export function renderGames(el, user, profile) {
       "guess-the-answer": ["Guess the Answer", "Send each other questions with hints, guess the answers, and compare scores.", "💬"],
       battleship: ["Battleship", "Hide your fleet and find your partner's ships.", "🚢"],
       "air-hockey": ["Air Hockey", "Move your striker and score goals against your partner.", "🏒"],
+      "hungry-snake": ["Hungry Snake", "Collect boxes and bite your partner's snake to take its tail.", "🐍", "LIVE 2 PLAYERS"],
       "true-false": ["True or False", "Guess together, then learn a surprising fact.", "💡"]
     }[activeGame];
     if (renderedShellGame !== activeGame) {
@@ -1527,6 +1688,10 @@ export function renderGames(el, user, profile) {
     }
     if (activeGame === "air-hockey") {
       renderAirHockeyRoom(gameRoomState, $("#games-room-status", el), $("#games-active-content", el));
+      return;
+    }
+    if (activeGame === "hungry-snake") {
+      renderHungrySnakeRoom(gameRoomState, $("#games-room-status", el), $("#games-active-content", el));
       return;
     }
     renderGameRoom();
@@ -2180,7 +2345,7 @@ export function renderGames(el, user, profile) {
                 [user.uid]: { name: getDisplayName(user.uid, profile?.name), score: 0, completed: false, state: null }
               },
               status: "playing",
-              turnUid: current.playerUids[0],
+              turnUid: activeGame === "hungry-snake" ? "" : current.playerUids[0],
               updatedAt: Date.now()
             };
           }
@@ -2289,6 +2454,7 @@ export function renderGames(el, user, profile) {
 
     if (target.hasAttribute("data-back-games") || target.hasAttribute("data-sos-leave")) {
       if (activeGame === "air-hockey") closeAirHockeyMount({ leave: true });
+      if (activeGame === "hungry-snake") { leaveMountedHungrySnake?.(); disposeMountedHungrySnake?.(); disposeMountedHungrySnake = null; leaveMountedHungrySnake = null; }
       if (memoryTimer) clearTimeout(memoryTimer);
       memoryTimer = null;
       clearSosSession();
@@ -2441,6 +2607,10 @@ export function disposeGames() {
   disposeMountedAirHockey?.();
   disposeMountedAirHockey = null;
   leaveMountedAirHockey = null;
+  leaveMountedHungrySnake?.();
+  disposeMountedHungrySnake?.();
+  disposeMountedHungrySnake = null;
+  leaveMountedHungrySnake = null;
   activeBattleshipController?.dispose();
   activeBattleshipController = null;
   stopGames?.();

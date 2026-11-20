@@ -443,9 +443,10 @@ service cloud.firestore {
             && request.resource.data.question.size() > 0
             && request.resource.data.question.size() <= 300)
           || (collectionName == 'meta'
-            && documentId == 'v1'
+            && documentId == 'v3'
             && request.resource.data.keys().hasOnly(['version', 'questionCount', 'seededAt'])
-            && request.resource.data.questionCount == 105)
+            && request.resource.data.version == 'v3'
+            && request.resource.data.questionCount == 395)
         );
       allow delete: if false;
     }

@@ -260,7 +260,9 @@ export function openAirHockey(opts = {}) {
         const rvx = puck.vx - p.vx, rvy = puck.vy - p.vy, vn = rvx * nx + rvy * ny;
         if (vn < 0) { puck.vx -= 1.9 * vn * nx; puck.vy -= 1.9 * vn * ny;
           let sp = Math.hypot(puck.vx, puck.vy); if (sp < 240) { puck.vx = (puck.vx / (sp || 1)) * 240 || nx * 240; puck.vy = (puck.vy / (sp || 1)) * 240 || ny * 240; sp = 240; }
-          if (time - lastHit > 0.05) { sfx.hit(sp); buzz(8); lastHit = time; } p.pulse = 1; }
+          // Avoid vibrating the whole phone on every puck collision. Android
+          // honors the Vibration API here, while iOS generally ignores it.
+          if (time - lastHit > 0.05) { sfx.hit(sp); lastHit = time; } p.pulse = 1; }
       }
     }
     const sp0 = Math.hypot(puck.vx, puck.vy); if (sp0 > MAX_PUCK) { puck.vx *= MAX_PUCK / sp0; puck.vy *= MAX_PUCK / sp0; }
