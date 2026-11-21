@@ -21,7 +21,6 @@ const SOS_COLUMNS = 10;
 const SOS_CELL_COUNT = SOS_ROWS * SOS_COLUMNS;
 const SOS_TURN_SECONDS = 20;
 const SOS_DIRECTIONS = [[0, 1], [1, 0], [1, 1], [1, -1]];
-const symbols = ["🌸", "🌙", "🍓", "🐻", "💌", "🦋", "✨", "🧸", "🌻", "💖"];
 const emojiQuestions = [
   { emojis: "🌙 ✈️ ❤️", options: ["Love you to the moon and back", "A romantic trip at night", "Our first holiday"], answer: 0 },
   { emojis: "🐝 💛 🐝", options: ["Busy day ahead", "You are my honey", "A picnic in the garden"], answer: 1 },
@@ -44,7 +43,6 @@ let stopGameMatch = null;
 // disposeGames() can release them when the user signs out or leaves the page.
 let stopGuessTheQuestion = null;
 let stopGtqConnected = null;
-let memoryTimer = null;
 let disposeFindTheWords = null;
 let disposeLudoGame = null;
 let ludoModuleLoading = false;
@@ -78,7 +76,6 @@ function makeEmojiQuestions() {
 }
 
 const gameTitles = {
-  "memory-match": "Memory Match",
   "emoji-quiz": "Emoji Quiz",
   "air-hockey": "Air Hockey",
   "hungry-snake": "Hungry Snake",
@@ -163,14 +160,11 @@ function secondsUntilTurn(state) {
 
 function gameIsComplete(game, state) {
   if (!state) return false;
-  if (game === "memory-match") return Array.isArray(state.matched) && Array.isArray(state.cards) &&
-    state.cards.length > 0 && state.matched.length === state.cards.length;
   if (game === "emoji-quiz") return state.question >= state.questions.length;
   return false;
 }
 
 function gameScore(game, state) {
-  if (game === "memory-match") return state.moves;
   if (game === "emoji-quiz") return state.score;
   return 0;
 }
@@ -179,10 +173,6 @@ function gameScore(game, state) {
 // Restore them so saved game state stays valid.
 function normalizeActiveState(game, state) {
   if (!state || typeof state !== "object") return state;
-  if (game === "memory-match") {
-    state.flipped = state.flipped || [];
-    state.matched = state.matched || [];
-  }
   return state;
 }
 
@@ -224,11 +214,6 @@ function isValidTrueFalseRoom(room) {
 function isValidActiveGameState(game, state) {
   if (!state || typeof state !== "object") return false;
   state = normalizeActiveState(game, { ...state });
-  if (game === "memory-match") return Array.isArray(state.cards) &&
-    (state.cards.length === symbols.length * 2 || state.cards.length === 20 || state.cards.length === 12) &&
-    state.cards.every(symbol => typeof symbol === "string" && symbol) && Array.isArray(state.flipped) &&
-    Array.isArray(state.matched) && Number.isInteger(state.moves) && state.moves >= 0 &&
-    typeof state.locked === "boolean";
   if (game === "emoji-quiz") return Array.isArray(state.questions) &&
     state.questions.length === emojiQuestions.length &&
     Number.isInteger(state.question) && state.question >= 0 && state.question <= state.questions.length &&
@@ -242,13 +227,11 @@ function gameWinner(game, playerUids, results) {
   const firstScore = results[firstUid]?.score;
   const secondScore = results[secondUid]?.score;
   if (firstScore === secondScore) return "";
-  if (game === "memory-match") return firstScore < secondScore ? firstUid : secondUid;
   return firstScore > secondScore ? firstUid : secondUid;
 }
 
 function formatGameScore(game, score) {
   if (score == null) return "—";
-  if (game === "memory-match") return `${score} moves`;
   if (game === "hungry-snake") return `${score} boxes`;
   return `${score} points`;
 }
@@ -480,7 +463,6 @@ function gamesHome() {
     <div id="games-scoreboard">${scoreboardSkeletonMarkup()}</div>
     <div class="games-hub-grid">
       ${gameCard("sos", "🔠", "SOS")}
-      ${gameCard("memory-match", "🧠", "Memory Match")}
       ${gameCard("find-words", "🔎", "Find the Words")}
       ${gameCard("true-false", "💡", "True or False")}
       ${gameCard("guess-the-answer", "💬", "Guess the Answer")}
@@ -504,10 +486,7 @@ function activeShell(id, title, description, emoji, mode = "TWO DEVICES") {
 function miniScoreboardMarkup(game, state, user, liveMatch) {
   if (!state || typeof state !== "object") return "";
   let label = "Score", value = "—", detail = "";
-  if (game === "memory-match") {
-    label = "Moves"; value = Number.isInteger(state.moves) ? state.moves : 0;
-    detail = `${(state.matched?.length || 0) / 2}/${symbols.length} pairs`;
-  } else if (game === "emoji-quiz") {
+  if (game === "emoji-quiz") {
     label = "Points"; value = Number.isFinite(state.score) ? state.score : 0;
     detail = `${Math.min(state.question || 0, state.questions?.length || 0)}/${state.questions?.length || 0} questions`;
   } else return "";
@@ -528,15 +507,6 @@ function renderActiveGameBody(el, game, user, profile, state, liveMatch = false)
   if (!content) return;
   if (!isValidActiveGameState(game, state)) {
     content.innerHTML = `<div class="game-panel"><p class="error">This game's saved progress is invalid. Please start a new match.</p></div>`;
-    return;
-  }
-
-  if (game === "memory-match") {
-    const cards = state.cards.map((symbol, index) => {
-      const revealed = state.flipped.includes(index) || state.matched.includes(index);
-      return `<button type="button" class="memory-card${state.matched.includes(index) ? " matched" : ""}" data-memory-card="${index}" aria-label="${revealed ? esc(symbol) : "Hidden card"}"${revealed || state.locked ? " disabled" : ""}>${revealed ? esc(symbol) : "♡"}</button>`;
-    }).join("");
-    content.innerHTML = `<div class="game-panel"><p class="games-instructions">Flip two cards at a time and find every matching pair.</p><div class="memory-board">${cards}</div><p class="game-result" aria-live="polite">${state.matched.length === state.cards.length ? `You found them all in ${state.moves} moves! 🎉` : `${state.matched.length / 2} of ${symbols.length} pairs found · ${state.moves} moves`}</p>${liveMatch ? "" : `<button type="button" class="secondary" data-reset-game>Play again</button>`}</div>`;
     return;
   }
 
@@ -682,19 +652,7 @@ function renderSosGame(content, user, gameState, presence, pendingCell, profile 
   }
 }
 
-function makeMemoryState() {
-  const deck = [...symbols, ...symbols].map((symbol, index) => ({ symbol, key: `${symbol}-${index}` }));
-  for (let index = deck.length - 1; index > 0; index--) {
-    const randomIndex = Math.floor(Math.random() * (index + 1));
-    [deck[index], deck[randomIndex]] = [deck[randomIndex], deck[index]];
-  }
-  return { cards: deck.map(card => card.symbol), flipped: [], matched: [], moves: 0, locked: false };
-}
-
 function resetActiveGame(game) {
-  if (memoryTimer) clearTimeout(memoryTimer);
-  memoryTimer = null;
-  if (game === "memory-match") return makeMemoryState();
   if (game === "emoji-quiz") return { questions: makeEmojiQuestions(), question: 0, answered: false, selected: -1, score: 0 };
   return {};
 }
@@ -710,8 +668,6 @@ function isValidGameRoom(room, game) {
   if (room.status === "cancelled") return true;
   if (room.status !== "waiting" &&
       (room.playerUids.length !== 2 || !room.playerUids.every(uid => room.players[uid]))) return false;
-  if (game === "memory-match" && room.playerUids.some(uid => room.players[uid].state != null &&
-      !isValidActiveGameState(game, room.players[uid].state))) return false;
   if (game === "emoji-quiz" && room.quizPhase && (!["creator", "guesser", "result"].includes(room.quizPhase) ||
       !Number.isInteger(room.quizRoundNumber) || room.quizRoundNumber < 0 ||
       !room.playerUids.includes(room.quizCreatorUid) ||
@@ -777,8 +733,6 @@ export function renderGames(el, user, profile) {
   disposeFindTheWords = null;
   disposeLudoGame?.();
   disposeLudoGame = null;
-  if (memoryTimer) clearTimeout(memoryTimer);
-  memoryTimer = null;
 
   let activeGame = "";
   let renderedShellGame = "";
@@ -1121,24 +1075,15 @@ export function renderGames(el, user, profile) {
     const progress = opponentState
       ? activeGame === "emoji-quiz"
         ? `Question ${Math.min(opponentState.question + 1, opponentState.questions.length)} of ${opponentState.questions.length}`
-        : activeGame === "memory-match"
-          ? isValidActiveGameState(activeGame, opponentState)
-            ? `${opponentState.matched.length / 2} of ${opponentState.cards.length / 2} pairs`
-            : "their round hasn't started yet"
-          : "playing now"
+        : "playing now"
       : "their round hasn't started yet";
     message = isTurn
       ? players[opponentUid]?.completed
         ? "Your partner has finished their turn — now it's your turn!"
         : "Your turn! Your partner will play after you finish."
       : `${opponentName} is taking their turn (${progress}). Your turn starts next.`;
-    const scoreRule = {
-      "memory-match": "Fewest moves wins.",
-      "emoji-quiz": "Most correct answers wins."
-    }[activeGame];
-    const scoreValue = uid => activeGame === "memory-match"
-      ? players[uid]?.completed ? formatGameScore(activeGame, players[uid].score) : "—"
-      : formatGameScore(activeGame, players[uid]?.score);
+    const scoreRule = { "emoji-quiz": "Most correct answers wins." }[activeGame];
+    const scoreValue = uid => formatGameScore(activeGame, players[uid]?.score);
     const playerScores = `<div class="game-room-player-row">${room.playerUids.map(uid => `<div class="game-room-player">${gamePlayerAvatar(uid, players[uid]?.name)}<span>${esc(getDisplayName(uid, players[uid]?.name || "Partner"))}</span><strong>${esc(scoreValue(uid))}</strong></div>`).join("")}</div>`;
     statusEl.innerHTML = `<div class="game-panel game-room-panel"><p class="tic-tac-toe-status">${esc(message)}</p>${playerScores}${scoreRule ? `<p class="muted">${esc(scoreRule)}</p>` : ""}<button type="button" class="secondary" data-room-end>End this match</button></div>`;
     if (!isTurn) {
@@ -1147,9 +1092,7 @@ export function renderGames(el, user, profile) {
     }
     const playerState = players[user.uid]?.state;
     if (playerState) {
-      activeState = activeGame === "memory-match" && playerState.locked && !memoryTimer
-        ? { ...playerState, flipped: [], locked: false }
-        : playerState;
+      activeState = playerState;
       renderActiveGame(el, activeGame, user, profile, activeState, true);
       if (activeState !== playerState) saveRoomPlayerState();
     } else {
@@ -1670,7 +1613,6 @@ export function renderGames(el, user, profile) {
       return;
     }
     const gameInfo = {
-      "memory-match": ["Memory Match", "Flip the cards and find all ten pairs.", "🧠"],
       "guess-the-answer": ["Guess the Answer", "Send each other questions with hints, guess the answers, and compare scores.", "💬"],
       battleship: ["Battleship", "Hide your fleet and find your partner's ships.", "🚢"],
       "air-hockey": ["Air Hockey", "Move your striker and score goals against your partner.", "🏒"],
@@ -2233,9 +2175,7 @@ export function renderGames(el, user, profile) {
     const target = event.target.closest("button");
     if (!target || !el.contains(target)) return;
     if (activeGame === "battleship" && battleshipGame.actionPending) return;
-    const turnOnlyActions = [
-      "data-memory-card", "data-emoji-answer", "data-next-emoji", "data-puzzle-submit"
-    ];
+    const turnOnlyActions = ["data-emoji-answer", "data-next-emoji", "data-puzzle-submit"];
     if (activeGame && turnOnlyActions.some(attribute => target.hasAttribute(attribute)) &&
         (gameRoomState?.status !== "playing" || gameRoomState.turnUid !== user.uid)) {
       toast("Please wait for your turn.");
@@ -2244,8 +2184,6 @@ export function renderGames(el, user, profile) {
     }
 
     if (target.hasAttribute("data-start-game")) {
-      if (memoryTimer) clearTimeout(memoryTimer);
-      memoryTimer = null;
       clearSosSession();
       stopGameMatch?.();
       stopGameMatch = null;
@@ -2455,8 +2393,6 @@ export function renderGames(el, user, profile) {
     if (target.hasAttribute("data-back-games") || target.hasAttribute("data-sos-leave")) {
       if (activeGame === "air-hockey") closeAirHockeyMount({ leave: true });
       if (activeGame === "hungry-snake") { leaveMountedHungrySnake?.(); disposeMountedHungrySnake?.(); disposeMountedHungrySnake = null; leaveMountedHungrySnake = null; }
-      if (memoryTimer) clearTimeout(memoryTimer);
-      memoryTimer = null;
       clearSosSession();
       stopGameMatch?.();
       stopGameMatch = null;
@@ -2478,34 +2414,6 @@ export function renderGames(el, user, profile) {
 
     if (target.hasAttribute("data-reset-game")) {
       activeState = resetActiveGame(activeGame);
-      renderAndSavePlayerProgress();
-      return;
-    }
-
-    if (target.hasAttribute("data-memory-card")) {
-      const index = Number(target.dataset.memoryCard);
-      if (activeState.locked || activeState.flipped.includes(index) || activeState.matched.includes(index)) return;
-      activeState.flipped.push(index);
-      if (activeState.flipped.length === 2) {
-        activeState.moves++;
-        const [first, second] = activeState.flipped;
-        if (activeState.cards[first] === activeState.cards[second]) {
-          activeState.matched.push(first, second);
-          activeState.flipped = [];
-        } else {
-          activeState.locked = true;
-          if (memoryTimer) clearTimeout(memoryTimer);
-          memoryTimer = setTimeout(() => {
-            memoryTimer = null;
-            if (activeGame !== "memory-match") return;
-            activeState.flipped = [];
-            activeState.locked = false;
-            renderAndSavePlayerProgress();
-          }, 800);
-          renderAndSavePlayerProgress();
-          return;
-        }
-      }
       renderAndSavePlayerProgress();
       return;
     }
@@ -2629,8 +2537,6 @@ export function disposeGames() {
     stopGtqConnected?.();
     stopGtqConnected = null;
   }
-  if (memoryTimer) clearTimeout(memoryTimer);
-  memoryTimer = null;
   disposeFindTheWords?.();
   disposeFindTheWords = null;
   disposeLudoGame?.();

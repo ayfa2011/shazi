@@ -560,8 +560,27 @@ export async function changeDailyWaterProgress(dayKey, actor, delta, baselineCou
     const previousCount = Math.max(0, Math.min(8, Number(snapshot.exists() ? current.count || 0 : baselineCount || 0)));
     nextCount = Math.max(0, Math.min(8, previousCount + delta));
     const changesCompletion = (nextCount === 8 && previousCount < 8) || (nextCount < 8 && previousCount === 8);
-    const assignmentSnapshot = changesCompletion ? await transaction.get(assignmentRef) : null;
-    if (changesCompletion && !assignmentSnapshot?.exists()) throw new Error("Today's water challenge is not ready yet. Please try again.");
+    let assignmentSnapshot = null;
+    let assignment = null;
+    if (changesCompletion) {
+      assignmentSnapshot = await transaction.get(assignmentRef);
+      if (!assignmentSnapshot.exists()) {
+        const defaultRecord = {
+          title: "Drink Water 💧",
+          description: "Track your glasses of water. Your daily goal is 8 glasses each.",
+          challengeDate: dayKey,
+          challengeId: "drink-water",
+          status: "upcoming",
+          acceptedBy: [],
+          skippedBy: [],
+          completedBy: []
+        };
+        transaction.set(assignmentRef, defaultRecord);
+        assignment = { id: assignmentRef.id, ...defaultRecord };
+      } else {
+        assignment = assignmentSnapshot.data();
+      }
+    }
     transaction.set(trackerRef, {
       ...current,
       type: "waterChallenge",
@@ -575,7 +594,6 @@ export async function changeDailyWaterProgress(dayKey, actor, delta, baselineCou
       updatedAtMs: Date.now()
     });
     if (changesCompletion) {
-      const assignment = assignmentSnapshot.data();
       const isActor = person => person.uid === actor.uid || person.profileKey === actor.profileKey;
       const completedBy = (assignment.completedBy || []).filter(person => !isActor(person));
       if (nextCount === 8) completedBy.push({ ...actor, note: "Reached today's 8-glass water goal.", completedAt: Date.now() });
