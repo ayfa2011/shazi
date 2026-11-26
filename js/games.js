@@ -7,7 +7,6 @@ import { mountFindTheWordsGame } from "./find-the-words.js";
 import { TRUE_FALSE_BANK_VERSION, TRUE_FALSE_QUESTION_BANK, pickTrueFalseQuestions } from "./true-false-question-bank.js";
 import { get, onDisconnect, onValue, push, ref, remove, runTransaction, set, update } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 import { celebrateWin } from "./celebration.js";
-import { battleshipRoomRef, createBattleshipGame, isValidBattleshipRoom, normalizeBattleshipShots } from "./battleship.js";
 
 
 const sosGameRef = () => ref(rtdb, `couples/${APP_CONFIG.coupleId}/games/sos`);
@@ -50,7 +49,6 @@ let sosClock = null;
 let sosServerTimeOffset = 0;
 let stopSosServerTime = null;
 let activeSosPresenceUid = "";
-let activeBattleshipController = null;
 let disposeMountedAirHockey = null;
 let leaveMountedAirHockey = null;
 let disposeMountedHungrySnake = null;
@@ -80,7 +78,6 @@ const gameTitles = {
   "air-hockey": "Air Hockey",
   "hungry-snake": "Hungry Snake",
 
-  battleship: "Battleship",
   sos: "SOS",
   "true-false": "True or False"
 };
@@ -185,7 +182,6 @@ function normalizeRoom(room) {
     }
   }
   if (room.game === "true-false") room.trueFalseAnswers = room.trueFalseAnswers || {};
-  if (room.game === "battleship" && room.shots && typeof room.shots === "object") room.shots = normalizeBattleshipShots(room.shots);
   return room;
 }
 
@@ -466,7 +462,6 @@ function gamesHome() {
       ${gameCard("find-words", "🔎", "Find the Words")}
       ${gameCard("true-false", "💡", "True or False")}
       ${gameCard("guess-the-answer", "💬", "Guess the Answer")}
-      ${gameCard("battleship", "🚢", "Battleship")}
       ${gameCard("air-hockey", "🏒", "Air Hockey")}
       ${gameCard("hungry-snake", "🐍", "Hungry Snake")}
       ${gameCard("ludo", "🎲", "Ludo")}
@@ -673,7 +668,6 @@ function isValidGameRoom(room, game) {
       !room.playerUids.includes(room.quizCreatorUid) ||
       (room.quizPhase === "guesser" && (!room.quizRound || typeof room.quizRound.emojis !== "string")))) return false;
   if (game === "true-false") return isValidTrueFalseRoom(room);
-  if (game === "battleship") return isValidBattleshipRoom(room);
   if (game === "hungry-snake") return room.status === "waiting"
     ? !room.turnUid
     : room.status === "playing"
@@ -718,8 +712,6 @@ export function renderGames(el, user, profile) {
   disposeMountedHungrySnake?.();
   disposeMountedHungrySnake = null;
   leaveMountedHungrySnake = null;
-  activeBattleshipController?.dispose();
-  activeBattleshipController = null;
   stopGames?.();
   stopGames = null;
   stopGameMatch?.();
@@ -751,14 +743,6 @@ export function renderGames(el, user, profile) {
   let hungrySnakeMatchId = "";
   let hungrySnakeLoadingId = "";
   let hungrySnakeExitedMatchId = "";
-  const battleshipGame = createBattleshipGame({
-    el, user, profile,
-    getRoom: () => gameRoomState,
-    isActive: () => activeGame === "battleship",
-    renderCurrentGame: () => renderCurrentGame(),
-    gamePlayerAvatar
-  });
-  activeBattleshipController = battleshipGame;
   let savedMatchResults = new Set();
   let gameResults = null;
   let trueFalseBankCache = null;
@@ -1020,10 +1004,6 @@ export function renderGames(el, user, profile) {
     }
     if (activeGame === "true-false") {
       renderTrueFalseRoom(room, statusEl, content);
-      return;
-    }
-    if (activeGame === "battleship") {
-      battleshipGame.render(room, statusEl, content);
       return;
     }
     const players = room?.players || {};
@@ -1614,7 +1594,6 @@ export function renderGames(el, user, profile) {
     }
     const gameInfo = {
       "guess-the-answer": ["Guess the Answer", "Send each other questions with hints, guess the answers, and compare scores.", "💬"],
-      battleship: ["Battleship", "Hide your fleet and find your partner's ships.", "🚢"],
       "air-hockey": ["Air Hockey", "Move your striker and score goals against your partner.", "🏒"],
       "hungry-snake": ["Hungry Snake", "Collect boxes, protect your tail, and bite to drop tail blocks as shared food.", "🐍", "LIVE 2 PLAYERS"],
       "true-false": ["True or False", "Guess together, then learn a surprising fact.", "💡"]
@@ -1637,7 +1616,6 @@ export function renderGames(el, user, profile) {
       return;
     }
     renderGameRoom();
-    if (activeGame === "battleship" && battleshipGame.actionPending) battleshipGame.updateActionUi();
   }
 
   function listenForGameResults() {
@@ -2174,7 +2152,6 @@ export function renderGames(el, user, profile) {
   el.onclick = async event => {
     const target = event.target.closest("button");
     if (!target || !el.contains(target)) return;
-    if (activeGame === "battleship" && battleshipGame.actionPending) return;
     const turnOnlyActions = ["data-emoji-answer", "data-next-emoji", "data-puzzle-submit"];
     if (activeGame && turnOnlyActions.some(attribute => target.hasAttribute(attribute)) &&
         (gameRoomState?.status !== "playing" || gameRoomState.turnUid !== user.uid)) {
@@ -2187,7 +2164,6 @@ export function renderGames(el, user, profile) {
       clearSosSession();
       stopGameMatch?.();
       stopGameMatch = null;
-      battleshipGame.reset();
       disposeFindTheWords?.();
       disposeFindTheWords = null;
       disposeLudoGame?.();
@@ -2205,7 +2181,7 @@ export function renderGames(el, user, profile) {
         renderCurrentGame();
       }
       if (rtdb && activeGame !== "find-words" && activeGame !== "ludo" && activeGame !== "guess-the-answer") {
-        const currentMatchRef = activeGame === "battleship" ? battleshipRoomRef() : gameMatchRef(activeGame);
+        const currentMatchRef = gameMatchRef(activeGame);
         stopGameMatch = onValue(currentMatchRef, snapshot => {
           gameRoomState = normalizeRoom(snapshot.val());
           if (gameRoomState?.status === "finished") recordFinishedMatch(gameRoomState);
@@ -2242,7 +2218,6 @@ export function renderGames(el, user, profile) {
       return;
     }
 
-    if (activeGame === "battleship" && await battleshipGame.handleClick(target, gameRoomState)) return;
 
     if (target.hasAttribute("data-room-start")) {
       if (!rtdb) {
@@ -2398,7 +2373,6 @@ export function renderGames(el, user, profile) {
       stopGameMatch = null;
       disposeLudoGame?.();
       disposeLudoGame = null;
-      battleshipGame.reset();
       stopGuessTheQuestion?.();
       stopGuessTheQuestion = null;
       stopGtqConnected?.();
@@ -2503,11 +2477,6 @@ export function renderGames(el, user, profile) {
 
   };
 
-  el.onchange = event => {
-    if (activeGame === "battleship") battleshipGame.handleChange(event.target);
-  };
-
-
 }
 
 export function disposeGames() {
@@ -2519,14 +2488,11 @@ export function disposeGames() {
   disposeMountedHungrySnake?.();
   disposeMountedHungrySnake = null;
   leaveMountedHungrySnake = null;
-  activeBattleshipController?.dispose();
-  activeBattleshipController = null;
   stopGames?.();
   stopGames = null;
   stopSosListeners();
   stopGameMatch?.();
   stopGameMatch = null;
-  // Battleship state is owned by its controller and reset when its screen is left.
   // Keep teardown resilient when an older cached Games module is paired with
   // this newer route/auth module during a rolling static-site update.
   if (typeof stopGuessTheQuestion !== "undefined") {

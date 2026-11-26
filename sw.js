@@ -20,7 +20,6 @@ const SHELL_FILES = [
   "manifest.webmanifest",
   "manifest.json",
   "css/styles.css",
-  "css/battleship.css",
   "css/challenges.css",
   "icons/app-icon.svg",
   "icons/app-icon-192.png",
@@ -131,7 +130,7 @@ self.addEventListener("install", event => {
       .then(cache => cache.addAll([
         "js/app.js", "js/firebase.js", "js/auth.js", "js/utils.js",
         "js/firestore.js", "js/components.js", "js/dashboard.js",
-        "js/games.js", "js/battleship.js", "js/air-hockey.js", "js/hungry-snake.js", "js/games-2.js", "js/find-the-words.js", "js/true-false-question-bank.js",
+        "js/games.js", "js/air-hockey.js", "js/hungry-snake.js", "js/games-2.js", "js/find-the-words.js", "js/true-false-question-bank.js",
         "js/memories.js", "js/gallery.js", "js/letters.js", "js/questions.js",
         "js/question-service.js", "js/question-bank.js", "js/profile-data.js", "js/profile.js", "js/drive.js", "src/services/telegramService.js",
         "config/app-config.js", "config/telegram-config.js"

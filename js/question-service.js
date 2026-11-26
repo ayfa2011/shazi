@@ -20,6 +20,18 @@ function requireFirebase() {
   if (!firebaseReady) throw new Error("Connect Firebase before using Today's Question.");
 }
 
+async function questionStep(label, operation) {
+  try {
+    return await operation();
+  } catch (error) {
+    const detail = error?.message || String(error);
+    const contextualError = new Error(`Today's Question failed while ${label}: ${detail}`, { cause: error });
+    contextualError.code = error?.code;
+    contextualError.questionStage = label;
+    throw contextualError;
+  }
+}
+
 function dayNumber(dayKey) {
   return Math.floor(Date.parse(`${dayKey}T00:00:00Z`) / 86400000);
 }
@@ -79,28 +91,33 @@ async function seedBank() {
 export async function ensureQuestionBank() {
   requireFirebase();
   if (bankReady === null) {
-      bankReady = (async () => {
-          if ((await getDoc(bankMetaRef())).exists()) return;
-          await seedBank();
-      })();
+    const initialization = (async () => {
+      const metadata = await questionStep("reading question-bank metadata", () => getDoc(bankMetaRef()));
+      if (metadata.exists()) return;
+      await questionStep("seeding the question bank", seedBank);
+    })();
+    bankReady = initialization.catch(error => {
+      bankReady = null;
+      throw error;
+    });
   }
   await bankReady;
 }
 
 export async function ensureDailyQuestion(dayKey = todayKey()) {
   requireFirebase();
-  await ensureQuestionBank();
+  await questionStep("preparing the question bank", ensureQuestionBank);
   const reference = dailyRef(dayKey);
-  const existing = await getDoc(reference);
+  const existing = await questionStep("reading today's saved question", () => getDoc(reference));
   if (existing.exists()) return { id: existing.id, ...existing.data() };
-  const selected = await chooseQuestion(dayKey);
-  return runTransaction(db, async transaction => {
-    const latest = await transaction.get(reference);
-    if (latest.exists()) return { id: latest.id, ...latest.data() };
-    const record = { ...selected, dayKey, createdAt: serverTimestamp() };
-    transaction.set(reference, record);
-    return { id: dayKey, ...record };
-  });
+  const selected = await questionStep("loading a question from the bank", () => chooseQuestion(dayKey));
+  return questionStep("saving today's question", () => runTransaction(db, async transaction => {
+      const latest = await transaction.get(reference);
+      if (latest.exists()) return { id: latest.id, ...latest.data() };
+      const record = { ...selected, dayKey, createdAt: serverTimestamp() };
+      transaction.set(reference, record);
+      return { id: dayKey, ...record };
+    }));
 }
 
 export async function updateDailyQuestion(dayKey, text) {

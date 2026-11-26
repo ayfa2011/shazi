@@ -4,7 +4,6 @@
  *    import { celebrateWin, closeCelebration } from "./celebration.js";
  *
  *    celebrateWin({
- *      game: "Battleship",            // small label on the card
  *      won: true,                     // did *this* player win?
  *      draw: false,                   // true for a tie (gentle confetti only)
  *      winnerName: "Priya",           // shown when this player lost
