@@ -15,8 +15,13 @@ export function initAuth(onLogin,onLogout){
   sessionStorage.removeItem("olw-explicit-login");
   try {
     const saved = JSON.parse(localStorage.getItem("olw-login-profiles") || "{}");
+    const cachedDisplayFields = ["name", "avatar", "avatarPreviewDataUrl", "avatarPreviewFileId", "avatarTelegramFileId", "avatarMimeType"];
     for (const [key, fields] of Object.entries(saved)) {
-      if (APP_CONFIG.profiles[key] && fields && typeof fields === "object") Object.assign(APP_CONFIG.profiles[key], fields);
+      const profile = APP_CONFIG.profiles[key];
+      if (!profile || !fields || typeof fields !== "object") continue;
+      for (const field of cachedDisplayFields) {
+        if (Object.hasOwn(fields, field)) profile[field] = fields[field];
+      }
     }
   } catch { /* Ignore an incomplete local profile cache. */ }
   const renderLoginProfiles = () => {
