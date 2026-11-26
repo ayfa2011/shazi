@@ -4,6 +4,7 @@ import { disposeSpecialDays, renderSpecialDays } from "./special-days.js";
 
 export function renderMore(el, user) {
   disposeSpecialDays();
+  const assetUrl = fileName => new URL(`../Asset/${fileName}`, import.meta.url).href;
   el.innerHTML = `
     <section class="more-page">
       <header class="more-page-heading">
@@ -14,20 +15,14 @@ export function renderMore(el, user) {
         <button type="button" class="more-logout" aria-label="Log out" title="Log out">↪</button>
       </header>
       <div class="more-page-actions">
-        <button type="button" class="more-action card" data-more-route="bucket">
-          <span class="more-action-icon more-action-icon--bucket" aria-hidden="true">◎</span>
-          <span><strong>Our Bucket List</strong><small>Our future dreams together</small></span>
-          <span class="more-action-arrow" aria-hidden="true">↗</span>
+        <button type="button" class="more-action card" data-more-route="bucket" aria-label="Our Bucket List">
+          <img src="${assetUrl("Our Bucket List.png")}" alt="Our Bucket List">
         </button>
-        <button type="button" class="more-action card" data-more-route="gallery-library">
-          <span class="more-action-icon more-action-icon--gallery" aria-hidden="true">▧</span>
-          <span><strong>Gallery</strong><small>Our photos and videos, kept together</small></span>
-          <span class="more-action-arrow" aria-hidden="true">↗</span>
+        <button type="button" class="more-action card" data-more-route="gallery-library" aria-label="Gallery">
+          <img src="${assetUrl("Gallery.png")}" alt="Gallery">
         </button>
-        <button type="button" class="more-action card" id="special-days-card">
-          <span class="more-action-icon more-action-icon--special" aria-hidden="true"><span class="more-action-special-glyph">♡</span></span>
-          <span><strong>Special Days</strong><small>Birthdays, anniversaries and celebrations</small></span>
-          <span class="more-action-arrow" aria-hidden="true">↗</span>
+        <button type="button" class="more-action card" id="special-days-card" aria-label="Special Days">
+          <img src="${assetUrl("Special Days.png")}" alt="Special Days">
         </button>
 
       </div>
