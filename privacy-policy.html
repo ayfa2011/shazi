@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fff7fb">
+  <title>Privacy Policy — Our Little World</title>
+  <link rel="stylesheet" href="css/legal.css?v=1">
+</head>
+<body class="legal-page">
+  <div class="legal-shell">
+    <header class="legal-topbar">
+      <a class="legal-brand" href="index.html">♡ Our Little World</a>
+      <a class="legal-back" href="index.html">Back to the app</a>
+    </header>
+    <main class="legal-card">
+      <h1>Privacy Policy</h1>
+      <p class="legal-updated">Effective date: November 26, 2026</p>
+      <p>Our Little World is a private shared website for two invited partner accounts. This policy explains what information the app handles, which services help operate it, and the choices available to the two users.</p>
+
+      <h2>Information the app handles</h2>
+      <ul>
+        <li><strong>Account and profile information:</strong> email address used to sign in, profile name, profile photo, and optional profile details.</li>
+        <li><strong>Content you add:</strong> memories, photos, videos, voice notes, drawings, letters, posts, comments, questions and answers, challenges, special dates, bucket-list items, game activity, and music details.</li>
+        <li><strong>App and device data:</strong> sign-in state, settings, notification preferences, and temporary or offline copies stored by the browser so the app can work and show previously opened content.</li>
+        <li><strong>Google Drive authorization:</strong> a Google Drive <code>drive.file</code> permission has been configured for a planned integration. The current published app code does not make Google Drive API requests. If a Drive feature is enabled later, this permission is limited to files created by the app or files you open or share with it; it does not grant general access to every Drive file.</li>
+      </ul>
+
+      <h2>How information is stored and used</h2>
+      <p>Firebase Authentication handles sign-in. Cloud Firestore stores shared app content and metadata, and Firebase Realtime Database stores live activity such as presence, game state, and synchronized interactions. Access rules are intended to limit this information to the two configured partner accounts.</p>
+      <p>When you upload media, the app sends it through a Cloudflare Worker to a private Telegram bot destination. Telegram stores the media; Firestore keeps the related text details and Telegram file references rather than the media bytes. The Worker checks the Firebase sign-in token before handling uploads or media requests.</p>
+      <p>The browser may keep app settings and drafts in local storage, and previously opened media and metadata in IndexedDB or the browser's cache. These copies stay on that device and can be removed by clearing the browser's site data. Some offline copies may remain until the browser evicts them.</p>
+      <p>The website loads fonts from Google Fonts. The hosting, database, authentication, media, and security providers may process technical information such as an IP address, browser details, and request logs as part of operating their services.</p>
+
+      <h2>Google user data</h2>
+      <p>The app's Google OAuth credentials and refresh token are stored as Cloudflare Worker secrets and are not embedded in the website's browser code. The current Worker source does not use those credentials or access Google Drive. If Google Drive support is added, the app will use Google data only to provide the feature you request, will not sell that data or use it for advertising, and will not use it for unrelated purposes. You can review or revoke the app's Google access from your Google Account security settings.</p>
+
+      <h2>Service providers and sharing</h2>
+      <p>Information is shared with the service providers needed to run the app: Google Firebase for authentication and databases, Cloudflare for the media Worker, Telegram for uploaded media, Google Fonts for typefaces, and the website host for serving the pages. Each provider handles information under its own terms and privacy practices.</p>
+      <p>The app is not designed for public posting or advertising. It does not include an advertising or third-party analytics SDK. Content entered into the shared app may be visible to both partner accounts by design.</p>
+
+      <h2>Retention and deletion</h2>
+      <p>Shared records remain in the app until a user deletes them or the service is changed or closed. The app provides deletion for some items and media; not every type of content has the same deletion flow. Unsaved music uploads are intended to be removed after playback ends or both users leave, while saved music remains in the shared library. Copies held by a provider, browser cache, backups, or another user's device may persist for a time after deletion.</p>
+
+      <h2>Your choices and security</h2>
+      <ul>
+        <li>Use the app's available edit and delete controls for shared content.</li>
+        <li>Sign out when you finish using a shared device, and keep your sign-in PIN private.</li>
+        <li>Choose whether to allow browser notifications. You can change this in your browser's site settings.</li>
+        <li>Clear this website's browser storage to remove local drafts and cached copies.</li>
+        <li>Revoke Google access in your Google Account settings if you no longer want the configured Drive authorization.</li>
+      </ul>
+      <p>We use account checks, database rules, and server-side secrets to protect the service. No website or storage method can guarantee complete security, so avoid adding information you do not want in a shared online space.</p>
+
+      <h2>Changes and contact</h2>
+      <p>This policy may be updated when the app or its data practices change. The date above will be revised when an update is published. For privacy questions or requests, contact <a href="mailto:akabeeram@gmail.com">akabeeram@gmail.com</a>.</p>
+    </main>
+    <footer class="legal-footer"><a href="terms-of-service.html">Terms of Service</a></footer>
+  </div>
+</body>
+</html>
