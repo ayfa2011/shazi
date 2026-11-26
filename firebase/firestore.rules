@@ -30,7 +30,7 @@ service cloud.firestore {
         && data.actorKey == ownNotificationProfileKey()
         && data.recipientKey in ['kebyy', 'shazy']
         && data.recipientKey != data.actorKey
-        && data.type in ['question', 'challenge', 'letter', 'memory', 'drawing', 'post', 'comment', 'like', 'bucket', 'customQuestion', 'specialDay', 'game', 'music']
+        && data.type in ['question', 'challenge', 'letter', 'memory', 'drawing', 'post', 'comment', 'like', 'bucket', 'customQuestion', 'specialDay', 'game']
         && data.title is string
         && data.title.size() > 0
         && data.title.size() <= 80
@@ -48,13 +48,12 @@ service cloud.firestore {
           || (data.type == 'bucket' && data.route == 'bucket')
           || (data.type == 'customQuestion' && data.route == 'questions')
           || (data.type == 'specialDay' && data.route == 'more')
-          || (data.type == 'game' && data.route == 'games')
-          || (data.type == 'music' && data.route == 'home'))
+          || (data.type == 'game' && data.route == 'games'))
         && data.sourceId is string
         && data.sourceId.size() > 0
         && data.sourceId.size() <= 100
         && data.sourceId.matches('^[A-Za-z0-9_-]+$')
-        && notificationId.matches('^(question|challenge|letter|memory|drawing|post|comment|like|bucket|customQuestion|specialDay|game|music)-[A-Za-z0-9_-]+-(kebyy|shazy)$')
+        && notificationId.matches('^(question|challenge|letter|memory|drawing|post|comment|like|bucket|customQuestion|specialDay|game)-[A-Za-z0-9_-]+-(kebyy|shazy)$')
         && data.createdAt == request.time
         && data.readAt == null;
     }
@@ -221,12 +220,11 @@ service cloud.firestore {
         && resource.data.get('type', '') != 'answer'
         && (
           ((collectionName == 'items'
-              && resource.data.get('type', '') in ['memory', 'music', 'musicTrack']
+              && resource.data.get('type', '') == 'memory'
               && isCoupleMember())
             || (collectionName == 'items'
               && resource.data.get('type', '') != 'customChallenge'
               && resource.data.get('type', '') != 'memory'
-              && resource.data.get('type', '') != 'music'
               && ownsAuthoredFields(resource.data)
               && ownsDiaryPost(collectionName, resource.data)))
           || (collectionName == 'items' && resource.data.get('type', '') == 'specialDay')

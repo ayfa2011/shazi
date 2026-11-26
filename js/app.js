@@ -21,13 +21,11 @@ import { disposeNotificationCenter, initNotificationCenter } from "./notificatio
 import { renderDrawing, disposeDrawing } from "./drawing.js";
 import { renderChallenges, disposeChallenges } from "./challenges.js";
 import { renderChallengeDetail, disposeChallengeDetail } from "./challenge-detail.js";
-import { initMusic } from "./music.js";
-import { firebaseReady } from "./firebase.js";
 import { getTelegramMediaUrl, getCachedTelegramMediaUrl, revokeTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
 import { saveCoupleProfile, watchCoupleProfiles } from "./firestore.js";
 import { applyCoupleProfiles, findProfileForAuthor, getDisplayName, getProfileKey, hydrateCoupleProfileAvatars } from "./profile-data.js";
 
-let currentUser = null, currentProfile = null, disposeMusic = null, stopPresence = null, disposePartnerChat = null;
+let currentUser = null, currentProfile = null, stopPresence = null, disposePartnerChat = null;
 let currentRoute = "home", stopCoupleProfiles = null, handlingPopState = false;
 let navBadgeStops = [];
 const navBadgeState = {};
@@ -1336,12 +1334,6 @@ export function navigate(route = "home", { history = true } = {}) {
 }
 
 function closeTransientUi() {
-  const drawer = $("#music-drawer");
-  if (drawer && !drawer.classList.contains("hidden")) {
-    if (drawer.getAttribute("aria-busy") === "true") return true;
-    drawer.classList.add("hidden");
-    return true;
-  }
   const openModal = document.querySelector(".tw-detail-page.open, .tw-image-backdrop.open, .mem-modal-overlay[style*='display: flex'], .letter-modal-overlay.is-open, .drawing-history-overlay:not(.hidden), .drawing-preview-overlay:not(.hidden), .question-edit-modal.open, .gallery-viewer.open, .special-days-modal:not(.hidden)");
   if (openModal) {
     const close = openModal.querySelector("[aria-label='Close'], [aria-label^='Close'], .tw-detail-close, .memory-view-close, .mem-modal-close, .drawing-close, .letter-close-btn, #gallery-viewer-close, #question-edit-cancel");
@@ -1454,23 +1446,12 @@ initAuth(
 
     initNotificationCenter(user, currentProfile, navigate);
 
-    // Initialize Background Music if Firebase Ready
-    if (firebaseReady) {
-      try {
-        disposeMusic?.();
-        disposeMusic = initMusic(user);
-      } catch (e) {
-        console.warn("Music initialization error:", e);
-      }
-    }
   },
   () => {
     currentUser = null;
     currentProfile = null;
     navBadgeStops.forEach(stop => stop?.());
     navBadgeStops = [];
-    disposeMusic?.();
-    disposeMusic = null;
     stopCoupleProfiles?.();
     stopCoupleProfiles = null;
     stopPresence?.();
@@ -1493,7 +1474,6 @@ initAuth(
     const appView = $("#app-view");
     const authView = $("#auth-view");
     if (appView) appView.classList.add("hidden");
-    $("#music-drawer")?.classList.add("hidden");
     if (authView) authView.classList.remove("hidden");
   }
 );
@@ -1546,21 +1526,4 @@ document.addEventListener("DOMContentLoaded", () => {
     profileBtn.addEventListener("click", () => navigate("profile"));
   }
 
-  const musicToggle = $("#music-toggle");
-  if (musicToggle) {
-    musicToggle.addEventListener("click", () => {
-      const drawer = $("#music-drawer");
-      if (drawer) {
-        drawer.classList.toggle("hidden");
-      }
-    });
-  }
-
-  const musicClose = $("#music-close");
-  if (musicClose) {
-    musicClose.addEventListener("click", () => {
-      const drawer = $("#music-drawer");
-      if (drawer) drawer.classList.add("hidden");
-    });
-  }
 });

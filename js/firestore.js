@@ -218,7 +218,7 @@ export async function notifyPartner(actorKey, type, message, sourceId, route) {
   const actor = APP_CONFIG.profiles[actorKey];
   const recipientKey = Object.keys(APP_CONFIG.profiles).find(key => key !== actorKey);
   if (!actor || !recipientKey) throw new Error("Could not identify both partners for this notification.");
-  if (!["question", "challenge", "letter", "memory", "drawing", "post", "comment", "like", "bucket", "customQuestion", "specialDay", "game", "music"].includes(type)) throw new Error("Unsupported notification type.");
+  if (!["question", "challenge", "letter", "memory", "drawing", "post", "comment", "like", "bucket", "customQuestion", "specialDay", "game"].includes(type)) throw new Error("Unsupported notification type.");
   if (typeof message !== "string" || !message.trim() || message.length > 240) throw new Error("Notification message is invalid.");
   if (!["home", "questions", "challenges", "letters", "memories", "drawing", "gallery", "bucket", "more", "games"].includes(route)) throw new Error("Notification route is invalid.");
   const safeSourceId = String(sourceId || "").replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 100);

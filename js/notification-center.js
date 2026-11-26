@@ -14,8 +14,7 @@ const notificationIcons = {
   bucket: "🎯",
   customQuestion: "💌",
   specialDay: "🎉",
-  game: "🎮",
-  music: "♫"
+  game: "🎮"
 };
 const notificationRoutes = new Set(["home", "questions", "challenges", "letters", "memories", "drawing", "gallery", "bucket", "more", "games"]);
 

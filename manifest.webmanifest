@@ -2,7 +2,7 @@
   "id": "./",
   "name": "Keby & Shazy — Our Little World",
   "short_name": "Our World",
-  "description": "A private offline-first home for Keby & Shazy — memories, letters, challenges, drawings, and music for two.",
+  "description": "A private offline-first home for Keby & Shazy — memories, letters, challenges, and drawings for two.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

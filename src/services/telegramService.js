@@ -26,7 +26,7 @@ function cacheMediaUrl(cacheKey, request) {
 
 // ── Offline-First media cache (IndexedDB) ─────────────────────────────
 // Photo/video/audio bytes proxied from Telegram are stored here so
-// previously viewed memories, posts, drawings, and songs stay viewable
+// previously viewed memories, posts, and drawings stay viewable
 // offline. Firestore/RTDB only hold lightweight references (file ids);
 // this store holds the actual bytes. Blob-URL cache above is memory-only
 // and is rehydrated from IndexedDB on repeat views.
@@ -260,7 +260,7 @@ async function fetchMediaFromNetwork(fileId, mimeType, onProgress) {
         const reason = details.error || details.message;
         const serverMessage = reason || `Telegram media server returned HTTP ${response.status}.`;
         lastError = /file.{0,12}too (?:big|large)|20\s*mb/i.test(serverMessage)
-          ? new Error("This Telegram media exceeds the 20 MiB download limit. Re-upload the original after Drive-backed Music is available.")
+          ? new Error("This Telegram media exceeds the 20 MiB download limit.")
           : new Error(serverMessage);
         lastError.status = response.status;
         if (/20 MiB download limit/.test(lastError.message)) break;

@@ -21,9 +21,9 @@
       <h2>Information the app handles</h2>
       <ul>
         <li><strong>Account and profile information:</strong> email address used to sign in, profile name, profile photo, and optional profile details.</li>
-        <li><strong>Content you add:</strong> memories, photos, videos, voice notes, drawings, letters, posts, comments, questions and answers, challenges, special dates, bucket-list items, game activity, and music details.</li>
+        <li><strong>Content you add:</strong> memories, photos, videos, voice notes, drawings, letters, posts, comments, questions and answers, challenges, special dates, bucket-list items, and game activity.</li>
         <li><strong>App and device data:</strong> sign-in state, settings, notification preferences, and temporary or offline copies stored by the browser so the app can work and show previously opened content.</li>
-        <li><strong>Google Drive authorization:</strong> a Google Drive <code>drive.file</code> permission has been configured for a planned integration. The current published app code does not make Google Drive API requests. If a Drive feature is enabled later, this permission is limited to files created by the app or files you open or share with it; it does not grant general access to every Drive file.</li>
+        <li><strong>Google Drive authorization:</strong> the Memories feature uses a Google Drive <code>drive.file</code> permission to store and retrieve videos. The permission is limited to files created by the app or files you open or share with it; it does not grant general access to every Drive file.</li>
       </ul>
 
       <h2>How information is stored and used</h2>
@@ -33,14 +33,14 @@
       <p>The website loads fonts from Google Fonts. The hosting, database, authentication, media, and security providers may process technical information such as an IP address, browser details, and request logs as part of operating their services.</p>
 
       <h2>Google user data</h2>
-      <p>The app's Google OAuth credentials and refresh token are stored as Cloudflare Worker secrets and are not embedded in the website's browser code. The current Worker source does not use those credentials or access Google Drive. If Google Drive support is added, the app will use Google data only to provide the feature you request, will not sell that data or use it for advertising, and will not use it for unrelated purposes. You can review or revoke the app's Google access from your Google Account security settings.</p>
+      <p>The app's Google OAuth credentials and refresh token are stored as Cloudflare Worker secrets and are not embedded in the website's browser code. The Worker uses them to upload, retrieve, and delete videos through the Memories feature, within the Google Drive <code>drive.file</code> scope. The app will not sell this Google data or use it for advertising or unrelated purposes. You can review or revoke the app's Google access from your Google Account security settings.</p>
 
       <h2>Service providers and sharing</h2>
       <p>Information is shared with the service providers needed to run the app: Google Firebase for authentication and databases, Cloudflare for the media Worker, Telegram for uploaded media, Google Fonts for typefaces, and the website host for serving the pages. Each provider handles information under its own terms and privacy practices.</p>
       <p>The app is not designed for public posting or advertising. It does not include an advertising or third-party analytics SDK. Content entered into the shared app may be visible to both partner accounts by design.</p>
 
       <h2>Retention and deletion</h2>
-      <p>Shared records remain in the app until a user deletes them or the service is changed or closed. The app provides deletion for some items and media; not every type of content has the same deletion flow. Unsaved music uploads are intended to be removed after playback ends or both users leave, while saved music remains in the shared library. Copies held by a provider, browser cache, backups, or another user's device may persist for a time after deletion.</p>
+      <p>Shared records remain in the app until a user deletes them or the service is changed or closed. The app provides deletion for some items and media; not every type of content has the same deletion flow. Copies held by a provider, browser cache, backups, or another user's device may persist for a time after deletion.</p>
 
       <h2>Your choices and security</h2>
       <ul>
