@@ -1,7 +1,8 @@
 import { $, esc, toast, generateThumbnail, lazyHydrateImages } from "./utils.js";
 import { watchItems, addItem, removeItem, setItem, addMemoryMedia, removeMemoryMedia, notifyPartnerSafely } from "./firestore.js";
 import { getProfileKey } from "./profile-data.js";
-import { getTelegramMediaUrl, getTelegramMediaBlob, getCachedThumb, setCachedThumb, sendToTelegram, telegramMediaReferences, telegramUploadMimeType, deleteTelegramGalleryMessage } from "../src/services/telegramService.js";
+import { getTelegramMediaUrl, getTelegramMediaBlob, getCachedThumb, setCachedThumb, cacheLocalMedia, sendToTelegram, telegramMediaReferences, telegramUploadMimeType, deleteTelegramGalleryMessage } from "../src/services/telegramService.js";
+import { uploadVideoToDrive, driveMediaReferences, deleteDriveVideo, getDriveMediaUrl, isDriveRef, DRIVE_VIDEO_THRESHOLD } from "../src/services/driveService.js";
 
 let stopMemories = null;
 let active = false;
@@ -26,6 +27,10 @@ function memoryMediaMime(item, isVideo = false) {
 
 function isUsableMediaUrl(url) {
   return typeof url === "string" && /^(https?:|data:image\/)/i.test(url);
+}
+
+function getMemoryMediaUrl(fileId, mimeType) {
+  return isDriveRef(fileId) ? getDriveMediaUrl(fileId, mimeType) : getTelegramMediaUrl(fileId, mimeType);
 }
 
 async function prepareMemoryPhoto(file) {
@@ -505,7 +510,7 @@ export function renderMemories(el, user, profile) {
     if (item.type === "video") {
       lightboxVideo.style.display = "block";
       lightboxVideo.setAttribute("aria-label", item.name || "Memory video");
-      const url = isUsableMediaUrl(item.url) && !item.telegramFileId ? item.url : item.telegramFileId ? await getTelegramMediaUrl(item.telegramFileId, memoryMediaMime(item, true)) : "";
+      const url = isUsableMediaUrl(item.url) && !item.telegramFileId ? item.url : item.telegramFileId ? await getMemoryMediaUrl(item.telegramFileId, memoryMediaMime(item, true)) : "";
       if (loadGeneration !== lightboxLoadGeneration || imageLightbox.getAttribute("aria-hidden") === "true") return;
       if (!url) { closeImageLightbox(); toast("This video is missing its media link."); return; }
       lightboxVideo.src = url;
@@ -519,7 +524,7 @@ export function renderMemories(el, user, profile) {
       void lightboxVideo.play().catch(() => {});
     } else {
       lightboxVideo.style.display = "none";
-      const url = isUsableMediaUrl(item.url) && !item.telegramFileId ? item.url : item.telegramFileId ? await getTelegramMediaUrl(item.telegramFileId, memoryMediaMime(item)) : "";
+      const url = isUsableMediaUrl(item.url) && !item.telegramFileId ? item.url : item.telegramFileId ? await getMemoryMediaUrl(item.telegramFileId, memoryMediaMime(item)) : "";
       if (loadGeneration !== lightboxLoadGeneration || imageLightbox.getAttribute("aria-hidden") === "true") return;
       if (!url) { closeImageLightbox(); toast("This photo is missing its media link."); return; }
       lightboxImage.style.display = "block";
@@ -568,10 +573,13 @@ export function renderMemories(el, user, profile) {
     deleteButton.disabled = true;
     try {
       const result = await removeMemoryMedia(memory.id, key);
-
       // Attempt to remove from Telegram
       const mediaToRemove = (memory.mediaItems || []).find(item => (item.telegramFileId || item.url) === key) ||
                             ((memory.telegramFileId === key || memory.photoUrl === key) ? memory : null);
+      if (isDriveRef(mediaToRemove?.telegramFileId || key)) {
+        try { await deleteDriveVideo(mediaToRemove?.telegramFileId || key); }
+        catch (driveErr) { console.warn("Drive file deletion failed, but removed from database:", driveErr); }
+      }
       if (mediaToRemove?.telegramChatId && mediaToRemove?.telegramMessageId) {
           try {
               const deleted = await deleteTelegramGalleryMessage(mediaToRemove.telegramChatId, mediaToRemove.telegramMessageId);
@@ -628,6 +636,7 @@ export function renderMemories(el, user, profile) {
   form.onsubmit = async (e) => {
     e.preventDefault();
     const submitBtn = $("#save-mem-submit", el);
+    const submitLabel = submitBtn.textContent;
     submitBtn.disabled = true;
     const editId = $("#mem-edit-id", el).value;
 
@@ -644,11 +653,17 @@ export function renderMemories(el, user, profile) {
         isVideo = file.type.startsWith("video/");
         const timestamp = new Date().toLocaleString();
         const uploadFile = isVideo ? file : await prepareMemoryPhoto(file);
-        const videoPoster = isVideo ? await createVideoThumbnail(file).catch(() => "") : "";
-        const result = await sendToTelegram(uploadFile, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`);
-        const references = telegramMediaReferences(result);
-        if (videoPoster) void setCachedThumb(references.telegramFileId, videoPoster);
-        mediaMetadata = { ...references, photoMimeType: references.telegramMimeType || telegramUploadMimeType(uploadFile) };
+        const posterPromise = isVideo ? createVideoThumbnail(file).catch(() => "") : Promise.resolve("");
+        const refsPromise = isVideo && file.size > DRIVE_VIDEO_THRESHOLD
+          ? uploadVideoToDrive(file, { onProgress: progress => { submitBtn.textContent = `Uploading ${Math.round(progress * 100)}%…`; } }).then(driveMediaReferences)
+          : sendToTelegram(uploadFile, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`, {
+            onProgress: progress => { submitBtn.textContent = `Uploading ${Math.round(progress * 100)}%…`; },
+          }).then(telegramMediaReferences);
+        const [videoPoster, references] = await Promise.all([posterPromise, refsPromise]);
+        if (videoPoster) void setCachedThumb(references.telegramFileId, videoPoster, "preview");
+        const uploadedMimeType = references.telegramMimeType || telegramUploadMimeType(uploadFile);
+        if (!isDriveRef(references.telegramFileId)) void cacheLocalMedia(references.telegramFileId, uploadedMimeType, uploadFile);
+        mediaMetadata = { ...references, photoMimeType: uploadedMimeType };
       }
 
       let formattedDate = "";
@@ -695,6 +710,7 @@ export function renderMemories(el, user, profile) {
       toast(err.message || "Could not save memory.");
     } finally {
       submitBtn.disabled = false;
+      submitBtn.textContent = submitLabel;
     }
   };
 
@@ -752,7 +768,7 @@ export function renderMemories(el, user, profile) {
       video.setAttribute("controlslist", "nodownload");
       video.setAttribute("webkit-playsinline", "");
       if (mediaUrl) video.src = mediaUrl;
-      else getTelegramMediaUrl(fileId, mimeType).then(url => {
+      else getMemoryMediaUrl(fileId, mimeType).then(url => {
         if (video.isConnected) {
           video.src = url;
           video.load();
@@ -767,7 +783,7 @@ export function renderMemories(el, user, profile) {
       const image = document.createElement("img");
       image.className = "memory-view-main";
       if (mediaUrl) image.src = mediaUrl;
-      else getTelegramMediaUrl(fileId, mimeType).then(url => { if (image.isConnected) image.src = url; }).catch(error => console.error("Memory photo could not load:", error));
+      else getMemoryMediaUrl(fileId, mimeType).then(url => { if (image.isConnected) image.src = url; }).catch(error => console.error("Memory photo could not load:", error));
       image.alt = memory.title || "A shared memory";
       image.tabIndex = 0;
       image.setAttribute("role", "button");
@@ -841,7 +857,7 @@ export function renderMemories(el, user, profile) {
         void setCachedThumb(fileId, thumbnail, "thumbnail");
         return thumbnail;
       }
-      return getTelegramMediaUrl(fileId, mime);
+      return getMemoryMediaUrl(fileId, mime);
     }, { concurrency: 3 });
     const stopAndForget = () => { stop(); activeMemoryThumbHydrators.delete(stopAndForget); };
     memoryThumbHydrators.set(container, stopAndForget);
@@ -886,6 +902,12 @@ export function renderMemories(el, user, profile) {
     try {
       const uploadedMedia = [];
       const failedFiles = [];
+      const uploadProgress = new Array(files.length).fill(0);
+      const updateUploadProgress = (index, progress) => {
+        uploadProgress[index] = Math.max(0, Math.min(1, progress));
+        const overall = uploadProgress.reduce((sum, value) => sum + value, 0) / uploadProgress.length;
+        addButton.textContent = `Uploading ${Math.round(overall * 100)}%…`;
+      };
       // Chunk uploads to avoid browser/network limits
       for (let i = 0; i < files.length; i += 3) {
         const chunk = files.slice(i, i + 3);
@@ -904,22 +926,30 @@ export function renderMemories(el, user, profile) {
             ? await generateThumbnail(uploadFile, 480).catch(() => "")
             : await createVideoThumbnail(file).catch(() => "");
 
-          const result = await sendToTelegram(uploadFile, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`);
-          const refs = telegramMediaReferences(result);
+          const useDrive = type === "video" && file.size > DRIVE_VIDEO_THRESHOLD;
+          const uploadPromise = useDrive
+            ? uploadVideoToDrive(file, { onProgress: progress => updateUploadProgress(i, progress) }).then(driveMediaReferences)
+            : sendToTelegram(uploadFile, `New Memory Uploaded 💖 · ${profile?.name || "Partner"} · ${timestamp}`, {
+              onProgress: progress => updateUploadProgress(i, progress),
+            }).then(telegramMediaReferences);
+          const refs = await uploadPromise;
+          const mimeType = refs.telegramMimeType || telegramUploadMimeType(uploadFile);
           if (blurThumb) void setCachedThumb(refs.telegramFileId, blurThumb, type === "photo" ? "thumbnail" : "preview");
+          if (!isDriveRef(refs.telegramFileId)) void cacheLocalMedia(refs.telegramFileId, mimeType, uploadFile);
 
           return {
             ...refs,
-            // Full-size media is loaded from Telegram using telegramFileId.
+            // Full-size media is loaded through Telegram or Drive using telegramFileId.
             // Do not store Base64 thumbnails in Firestore (1 MiB document limit).
             type,
-            mimeType: refs.telegramMimeType || telegramUploadMimeType(uploadFile),
+            mimeType,
             name: file.name || (type === "video" ? "Video" : "Photo"),
             createdAtMs
           };
         }));
 
         settled.forEach((r, idx) => {
+          uploadProgress[i + idx] = 1;
           if (r.status === "fulfilled") {
             uploadedMedia.push(r.value);
           } else {

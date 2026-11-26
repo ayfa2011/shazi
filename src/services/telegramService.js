@@ -35,7 +35,22 @@ const MEDIA_STORE = "media";
 const THUMB_STORE = "thumbs";
 const MEDIA_MAX_ENTRIES = 250;
 const THUMB_MAX_ENTRIES = 400;
-const TELEGRAM_MEDIA_TIMEOUT_MS = 30000;
+const MEDIA_STALL_MS = 25_000;
+
+function makeLimiter(max) {
+  let active = 0;
+  const queue = [];
+  const next = () => {
+    if (active >= max || !queue.length) return;
+    active++;
+    const { fn, resolve, reject } = queue.shift();
+    fn().then(resolve, reject).finally(() => { active--; next(); });
+  };
+  return fn => new Promise((resolve, reject) => { queue.push({ fn, resolve, reject }); next(); });
+}
+
+const mediaLimiters = { image: makeLimiter(6), video: makeLimiter(2) };
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function openMediaDb() {
   return new Promise((resolve, reject) => {
@@ -123,6 +138,12 @@ function idbSet(key, value) {
   });
 }
 
+/** Cache a just-uploaded media file locally, without storing it in Firestore. */
+export function cacheLocalMedia(fileId, mimeType, blob) {
+  if (!fileId || !blob) return Promise.resolve();
+  return idbSet(mediaCacheKey(fileId, mimeType), { blob, mimeType: blob.type || mimeType });
+}
+
 function mediaCacheKey(fileId, mimeType) {
   return `${fileId}::${String(mimeType || "application/octet-stream").toLowerCase()}`;
 }
@@ -139,22 +160,55 @@ async function authorizedRequest(url, options = {}) {
   return fetch(url, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` } });
 }
 
-export async function sendToTelegram(file, caption) {
-  const body = new FormData();
+export async function sendToTelegram(file, caption, { onProgress, retries = 2 } = {}) {
   const fileName = file.name || "love-note.jpg";
   const extension = fileName.split(".").pop().toLowerCase();
   const inferredType = mimeTypesByExtension[extension];
   const uploadFile = file.type ? file : new File([file], fileName, { type: inferredType || "application/octet-stream" });
-  body.append("file", uploadFile, fileName);
-  body.append("caption", caption);
-  const response = await authorizedRequest(TELEGRAM_CONFIG.WORKER_URL, { method: "POST", body });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok || result.ok === false) throw new Error(result.error || result.message || "Could not forward the photo to Telegram.");
-  return result;
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt) await sleep(700 * attempt);
+    try {
+      const token = await auth?.currentUser?.getIdToken();
+      if (!token) throw new Error("Sign in again before sending your photo.");
+      const body = new FormData();
+      body.append("file", uploadFile, fileName);
+      body.append("caption", caption);
+      const result = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", TELEGRAM_CONFIG.WORKER_URL);
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+        xhr.responseType = "json";
+        xhr.timeout = 180_000;
+        xhr.upload.onprogress = event => {
+          if (event.lengthComputable) onProgress?.(event.loaded / event.total);
+        };
+        xhr.onload = () => {
+          const data = xhr.response || {};
+          if (xhr.status >= 200 && xhr.status < 300 && data.ok !== false) resolve(data);
+          else {
+            const error = new Error(data.error || data.message || "Could not forward the photo to Telegram.");
+            error.status = xhr.status;
+            reject(error);
+          }
+        };
+        xhr.onerror = () => reject(new Error("Network error while uploading."));
+        xhr.ontimeout = () => { const error = new Error("Upload timed out."); error.status = 408; reject(error); };
+        xhr.onabort = () => reject(new Error("Upload was interrupted."));
+        xhr.send(body);
+      });
+      onProgress?.(1);
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (error.status && error.status < 500 && error.status !== 408 && error.status !== 429) break;
+    }
+  }
+  throw lastError;
 }
 
 /** Load Gallery media through the authenticated Worker; the Telegram bot token stays server-side. */
-export async function getTelegramMediaBlob(fileId, mimeType = "application/octet-stream") {
+export async function getTelegramMediaBlob(fileId, mimeType = "application/octet-stream", onProgress) {
   const normalizedType = String(mimeType || "application/octet-stream").toLowerCase();
   const cacheKey = mediaCacheKey(fileId, normalizedType);
   const fixType = (blob) => {
@@ -176,54 +230,75 @@ export async function getTelegramMediaBlob(fileId, mimeType = "application/octet
     throw new Error("This photo is not cached yet. Connect once to save it for offline.");
   }
 
-  const blob = await fetchMediaFromNetwork(fileId, mimeType);
+  const isVideo = /^(video|audio)\//.test(normalizedType);
+  const blob = await mediaLimiters[isVideo ? "video" : "image"](() => fetchMediaFromNetwork(fileId, mimeType, onProgress));
   void idbSet(cacheKey, { blob, mimeType: blob.type || normalizedType });
   return blob;
 }
 
 /** Network fetch with cached fallback on any failure. */
-async function fetchMediaFromNetwork(fileId, mimeType) {
+async function fetchMediaFromNetwork(fileId, mimeType, onProgress) {
   const normalizedType = String(mimeType || "application/octet-stream").toLowerCase();
   const cacheKey = mediaCacheKey(fileId, normalizedType);
   const url = new URL(TELEGRAM_CONFIG.WORKER_URL);
   url.searchParams.set("fileId", fileId);
   url.searchParams.set("mimeType", mimeType);
-  let response;
-  const controller = new AbortController();
-  let timedOut = false;
-  const timeoutId = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, TELEGRAM_MEDIA_TIMEOUT_MS);
-  try {
-    response = await authorizedRequest(url.toString(), { signal: controller.signal });
-    // Cloudflare or Telegram can briefly return a gateway error. Retry the
-    // idempotent media GET once before falling back to the offline cache.
-    if (response.status >= 500 && response.status <= 599 && !controller.signal.aborted) {
-      await new Promise(resolve => setTimeout(resolve, 350));
-      if (!controller.signal.aborted) response = await authorizedRequest(url.toString(), { signal: controller.signal });
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await sleep(400 * attempt);
+    const controller = new AbortController();
+    let stalled = false, timer;
+    const armStallTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { stalled = true; controller.abort(); }, MEDIA_STALL_MS);
+    };
+    try {
+      armStallTimer();
+      const response = await authorizedRequest(url.toString(), { signal: controller.signal });
+      if (response.status >= 500 && response.status <= 599) {
+        lastError = new Error(`Telegram media server returned HTTP ${response.status}.`);
+        continue;
+      }
+      if (!response.ok) {
+        const details = await response.clone().json().catch(() => ({}));
+        const error = new Error(`Could not load this Telegram media (HTTP ${response.status})${details.error ? `: ${details.error}` : ""}.`);
+        error.status = response.status;
+        throw error;
+      }
+
+      const total = Number(response.headers.get("content-length")) || 0;
+      let blob;
+      if (response.body?.getReader) {
+        const reader = response.body.getReader();
+        const chunks = [];
+        let received = 0;
+        for (;;) {
+          armStallTimer();
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.byteLength;
+          onProgress?.(received, total);
+        }
+        blob = new Blob(chunks, { type: response.headers.get("content-type") || normalizedType });
+      } else {
+        blob = await response.blob();
+      }
+      const requestedType = String(mimeType || "").trim().toLowerCase();
+      return requestedType && requestedType !== "application/octet-stream" && blob.type.toLowerCase() !== requestedType
+        ? blob.slice(0, blob.size, requestedType)
+        : blob;
+    } catch (error) {
+      lastError = stalled ? new Error("Telegram media stopped responding. Please try again.") : error;
+      if (error.status && error.status < 500 && error.status !== 408 && error.status !== 429) break;
+      if (!navigator.onLine) break;
+    } finally {
+      clearTimeout(timer);
     }
-    if (!response.ok) {
-      const cached = await idbGet(cacheKey).catch(() => null);
-      if (cached?.blob) return cached.blob;
-      const details = await response.clone().json().catch(() => ({}));
-      const reason = details.error || details.message;
-      throw new Error(`Could not load this Telegram media (HTTP ${response.status})${reason ? `: ${reason}` : ""}.`);
-    }
-    const blob = await response.blob();
-    const requestedType = String(mimeType || "").trim().toLowerCase();
-    if (requestedType && requestedType !== "application/octet-stream" && blob.type.toLowerCase() !== requestedType) {
-      return blob.slice(0, blob.size, requestedType);
-    }
-    return blob;
-  } catch (networkError) {
-    const cached = await idbGet(cacheKey).catch(() => null);
-    if (cached?.blob) return cached.blob;
-    if (timedOut) throw new Error("Telegram media request timed out. Please try again.");
-    throw networkError;
-  } finally {
-    clearTimeout(timeoutId);
   }
+  const cached = await idbGet(cacheKey).catch(() => null);
+  if (cached?.blob) return cached.blob;
+  throw lastError || new Error("Could not load this Telegram media.");
 }
 
 export function telegramMediaReferences(result) {
@@ -236,11 +311,20 @@ export function telegramMediaReferences(result) {
     telegramMimeType: media.mime_type || "",
     telegramMessageId: message.message_id || null,
     telegramChatId: message.chat?.id || null,
+    telegramFileSize: media.file_size || 0,
   };
 }
 
+export const TELEGRAM_APP_DOWNLOAD_LIMIT = 20 * 1024 * 1024;
+
+export function telegramMessageLink(chatId, messageId) {
+  const id = String(chatId ?? "");
+  if (!/^-100\d+$/.test(id) || !messageId) return "";
+  return `https://t.me/c/${id.slice(4)}/${messageId}`;
+}
+
 /** Return a local URL backed by an authenticated Telegram Worker response. */
-export function getTelegramMediaUrl(fileId, mimeType = "application/octet-stream") {
+export function getTelegramMediaUrl(fileId, mimeType = "application/octet-stream", onProgress) {
   if (!fileId) return Promise.reject(new Error("Telegram media reference is missing."));
 
   // The same file id may be requested once with a generic MIME type and later with
@@ -248,7 +332,7 @@ export function getTelegramMediaUrl(fileId, mimeType = "application/octet-stream
   const cacheKey = `${fileId}::${String(mimeType || "application/octet-stream").toLowerCase()}`;
   if (!mediaUrlCache.has(cacheKey)) {
     let request;
-    request = getTelegramMediaBlob(fileId, mimeType)
+    request = getTelegramMediaBlob(fileId, mimeType, onProgress)
       .then(blob => URL.createObjectURL(blob))
       .catch(error => {
         // A timed-out request must be retryable, without deleting a newer
