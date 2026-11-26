@@ -1,5 +1,6 @@
 import { APP_CONFIG } from "../config/app-config.js";
-import { deleteTelegramGalleryMessage, getTelegramMediaUrl, revokeTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType } from "../src/services/telegramService.js";
+import { deleteTelegramGalleryMessage, getTelegramMediaUrl, revokeTelegramMediaUrl, sendToTelegram, telegramMediaReferences, telegramUploadMimeType, TELEGRAM_APP_DOWNLOAD_LIMIT } from "../src/services/telegramService.js";
+import { deleteDriveVideo, driveMediaReferences, getDriveMediaUrl, isDriveRef, uploadMediaToDrive } from "../src/services/driveService.js";
 import { rtdb } from "./firebase.js";
 import { $, toast } from "./utils.js";
 import { addItem, notifyPartnerSafely, removeItem, watchItems } from "./firestore.js";
@@ -14,9 +15,8 @@ import {
   set
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
-// The Worker streams media back through Telegram's getFile endpoint, which only
-// serves files up to 50 MB. Uploads beyond that would store fine but never play,
-// so 50 MB is the real ceiling for anything that has to come back as a stream.
+// Keep music uploads bounded for mobile playback. Telegram downloads stop at
+// 20 MiB, so larger audio/video files use the private Drive proxy.
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const SYNC_INTERVAL_MS = 4000;
 // While a song is uploading (or audio is being extracted) the uploader refreshes
@@ -227,7 +227,9 @@ export function initMusic(user) {
 
   const trackKey = track => track?.telegramFileId || track?.url || "";
   const trackUrl = track => track?.telegramFileId
-    ? getTelegramMediaUrl(track.telegramFileId, track.mimeType || "audio/mpeg")
+    ? isDriveRef(track.telegramFileId)
+      ? getDriveMediaUrl(track.telegramFileId, track.mimeType || "audio/mpeg")
+      : getTelegramMediaUrl(track.telegramFileId, track.mimeType || "audio/mpeg")
     : Promise.resolve(track?.url || "");
   const combinedLibrary = () => [
     ...currentLibrary,
@@ -247,6 +249,7 @@ export function initMusic(user) {
     mimeType: song.mimeType || "audio/mpeg",
     telegramMessageId: song.telegramMessageId ?? null,
     telegramChatId: song.telegramChatId ?? null,
+    telegramFileSize: song.telegramFileSize || 0,
     name: song.name || "Our song",
     saved: Boolean(song.saved),
     addedBy: song.addedBy ?? null,
@@ -259,11 +262,12 @@ export function initMusic(user) {
     .sort(([idA, a], [idB, b]) => (Number(a?.addedAt) || 0) - (Number(b?.addedAt) || 0) || idA.localeCompare(idB));
 
   async function deleteTemporaryTrack(track) {
-    if (!track?.telegramMessageId || !track.telegramChatId || track.saved) return;
+    if (track?.saved) return;
     try {
-      await deleteTelegramGalleryMessage(track.telegramChatId, track.telegramMessageId);
+      if (isDriveRef(track.telegramFileId)) await deleteDriveVideo(track.telegramFileId);
+      else if (track?.telegramMessageId && track.telegramChatId) await deleteTelegramGalleryMessage(track.telegramChatId, track.telegramMessageId);
     } catch (error) {
-      console.error("Temporary Telegram music message could not be removed:", error);
+      console.error("Temporary music media could not be removed:", error);
     }
   }
 
@@ -496,7 +500,7 @@ export function initMusic(user) {
       pendingSeek = null;
       audioErrorShown = false;
       releaseTrackUrl();
-      setStatus("Loading the song from Telegram…");
+      setStatus("Loading the song…");
       trackUrl(value)
         .then(url => {
           if (disposed || generation !== trackLoadGeneration || !url) return;
@@ -506,7 +510,7 @@ export function initMusic(user) {
           audio.load();
           renderSession(session);
         })
-        .catch(error => reportError(error, "This Telegram track could not be loaded."));
+        .catch(error => reportError(error, "This track could not be loaded."));
       return;
     }
 
@@ -777,6 +781,7 @@ export function initMusic(user) {
         mimeType: savingSession.mimeType || "audio/mpeg",
         telegramMessageId: savingSession.telegramMessageId || null,
         telegramChatId: savingSession.telegramChatId || null,
+        telegramFileSize: savingSession.telegramFileSize || 0,
         name: savingSession.name,
         savedBy: uid,
         savedAtMs: Date.now(),
@@ -852,10 +857,18 @@ export function initMusic(user) {
       // The hidden video player plays the original clip, keeping its sound
       // available on iOS and Android without relying on captureStream().
       const file = isVideo ? prepareVideoFile(pickedFile) : await normalizeAudioForPlayback(pickedFile, audio);
-      setStatus("Uploading your song to Telegram…");
       const timestamp = new Date().toLocaleString();
-      const result = await sendToTelegram(file, `New Music Track 🎵 · ${actorName} · ${timestamp}`);
-      const refs = telegramMediaReferences(result);
+      const uploadCaption = `New Music Track 🎵 · ${actorName} · ${timestamp}`;
+      let refs;
+      if (file.size > TELEGRAM_APP_DOWNLOAD_LIMIT) {
+        setStatus("Uploading your song to Google Drive…");
+        refs = driveMediaReferences(await uploadMediaToDrive(file, {
+          onProgress: progress => setStatus(`Uploading your song to Google Drive… ${Math.round(progress * 100)}%`),
+        }));
+      } else {
+        setStatus("Uploading your song to Telegram…");
+        refs = telegramMediaReferences(await sendToTelegram(file, uploadCaption));
+      }
       const track = { ...refs, mimeType: telegramUploadMimeType(file), name: pickedFile.name, saved: false, addedBy: uid, addedByName: name, addedAt: Date.now(), time: 0, playing: false, status: "ready" };
       if (addToQueue) {
         const itemRef = push(queueRef);
@@ -867,7 +880,7 @@ export function initMusic(user) {
       } else { toast("Song uploaded. Press Play when you're ready ♫"); }
     } catch (error) {
       console.error("Music upload failed:", error);
-      toast(error.message || "Telegram music upload failed. Please try again.");
+      toast(error.message || "Music upload failed. Please try again.");
       if (claimed) await clearSession(uid);
     } finally {
       if (heartbeat) clearInterval(heartbeat);

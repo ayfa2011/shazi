@@ -1,6 +1,6 @@
 import { auth } from "../../js/firebase.js";
 import { TELEGRAM_CONFIG } from "../../config/telegram-config.js";
-import { TELEGRAM_APP_DOWNLOAD_LIMIT } from "./telegramService.js";
+import { TELEGRAM_APP_DOWNLOAD_LIMIT, telegramUploadMimeType } from "./telegramService.js";
 
 const DRIVE_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
 const DRIVE_MAX_VIDEO_BYTES = 2 * 1024 ** 3;
@@ -39,15 +39,18 @@ function workerUrl(params = {}) {
   return url;
 }
 
-export async function uploadVideoToDrive(file, { onProgress } = {}) {
-  if (!file || !String(file.type || "").startsWith("video/")) {
-    throw new Error("Choose a video file to upload to Google Drive.");
+export async function uploadMediaToDrive(file, { onProgress } = {}) {
+  if (!file) {
+    throw new Error("Choose an audio or video file to upload to Google Drive.");
   }
   if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > DRIVE_MAX_VIDEO_BYTES) {
-    throw new Error("This video is too large for the Memories upload limit (2 GB).");
+    throw new Error("This media file is too large for the upload limit (2 GB).");
   }
 
-  const mimeType = file.type || "video/mp4";
+  const mimeType = file.type || telegramUploadMimeType(file);
+  if (!/^(audio|video)\/[\w.+-]+$/.test(mimeType)) {
+    throw new Error("Google Drive upload supports audio and video files only.");
+  }
   const { session: uploadSession } = await driveRequest(workerUrl({ drive: "init" }), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -100,6 +103,8 @@ export async function uploadVideoToDrive(file, { onProgress } = {}) {
   onProgress?.(1);
   return { id: uploaded.id, name: file.name || "memory-video", mimeType, size: file.size };
 }
+
+export const uploadVideoToDrive = uploadMediaToDrive;
 
 export function driveMediaReferences(file) {
   if (!file?.id || !/^[\w-]{10,100}$/.test(file.id)) {

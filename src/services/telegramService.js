@@ -256,7 +256,14 @@ async function fetchMediaFromNetwork(fileId, mimeType, onProgress) {
       armStallTimer();
       const response = await authorizedRequest(url.toString(), { signal: controller.signal });
       if (response.status >= 500 && response.status <= 599) {
-        lastError = new Error(`Telegram media server returned HTTP ${response.status}.`);
+        const details = await response.clone().json().catch(() => ({}));
+        const reason = details.error || details.message;
+        const serverMessage = reason || `Telegram media server returned HTTP ${response.status}.`;
+        lastError = /file.{0,12}too (?:big|large)|20\s*mb/i.test(serverMessage)
+          ? new Error("This Telegram media exceeds the 20 MiB download limit. Re-upload the original after Drive-backed Music is available.")
+          : new Error(serverMessage);
+        lastError.status = response.status;
+        if (/20 MiB download limit/.test(lastError.message)) break;
         continue;
       }
       if (!response.ok) {

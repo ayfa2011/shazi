@@ -76,8 +76,8 @@ async function handleDrive(request, env, url, json) {
 
   if (request.method === 'POST' && op === 'init') {
     const { name, mimeType, size } = await request.json().catch(() => ({}));
-    if (!/^video\/[\w.+-]+$/.test(mimeType || '') || !Number.isSafeInteger(size) || size < 1 || size > DRIVE_MAX_VIDEO_BYTES) {
-      throw new HttpError(400, 'Invalid video details');
+    if (!/^(audio|video)\/[\w.+-]+$/.test(mimeType || '') || !Number.isSafeInteger(size) || size < 1 || size > DRIVE_MAX_VIDEO_BYTES) {
+      throw new HttpError(400, 'Invalid audio or video details');
     }
     const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
       method: 'POST',
@@ -142,7 +142,7 @@ async function handleDrive(request, env, url, json) {
     const headers = {
       'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || '*',
       'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges, Content-Type',
-      'Content-Type': /^video\/[\w.+-]+$/.test(requested) ? requested : (response.headers.get('Content-Type') || 'video/mp4'),
+      'Content-Type': /^(audio|video)\/[\w.+-]+$/.test(requested) ? requested : (response.headers.get('Content-Type') || 'application/octet-stream'),
       'Cache-Control': 'private, no-store',
       'Accept-Ranges': 'bytes',
     };
